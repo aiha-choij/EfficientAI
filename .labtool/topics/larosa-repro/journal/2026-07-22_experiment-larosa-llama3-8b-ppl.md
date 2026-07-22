@@ -14,13 +14,19 @@ within ±0.06 — pipeline validated. Env fixes from that run apply (flash-attn
 
 ## Reproducibility
 - **Git tag**: `exp/2026-07-22_larosa-llama3-8b-ppl` (commit 17043d5)
-- **Job ID**: `20260723-084738-larosa-llama3-8b-ppl`
-- **Assigned host/GPU**: a100-40-2, [pending dispatch]
+- **Job ID**: `20260723-085136-larosa-llama3-8b-ppl` (2nd attempt; see Notes)
+- **Assigned host/GPU**: a100-40-2, GPU 0 (PCI)
 - **Command**: `bash scripts/repro_ppl.sh llama /raid/LLM/llama3-8b ~/workspace/models/llama3_8b_larosa_Q` (cwd `~/workspace/repos/EfficientAI/larosa`)
 - **Config path**: n/a — script args; sparsity is a runtime arg
 - **Key parameters**: calibration wikitext-2 train 10×2048 + alpaca 300; sweep 0.0/0.25/0.4/0.5; ctx 2048; bf16; flash_attention_2; α h1=0.8p, h2=1.2p
 - **Key deps**: python 3.10, torch 2.6.0+cu124, transformers 4.46.3, flash-attn 2.7.4.post1
 - **Model**: `/raid/LLM/llama3-8b` (shared read-only Meta-Llama-3-8B, 4-shard safetensors)
+
+## Notes (submission history)
+- Attempt 1 (`20260723-084738`) failed: dispatcher raced across cycles and put
+  this job and the qwen job on the same GPU 0 (probe saw the GPU free before the
+  first process allocated memory) -> OOM. Fixed in QCom dispatcher: RECENT
+  grace-period reservation (GRACE_SEC=180).
 
 ### Results
 
