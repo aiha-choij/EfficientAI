@@ -163,6 +163,12 @@ if __name__ == '__main__':
         gc.collect()
         torch.cuda.empty_cache()
 
+    # pass-1 model remnants and the fp64 covariance buffers otherwise stay
+    # resident while the second model loads — OOM on 40GB GPUs
+    del model, H_attn, H_mlp, hidden_states
+    gc.collect()
+    torch.cuda.empty_cache()
+
     model_rot = Qwen2SparseForCausalLMRotate.from_pretrained(args.model_name, torch_dtype=torch.bfloat16, device_map="auto", attn_implementation="flash_attention_2", histogram_path=os.path.join(args.output_path, "histograms"), grab_acts=True, rot=True)
     text = ""
     for sample in tqdm(dataset_wiki):
