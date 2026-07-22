@@ -46,4 +46,8 @@ All four points within ±0.1 tolerance (max |Δ| = 0.053). Slight systematic
 advantage over paper numbers at higher sparsity. Success criterion met.
 
 ### Interpretation
+(User, 2026-07-22) Hypothesis confirmed — the public code is trustworthy:
+paper-faithful PPL reproduction on LLaMA2-7B, so the pipeline can be relied on
+for subsequent experiments. (Key Findings entry deferred until LLaMA3-8B and
+Qwen2.5-7B results are in.)
 
