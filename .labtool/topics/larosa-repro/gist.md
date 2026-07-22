@@ -31,18 +31,18 @@ lm_eval accuracy table for Qwen2.5-7B-larosa at sparse_level 0.25.
   doesn't matter — verify via reproduction quality.
 
 ## Next Experiments
-1. `larosa-llama3-8b-ppl` — repro_ppl.sh llama `/raid/LLM/llama3-8b`.
+1. `larosa-llama3-8b-ppl` — repro_ppl.sh llama `/raid/LLM/llama3-8b`. Why: pipeline
+   validated on LLaMA2-7B in 26 min; LLaMA3-8B is the second quoted target.
+   Success: 6.13 → 6.23/6.60/7.22 each ±0.1.
 2. `larosa-qwen25-7b-ppl` — repro_ppl.sh qwen `~/workspace/models/Qwen2.5-7B`.
-3. After PPL matches: package Qwen2.5-7B-larosa (sparse_level 0.25) + lm_eval
-   6 tasks vs README table; dense baseline comparison.
-4. Development direction (after repro): RB-Sparse — rotated-basis block-shared
-   mask + eigenspace low-rank compensation (2026-06-24 discussion, see
-   research-wiki r-sparse note).
+   Why: covers the second model family (Qwen2 code path, GQA dims differ).
+   Success: 6.85 → 6.90/7.10/7.42 each ±0.1.
+3. After both match: package Qwen2.5-7B-larosa (sparse_level 0.25) + lm_eval
+   6 tasks vs README table — validates the accuracy pipeline, prerequisite for
+   RB-Sparse development evals (see research-wiki r-sparse note).
 
 ## Active Jobs
-- `20260723-070108-larosa-llama2-7b-ppl` @ a100-40-2 — rotation gen +
-  PPL sweep 0.0/0.25/0.4/0.5. Journal: 2026-07-22_experiment-larosa-llama2-7b-ppl.md.
-  Gateway agent hourly watch: request `20260723-070147-larosa-llama2-7b-ppl-watch3`.
+- (none)
 
 ## Pointers
 - Paper: arXiv:2507.01299 (La RoSA, Liu et al., ICML 2025); PDF in research-wiki

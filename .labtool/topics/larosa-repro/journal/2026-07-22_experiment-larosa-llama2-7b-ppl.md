@@ -1,6 +1,6 @@
 # Experiment: larosa-llama2-7b-ppl
 
-**Status: PENDING**
+**Status: DONE**
 
 ## Hypothesis tested
 The upstream LaRoSa code reproduces paper Table 2 wikitext-2 PPL on LLaMA2-7B:
@@ -31,5 +31,19 @@ session (conda env `larosa`, models on gateway).
 - Gateway agent watches the job hourly by name (request `20260723-070147-larosa-llama2-7b-ppl-watch3`).
 
 ### Results
+Source: job log + meta of `20260723-070108-larosa-llama2-7b-ppl`
+(`~/workspace/runs/.../{log,meta}` on a100-40-2). STATUS=ok, exit 0,
+runtime 26 min (07:01:29 → 07:27:28 KST) on one A100 40GB (PCI GPU 0).
+
+| sparsity | PPL (this run) | paper Table 2 | Δ |
+|---|---|---|---|
+| 0.0 (dense-equiv) | 5.4736 | 5.47 (Dense) | +0.004 |
+| 0.25 | 5.5017 | 5.51 | −0.008 |
+| 0.40 | 5.6167 | 5.64 | −0.023 |
+| 0.50 | 5.8167 | 5.87 | −0.053 |
+
+All four points within ±0.1 tolerance (max |Δ| = 0.053). Slight systematic
+advantage over paper numbers at higher sparsity. Success criterion met.
 
 ### Interpretation
+
