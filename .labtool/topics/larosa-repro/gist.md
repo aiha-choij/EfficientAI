@@ -40,9 +40,9 @@ lm_eval accuracy table for Qwen2.5-7B-larosa at sparse_level 0.25.
    research-wiki r-sparse note).
 
 ## Active Jobs
-- `20260723-064935-larosa-llama2-7b-ppl` @ a100-40-2 GPU4 — rotation gen +
+- `20260723-070108-larosa-llama2-7b-ppl` @ a100-40-2 — rotation gen +
   PPL sweep 0.0/0.25/0.4/0.5. Journal: 2026-07-22_experiment-larosa-llama2-7b-ppl.md.
-  Gateway agent hourly watch: request `20260723-065148-larosa-llama2-7b-ppl-watch2`.
+  Gateway agent hourly watch: request `20260723-070147-larosa-llama2-7b-ppl-watch3`.
 
 ## Pointers
 - Paper: arXiv:2507.01299 (La RoSA, Liu et al., ICML 2025); PDF in research-wiki

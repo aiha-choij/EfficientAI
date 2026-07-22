@@ -12,8 +12,8 @@ None found — journal has only the init card. Environment prepared in the init
 session (conda env `larosa`, models on gateway).
 
 ## Reproducibility
-- **Git tag**: `exp/2026-07-22_larosa-llama2-7b-ppl` (repo `aiha-choij/EfficientAI`, commit 70aa3fc)
-- **Job ID**: `20260723-064935-larosa-llama2-7b-ppl` (3rd attempt; see Notes)
+- **Git tag**: `exp/2026-07-22_larosa-llama2-7b-ppl-2` (repo `aiha-choij/EfficientAI`, commit 081da28)
+- **Job ID**: `20260723-070108-larosa-llama2-7b-ppl` (4th attempt; see Notes)
 - **Assigned host/GPU**: a100-40-2, GPU 4 (PCI index; real A100 40GB)
 - **Command**: `bash scripts/repro_ppl.sh llama /raid/LLM/llama2-7b ~/workspace/models/llama2_7b_larosa_Q` (cwd `~/workspace/repos/EfficientAI/larosa`)
 - **Config path**: n/a — parameters passed as script args; sparsity set at runtime via `--sparsity`
@@ -24,7 +24,11 @@ session (conda env `larosa`, models on gateway).
 ## Notes (submission history)
 - Attempt 1 (`20260723-064304`) failed: flash-attn 2.8.3.post1 wheel required GLIBC_2.32; gateway is glibc 2.31. Fixed by installing the official `flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310` wheel.
 - Attempt 2 (`20260723-064655`) failed: dispatcher exported nvidia-smi (PCI) GPU index but CUDA's default FASTEST_FIRST enumeration mapped it to the 4GB DGX Display → CPU offload → OOM. Fixed in QCom dispatcher (`CUDA_DEVICE_ORDER=PCI_BUS_ID`, QCom commit 4a3a82c).
-- Gateway agent watches the job hourly (request `20260723-065148-larosa-llama2-7b-ppl-watch2`).
+- Attempt 3 (`20260723-064935`, tag `...-ppl` @ 70aa3fc) failed: upstream gen_act
+  keeps pass-1 model remnants + fp64 H_attn/H_mlp (~8.6GB) alive while loading the
+  pass-2 model → OOM on 40GB during find_histogram. Patched in 081da28 (free before
+  pass-2 load; llama + qwen).
+- Gateway agent watches the job hourly by name (request `20260723-070147-larosa-llama2-7b-ppl-watch3`).
 
 ### Results
 

@@ -9,7 +9,7 @@
 Focus: larosa-repro — Table 2 PPL reproduction, first job (LLaMA2-7B) submitted.
 
 ## Active Jobs
-- `20260723-064935-larosa-llama2-7b-ppl` @ a100-40-2 GPU4 — rotation gen + PPL sweep 0.0/0.25/0.4/0.5; targets 5.47/5.51/5.64/5.87 ±0.1. Gateway agent watches hourly (request `...-065148-...watch2`).
+- `20260723-070108-larosa-llama2-7b-ppl` @ a100-40-2 — rotation gen + PPL sweep 0.0/0.25/0.4/0.5; targets 5.47/5.51/5.64/5.87 ±0.1. Gateway agent watches hourly (request `...-070147-...watch3`).
 
 ## Direction
 Reproduce paper Table 2 wikitext-2 PPL at 25/40/50% (40% is the headline "near-lossless" point) on LLaMA2-7B, LLaMA3-8B, Qwen2.5-7B via `larosa/scripts/repro_ppl.sh` (no packaging needed — sparsity is a runtime arg). lm_eval accuracy reproduction and RB-Sparse development come after PPL matches.
