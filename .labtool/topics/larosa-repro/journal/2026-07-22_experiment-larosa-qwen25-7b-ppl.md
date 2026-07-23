@@ -15,7 +15,7 @@ memory patch (081da28) but is untested until this run.
 
 ## Reproducibility
 - **Git tag**: `exp/2026-07-22_larosa-qwen25-7b-ppl` (commit 17043d5)
-- **Job ID**: `20260723-101220-larosa-qwen25-7b-ppl` (3rd attempt; see Notes)
+- **Job ID**: `20260723-102000-larosa-qwen25-7b-ppl` (4th attempt; see Notes)
 - **Assigned host/GPU**: a100-40-2, GPU 1 (PCI)
 - **Command**: `bash scripts/repro_ppl.sh qwen ~/workspace/models/Qwen2.5-7B ~/workspace/models/qwen25_7b_larosa_Q` (cwd `~/workspace/repos/EfficientAI/larosa`)
 - **Config path**: n/a — script args; sparsity is a runtime arg
@@ -31,6 +31,10 @@ memory patch (081da28) but is untested until this run.
 - Attempt 2 (`20260723-085240`) failed alone on GPU 1: same pass-2 find_histogram
   OOM as llama3 (36.0GB; h3/h4 are 18944-dim so histogram sort is larger).
   Attempt 3 skips rotation (D.pt complete, 28 layers) and runs the sweep directly.
+- Attempt 3 (`20260723-101220`) failed: dispatcher double-assigned this job and
+  llama3 to GPU 0 in the same cycle — find_placement ran in a command-substitution
+  subshell, so its TAKEN/RECENT bookkeeping never persisted. Fixed in QCom
+  dispatcher (global-variable return instead of stdout). Attempt 4 on GPU 1.
 
 ### Results
 
