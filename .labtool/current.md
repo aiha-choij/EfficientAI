@@ -13,10 +13,13 @@ Focus: oracle-residual-sparsity — Phase 2 DONE, H1 distribution-level GO
 early; r=512 keeps ~55-60% Frobenius energy mid-stack). Next: Phase 3 sweep.
 
 ## Active Jobs
-- `050-20260723-234944-oracle-llama2-phase3-c0c1` — Phase 3 plumbing gate:
-  dense + C1 top-K s={0.5,0.7,0.9}, must reproduce 5.4736 / 5.521/5.730/8.108.
-- `050-20260723-234448-oracle-llama2-hist` — i/r magnitude histograms
-  (layers 0/7/16/24/31) for the phase-0 report artifact.
+- `050-20260724-014928-oracle-llama2-phase3-c0c1` — Phase 3 plumbing gate on
+  a6000-2 (venv, sdpa): dense + C1 top-K s={0.5,0.7,0.9}, gate = anchors
+  5.4736 / 5.521/5.730/8.108 within ±0.1.
+- `050-20260724-014836-oracle-llama2-hist` — i/r magnitude histograms on
+  a6000-2 (layers 0/7/16/24/31) for the phase-0 report artifact.
+- NOTE: gateway A100s fully occupied by other members' jobs (~30GB each) →
+  work moved to a6000-2 GPU0; venv at a6000-2:~/workspace/venv-larosa.
 
 ## Direction
 New spec (2026-07-22): in the oracle setting, decompose the FFN via the

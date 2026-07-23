@@ -30,8 +30,14 @@ eval-loop integration.
 
 ## Reproducibility
 - Git tag: exp/2026-07-23_oracle-llama2-phase3-c0c1 (commit a2b8b4e)
-- Job ID: 050-20260723-234944-oracle-llama2-phase3-c0c1
-- Assigned host/GPU: a100-40-2 (pinned), 1 GPU >=30GiB [pending dispatch]
+- Job ID: 050-20260724-014928-oracle-llama2-phase3-c0c1
+  (attempt 1 = 050-20260723-234944, pinned a100-40-2, dequeued after ~2h wait:
+  all gateway A100s held ~30GB of other members' container jobs. Resubmitted
+  on a6000-2 with a fresh venv — torch 2.6.0+cu124, transformers 4.46.3,
+  datasets 5.0.0, numpy 2.2.6, NO flash-attn -> sdpa backend via
+  best_attn_impl() (commit after a2b8b4e). Gate reading loosens from
+  "bitwise" to "within ±0.1 pipeline noise" due to backend + GPU arch change.)
+- Assigned host/GPU: a6000-2 (pinned), 1 GPU >=30GiB [pending dispatch]
 - Command: `bash -c "scripts/oracle/oracle_ppl_sweep.sh /raid/LLM/llama2-7b
   $HOME/workspace/oracle/llama2-7b dense && ... c1"` (SELECT=topk default,
   s grid {0.5, 0.7, 0.9})
