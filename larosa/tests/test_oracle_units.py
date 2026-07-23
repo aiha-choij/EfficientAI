@@ -157,6 +157,39 @@ def test_4_mask_vs_slice(model):
     print(f"PASS mask-vs-slice equivalence: max diff {diff:.2e}")
 
 
+def test_6_whitened_factors(model):
+    _, mlp = next(oracle_mlp.iter_mlps(model))
+    torch.manual_seed(4)
+    # synthetic anisotropic Sigma (PSD)
+    Q = torch.randn(H, H)
+    sigma = Q @ Q.T / H + torch.eye(H)
+    M = oracle_mlp.compute_M(mlp)
+    # (a) full rank: whitened factors must reconstruct M exactly
+    A, B, S = oracle_mlp.build_M_factors(mlp, H, sigma=sigma)
+    rec = (B @ A - M).abs().max().item() / M.abs().max().item()
+    assert rec < 1e-4, f"whitened full-rank reconstruction rel err {rec}"
+    # (b) low rank: whitened must beat plain SVD on E||(M_hat-M)x|| for
+    # x ~ the anisotropic distribution (that is the whole point)
+    L = torch.linalg.cholesky(sigma)
+    x = torch.randn(4096, H) @ L.T
+    r = H // 8
+    Aw, Bw, _ = oracle_mlp.build_M_factors(mlp, r, sigma=sigma)
+    Ap, Bp, _ = oracle_mlp.build_M_factors(mlp, r)
+    err_w = (x @ (Bw @ Aw - M).T).norm(dim=-1).mean().item()
+    err_p = (x @ (Bp @ Ap - M).T).norm(dim=-1).mean().item()
+    assert err_w < err_p, f"whitened {err_w} !< plain {err_p}"
+    # (c) rank allocation: tau→1 gives full rank; budget mode hits the target
+    spectra = {0: S, 1: S * 0.1}
+    full = oracle_mlp.ranks_from_tau(spectra, 0.999999999)
+    assert full[0] == S.shape[0], full
+    ranks = oracle_mlp.ranks_for_budget(spectra, H // 4)
+    mean_r = sum(ranks.values()) / len(ranks)
+    assert mean_r <= H // 4 + 1, (ranks, mean_r)
+    print(f"PASS whitened factors: full-rank rel err {rec:.2e}; "
+          f"low-rank E||err x|| whitened {err_w:.4f} < plain {err_p:.4f}; "
+          f"budget alloc mean {mean_r:.1f} <= {H // 4}")
+
+
 if __name__ == "__main__":
     test_top_p_mask_semantics()
     model = build_model()
@@ -166,4 +199,5 @@ if __name__ == "__main__":
     test_3_rank_diagnostic(model)
     test_4_mask_vs_slice(model)
     test_5_topk_select(model, ids)
+    test_6_whitened_factors(model)
     print("ALL ORACLE UNIT TESTS PASSED")

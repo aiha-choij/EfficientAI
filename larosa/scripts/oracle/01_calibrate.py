@@ -70,6 +70,9 @@ if __name__ == "__main__":
     ap.add_argument("--batch_size", type=int, default=1)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out_dir", type=str, required=True)
+    ap.add_argument("--xxt", action="store_true",
+                    help="also accumulate Sigma = E[x x^T] per layer (fp32) "
+                         "for whitened-SVD compensation factors")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -86,11 +89,19 @@ if __name__ == "__main__":
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True, trust_remote_code=True)
 
-    tokens = build_calib_tokens(args.dataset, tokenizer, args.nsamples, args.seqlen, args.seed)
-    os.makedirs(args.out_dir, exist_ok=True)
-    torch.save(tokens, os.path.join(args.out_dir, "calib_tokens.pt"))
+    tok_path = os.path.join(args.out_dir, "calib_tokens.pt")
+    if os.path.exists(tok_path):
+        # reproducibility: reuse the exact saved sequence list
+        tokens = torch.load(tok_path)
+        assert tokens.shape == (args.nsamples, args.seqlen), \
+            f"saved calib tokens {tuple(tokens.shape)} != requested"
+        print(f"reusing saved calibration tokens: {tok_path}")
+    else:
+        tokens = build_calib_tokens(args.dataset, tokenizer, args.nsamples, args.seqlen, args.seed)
+        os.makedirs(args.out_dir, exist_ok=True)
+        torch.save(tokens, tok_path)
 
-    oracle_mlp.enable_stats_mode(model)
+    oracle_mlp.enable_stats_mode(model, xxt=args.xxt)
     device = model.model.embed_tokens.weight.device
     with torch.no_grad():
         for s in range(0, args.nsamples, args.batch_size):
@@ -100,13 +111,24 @@ if __name__ == "__main__":
                 print(f"calib sample {s}/{args.nsamples}", flush=True)
 
     stats = oracle_mlp.finalize_stats(model)
-    meta = {
-        "model_name": args.model_name,
-        "dataset": args.dataset,
-        "nsamples": args.nsamples,
-        "seqlen": args.seqlen,
-        "seed": args.seed,
-        "git_commit": git_commit(),
-    }
-    oracle_mlp.save_stats(stats, args.out_dir, meta=meta)
-    print(f"saved stats for {len(stats)} layers to {args.out_dir}")
+    if args.xxt and os.path.exists(os.path.join(args.out_dir, "layer_0.pt")):
+        # sigma-only pass on top of an existing baseline: never overwrite the
+        # small stat files the earlier phases were run against
+        stats = {k: {"sigma": v["sigma"]} if "sigma" in v else {} for k, v in stats.items()}
+        for layer_idx, d in stats.items():
+            if "sigma" in d:
+                torch.save({"sigma": d["sigma"]},
+                           os.path.join(args.out_dir, f"sigma_layer_{layer_idx}.pt"))
+        print(f"saved sigma for {len(stats)} layers to {args.out_dir} (baseline stats untouched)")
+    else:
+        meta = {
+            "model_name": args.model_name,
+            "dataset": args.dataset,
+            "nsamples": args.nsamples,
+            "seqlen": args.seqlen,
+            "seed": args.seed,
+            "xxt": args.xxt,
+            "git_commit": git_commit(),
+        }
+        oracle_mlp.save_stats(stats, args.out_dir, meta=meta)
+        print(f"saved stats for {len(stats)} layers to {args.out_dir}")

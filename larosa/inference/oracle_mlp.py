@@ -96,7 +96,7 @@ def oracle_mlp_forward(mlp, x):
     i = u * g
 
     if getattr(mlp, "oracle_stats_mode", False):
-        _accumulate_stats(mlp, u, g)
+        _accumulate_stats(mlp, x, u, g)
         mlp.infer_sparsity_h1 = 0.0
         mlp.infer_sparsity_h2 = 0.0
         return mlp.down_proj(i)
@@ -146,7 +146,7 @@ def oracle_mlp_forward(mlp, x):
 # calibration statistics (fp32 batch reduction, fp64 running totals)
 # ---------------------------------------------------------------------------
 
-def enable_stats_mode(model):
+def enable_stats_mode(model, xxt=False):
     for _, mlp in iter_mlps(model):
         d = mlp.intermediate_size
         dev = mlp.down_proj.weight.device
@@ -156,9 +156,13 @@ def enable_stats_mode(model):
         mlp.oracle_sum_u2 = torch.zeros(d, dtype=torch.float64, device=dev)
         mlp.oracle_sum_u2g = torch.zeros(d, dtype=torch.float64, device=dev)
         mlp.oracle_stat_count = 0
+        if xxt:
+            # input autocorrelation Sigma = E[x x^T] for whitened SVD (fp32)
+            h = mlp.hidden_size
+            mlp.oracle_sum_xxt = torch.zeros(h, h, dtype=torch.float32, device=dev)
 
 
-def _accumulate_stats(mlp, u, g):
+def _accumulate_stats(mlp, x, u, g):
     g32 = g.float().reshape(-1, g.shape[-1])
     u32 = u.float().reshape(-1, u.shape[-1])
     u2 = u32 * u32
@@ -167,6 +171,9 @@ def _accumulate_stats(mlp, u, g):
     mlp.oracle_sum_u2 += u2.sum(0).double()
     mlp.oracle_sum_u2g += (u2 * g32).sum(0).double()
     mlp.oracle_stat_count += g32.shape[0]
+    if hasattr(mlp, "oracle_sum_xxt"):
+        x32 = x.float().reshape(-1, x.shape[-1])
+        mlp.oracle_sum_xxt += x32.T @ x32
 
 
 def finalize_stats(model):
@@ -184,6 +191,9 @@ def finalize_stats(model):
             "e_g2": e_g2.cpu(),
             "count": n,
         }
+        if hasattr(mlp, "oracle_sum_xxt"):
+            out[layer_idx]["sigma"] = (mlp.oracle_sum_xxt / n).cpu()
+            del mlp.oracle_sum_xxt
         mlp.oracle_stats_mode = False
         mlp.oracle_g_bar = g_bar
         mlp.oracle_g_bar_star = g_bar_star
@@ -191,12 +201,23 @@ def finalize_stats(model):
 
 
 def save_stats(stats, out_dir, meta=None):
+    # sigma matrices are large ([h,h] fp32) and live in their own files so the
+    # small per-layer stat files (and any older baselines) stay untouched
     os.makedirs(out_dir, exist_ok=True)
     for layer_idx, d in stats.items():
+        d = dict(d)
+        sigma = d.pop("sigma", None)
         torch.save(d, os.path.join(out_dir, f"layer_{layer_idx}.pt"))
+        if sigma is not None:
+            torch.save({"sigma": sigma}, os.path.join(out_dir, f"sigma_layer_{layer_idx}.pt"))
     if meta is not None:
         with open(os.path.join(out_dir, "meta.json"), "w") as f:
             json.dump(meta, f, indent=2)
+
+
+def load_sigma(stats_dir, layer_idx, device="cpu"):
+    return torch.load(os.path.join(stats_dir, f"sigma_layer_{layer_idx}.pt"),
+                      map_location=device)["sigma"].float()
 
 
 def load_stats(model, stats_dir):
@@ -217,26 +238,78 @@ def attach_col_norms(model):
         mlp.oracle_col_norm = mlp.down_proj.weight.float().norm(dim=0)
 
 
-def build_M_factors(mlp, rank):
-    """M = W_down diag(g_bar) W_up, SVD, split at sqrt(S). Returns (A, B, S)
-    with A [r,h], B [h,r], all fp32 on the layer's device."""
+def compute_M(mlp):
     w_down = mlp.down_proj.weight.float()   # [h, d]
     w_up = mlp.up_proj.weight.float()       # [d, h]
-    M = (w_down * mlp.oracle_g_bar.to(w_down.device).unsqueeze(0)) @ w_up  # [h, h]
-    U, S, Vh = torch.linalg.svd(M, full_matrices=False)
+    return (w_down * mlp.oracle_g_bar.to(w_down.device).unsqueeze(0)) @ w_up  # [h, h]
+
+
+def build_M_factors(mlp, rank, sigma=None):
+    """M = W_down diag(g_bar) W_up; SVD of M (plain) or M @ C (whitened,
+    C = cholesky(Sigma + eps I), eps = 1e-4 mean(diag)). Returns (A, B, S):
+    A [r,h], B [h,r] fp32 on the layer's device; B @ A approximates M in both
+    modes (whitened: A = sqrt(S) V^T C^{-1} via triangular solve)."""
+    M = compute_M(mlp)
+    if sigma is not None:
+        sig = sigma.to(M.device).float()
+        eps = 1e-4 * sig.diagonal().mean()
+        C = torch.linalg.cholesky(sig + eps * torch.eye(sig.shape[0], device=sig.device))
+        target = M @ C
+    else:
+        C = None
+        target = M
+    U, S, Vh = torch.linalg.svd(target, full_matrices=False)
     r = min(rank, S.shape[0])
     sq = S[:r].sqrt()
-    A = sq.unsqueeze(1) * Vh[:r, :]         # [r, h]
     B = U[:, :r] * sq.unsqueeze(0)          # [h, r]
+    W = sq.unsqueeze(1) * Vh[:r, :]         # [r, h]
+    if C is not None:
+        # A = W C^{-1}  <=>  C^T A^T = W^T (C lower-triangular; no explicit inverse)
+        A = torch.linalg.solve_triangular(C.mT, W.mT, upper=True).mT
+    else:
+        A = W
     return A, B, S
 
 
-def save_factors(model, rank, out_dir):
+def ranks_from_tau(spectra, tau):
+    """Per-layer rank = smallest r whose cumulative squared-singular-value
+    energy reaches tau. spectra: {layer_idx: 1-D tensor S}."""
+    out = {}
+    for l, S in spectra.items():
+        e = S.double() ** 2
+        c = torch.cumsum(e, 0) / e.sum()
+        out[l] = int((c < tau).sum().item()) + 1
+    return out
+
+
+def ranks_for_budget(spectra, r_bar, iters=60):
+    """Bisect tau so that mean(rank_l) <= r_bar (as close as possible)."""
+    lo, hi = 0.0, 1.0
+    for _ in range(iters):
+        mid = (lo + hi) / 2
+        mean = sum(ranks_from_tau(spectra, mid).values()) / len(spectra)
+        if mean > r_bar:
+            hi = mid
+        else:
+            lo = mid
+    return ranks_from_tau(spectra, lo)
+
+
+def save_factors(model, rank, out_dir, stats_dir=None, whiten=False, ranks=None):
+    """ranks: optional {layer_idx: r_l} overriding the uniform rank."""
     os.makedirs(out_dir, exist_ok=True)
+    meta = {"whiten": whiten, "ranks": {}, "uniform_rank": rank}
     for layer_idx, mlp in iter_mlps(model):
-        A, B, S = build_M_factors(mlp, rank)
-        torch.save({"A": A.cpu(), "B": B.cpu(), "S": S.cpu(), "rank": rank},
+        sigma = load_sigma(stats_dir, layer_idx, mlp.down_proj.weight.device) if whiten else None
+        r_l = ranks[layer_idx] if ranks else rank
+        A, B, S = build_M_factors(mlp, r_l, sigma=sigma)
+        torch.save({"A": A.cpu(), "B": B.cpu(), "S": S.cpu(), "rank": r_l},
                    os.path.join(out_dir, f"layer_{layer_idx}.pt"))
+        meta["ranks"][str(layer_idx)] = r_l
+    meta["mean_rank"] = sum(meta["ranks"].values()) / len(meta["ranks"])
+    with open(os.path.join(out_dir, "factors_meta.json"), "w") as f:
+        json.dump(meta, f, indent=2)
+    return meta
 
 
 def load_factors(model, factors_dir):

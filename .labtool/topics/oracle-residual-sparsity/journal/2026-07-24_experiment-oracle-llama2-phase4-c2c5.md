@@ -75,6 +75,8 @@ Main table — wikitext-2 PPL (dense 5.4738):
 | 0.9 | +2.6358 | +2.8021 | +1.1643 | +3.2900 | +1.4151 |
 
 ### Interpretation
+(User confirmed this reading verbatim, 2026-07-24 "동의"; pin declined.)
+
 Spec §8 verdict: **PARTIAL-GO** (C3 wins decisively; C4 collapses on rank).
 
 - **H1 CONFIRMED (primary result)**: exact mean-gate compensation (C3) cuts

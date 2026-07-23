@@ -102,9 +102,18 @@ if __name__ == "__main__":
     mean_sp = sum(per_layer.values()) / max(len(per_layer), 1)
     print(f"achieved sparsity mean={mean_sp:.4f}")
 
+    factors_meta = None
+    if args.factors_dir:
+        meta_path = os.path.join(args.factors_dir, "factors_meta.json")
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                factors_meta = json.load(f)
+                factors_meta.pop("ranks", None)  # keep the JSON small
+
     result = {
         "model_name": args.model_name,
         "condition": args.condition,
+        "factors_meta": factors_meta,
         "select": args.select,
         "s": args.s if args.select == "topk" else None,
         "p": args.p if args.select == "topp" else None,
