@@ -33,6 +33,13 @@ Go/no-go (spec §8): Go if 8B C4(r≤d/8) critical sparsity ≥ C2 + 15%p;
 No-go if C3 − C2 < 5%p.
 
 ## Design decisions (2026-07-22 pivot Q&A)
+- **Selection = top-K, not top-p (user, 2026-07-23)**: PPL sweeps use exact
+  per-token sparsity s (K = int((1−s)·d), same tie semantics as top_k_new) so
+  C1 exactly reproduces the larosa topk_intermediate setup and **C3 vs C1 at
+  equal s is the primary readout** (matched per-token compute; no achieved-
+  sparsity interpolation). The spec's top-p mask stays implemented
+  (select=topp) for spec-faithful runs; unit test pins C1-topk ==
+  topk_intermediate bitwise. s grid: 0.5–0.95 (9 points).
 - **Scope narrowed (user, 2026-07-22)**: LLaMA2-7B ONLY (h=4096, d=11008), to
   compare directly against the larosa Top-K results; evaluation is the SAME
   wikitext-2 PPL pipeline (`eval_ppl_wikitext_with_inference_sparsity`) — no
@@ -87,14 +94,16 @@ No-go if C3 − C2 < 5%p.
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
 ## Next Experiments
-1. **Phase 3 — dense + C1 sweep (LLaMA2-7B)**: oracle_ppl_sweep.sh dense + c1
-   over p grid ×11, wikitext-2 PPL. Sanity: C1's PPL-vs-achieved-sparsity
-   curve should track the Top-K anchor points (5.521/5.730/8.108 at
-   s=50/70/90; same score family, top-p vs top-k selection).
-2. **Phase 4 — C2–C5 sweep (LLaMA2-7B)**: one job per condition (c2, c3, c5;
-   c4 with r=512, stats/factors already built). Main table: PPL vs achieved
-   sparsity; judgment per spec §8 mapped to ΔPPL. If C3/C4 underperform,
-   variant with exclude_layers=[30,31] (Phase-0 inversion layers).
+1. **Phase 3 — dense + C1 top-K sweep (LLaMA2-7B)**: oracle_ppl_sweep.sh
+   (SELECT=topk) dense + c1 over s grid ×9. Sanity gate: C1 at s=0.5/0.7/0.9
+   must REPRODUCE the topk_intermediate anchors (5.521/5.730/8.108) —
+   selection is now bitwise-identical, so any deviation is pipeline noise
+   only (~±0.1 at most, likely exact).
+2. **Phase 4 — C2–C5 top-K sweep (LLaMA2-7B)**: one job per condition (c2,
+   c3, c5; c4 with r=512, stats/factors already built). Primary readout:
+   **ΔPPL(C3) vs ΔPPL(C1) at equal s** — how much does mean-gate
+   compensation buy at matched compute. Then C4−C3 (H3), C2−C1 (H2). If
+   C3/C4 underperform, variant with exclude_layers=[30,31].
 
 ## Active Jobs
 - (none)
