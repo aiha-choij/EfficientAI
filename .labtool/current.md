@@ -13,7 +13,10 @@ Focus: oracle-residual-sparsity — pivot recorded; scope narrowed to LLaMA2-7B
 all 4 unit tests pass on CPU. Next: Phase-2 calibration job.
 
 ## Active Jobs
-- (none)
+- `050-20260723-155254-oracle-llama2-phase0-calib` — Phase 2: calibration
+  (wikitext103 + c4) + phase-0 i-vs-r report + M factors r=512, LLaMA2-7B,
+  a100-40-2. Card: topics/oracle-residual-sparsity/journal/
+  2026-07-22_experiment-oracle-llama2-phase0-calib.md
 
 ## Direction
 New spec (2026-07-22): in the oracle setting, decompose the FFN via the
@@ -35,6 +38,9 @@ compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md
 3. Phase 4: C2–C5 sweeps, one job per condition; main PPL-vs-sparsity table.
 
 ## Latest
+- 2026-07-22: `oracle-llama2-phase0-calib` submitted (050-20260723-155254,
+  tag exp/2026-07-22_oracle-llama2-phase0-calib, pinned a100-40-2) — Phase 2:
+  two-corpus calibration + phase-0 i-vs-r report (H1 go/no-go) + M r=512.
 - 2026-07-22: Phase 1 DONE — `sparse_mode='oracle'` (C0–C5) implemented in
   inference/oracle_mlp.py + modeling hooks; scripts/oracle/01–04 + sweep; all
   4 spec unit tests pass on CPU (identities to ~1e-7). Scope narrowed by user:

@@ -90,7 +90,9 @@ No-go if C3 − C2 < 5%p.
    judgment per spec §8 mapped to ΔPPL (see Open Questions).
 
 ## Active Jobs
-- (none)
+- `050-20260723-155254-oracle-llama2-phase0-calib` (a100-40-2) — Phase 2
+  calibration + phase-0 report + M factors. Journal:
+  2026-07-22_experiment-oracle-llama2-phase0-calib.md
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:
