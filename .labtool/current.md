@@ -8,8 +8,9 @@
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 
 ## This Session
-Focus: oracle-residual-sparsity — pivot recorded, spec preserved
-(topics/oracle-residual-sparsity/spec.md), Phase-1 implementation is next.
+Focus: oracle-residual-sparsity — pivot recorded; scope narrowed to LLaMA2-7B
++ wikitext-2 PPL + C4 r=512 only (user). Phase 1 DONE: oracle mode implemented,
+all 4 unit tests pass on CPU. Next: Phase-2 calibration job.
 
 ## Active Jobs
 - (none)
@@ -27,15 +28,17 @@ attention and all linears stay dense, only the MLP forward is wrapped,
 compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md.
 
 ## Next Experiments
-1. Phase 1: OracleSparseMLP + scripts 01–05 skeletons + 4 unit tests
-   (p=1 identity, C4 full-rank ≡ C3, rank diagnostic, mask-vs-slice) —
-   CPU tiny-model first, then GPU smoke on 3B.
-2. Phase 2: calibration (c4-en 512×2048, fp32 accumulators; second ḡ from
-   wikitext-103) + Phase-0 distribution report on the 3B model —
-   go signal = r-curve above i-curve.
-3. Phase 3+: C1 sweep 3B → 8B (sanity 50–70%), then C2–C5 main sweep.
+1. Phase 2: one GPU job on LLaMA2-7B — 01_calibrate (c4 + wikitext103 stats),
+   02_distribution_report (go signal = r-curve above i-curve), 03_build_M r=512.
+2. Phase 3: dense + C1 PPL sweep over p grid (oracle_ppl_sweep.sh); sanity
+   vs Top-K anchors (5.521/5.730/8.108 at s=50/70/90).
+3. Phase 4: C2–C5 sweeps, one job per condition; main PPL-vs-sparsity table.
 
 ## Latest
+- 2026-07-22: Phase 1 DONE — `sparse_mode='oracle'` (C0–C5) implemented in
+  inference/oracle_mlp.py + modeling hooks; scripts/oracle/01–04 + sweep; all
+  4 spec unit tests pass on CPU (identities to ~1e-7). Scope narrowed by user:
+  LLaMA2-7B only, wikitext-2 PPL only, C4 r=512 only.
 - 2026-07-22: PIVOT — larosa-intermediate-sparsity closed (done; hypothesis
   confirmed on LLaMA2-7B, 3-model ext moved to backlog). New topic
   oracle-residual-sparsity: mean-gate residual decomposition + rank-r

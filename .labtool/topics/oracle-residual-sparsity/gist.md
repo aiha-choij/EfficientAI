@@ -33,6 +33,11 @@ Go/no-go (spec §8): Go if 8B C4(r≤d/8) critical sparsity ≥ C2 + 15%p;
 No-go if C3 − C2 < 5%p.
 
 ## Design decisions (2026-07-22 pivot Q&A)
+- **Scope narrowed (user, 2026-07-22)**: LLaMA2-7B ONLY (h=4096, d=11008), to
+  compare directly against the larosa Top-K results; evaluation is the SAME
+  wikitext-2 PPL pipeline (`eval_ppl_wikitext_with_inference_sparsity`) — no
+  lm-eval, no critical-sparsity-by-accuracy; C4 runs r = h/8 = 512 only.
+  The spec's multi-model/accuracy program is deferred, not canceled.
 - **No R-Sparse fork** (user decision): implement standalone in EfficientAI on
   the existing HF loading/eval pipeline; the spec's "reuse from R-Sparse" items
   (model loading, calibration loader, SVD util, lm-eval integration) are
@@ -44,43 +49,45 @@ No-go if C3 − C2 < 5%p.
 - All sparsification simulated as compute-then-mask (oracle-equivalent).
 
 ## Key Findings
-(none yet)
+- **Phase 1 complete (2026-07-22)**: oracle conditions implemented as
+  `sparse_mode='oracle'` in the existing modeling file
+  (`inference/oracle_mlp.py` + small hooks in modeling_llama_larosa.py);
+  scripts 01–04 + sweep runner under `scripts/oracle/`. All 4 spec-§2 unit
+  tests pass on CPU fp32 tiny model: p=1 identity 9e-8, C4 full-rank ≡ C3
+  3e-7, C4 p=1 error exactly (M̂−M)x (residual 1e-9), mask-vs-slice 2e-9;
+  plus save/load round-trip bitwise-identical and topk_intermediate
+  regression smoke OK.
+  When relevant: trusting the c3/c4 algebra — the compensation identities
+  were verified numerically, so PPL differences in later phases are signal,
+  not implementation bugs.
 
 ## Dead Ends
 (none yet)
 
-## Open Questions (left as questions per spec's own instruction)
-- **Rank grid for C4**: spec fixes only r ≤ h/8 (H3). Proposed sweep
-  r ∈ {h/32, h/16, h/8} (LLaMA-3.1-8B h=4096 → 128/256/512) — confirm.
-- **8B model version**: spec says meta-llama/Llama-3.1-8B; gateway has
-  /raid/LLM/llama3-8b (Llama-3-8B, dense PPL 6.1377 trusted). Download 3.1-8B
-  (needs HF gated access) or accept 3-8B? Affects literature comparability only.
-- **Model availability**: Llama-3.2-3B and gemma-3-4b-pt are not on the
-  gateway yet; both are gated on HF (license acceptance + token). Need
-  HF_TOKEN on the gateway before Phase 2.
-- **lm-eval-harness**: not currently in the EfficientAI pipeline (larosa repro
-  was PPL-only); needs install into conda env + a harness wrapper that keeps
-  the OracleSparseMLP hooks active during harness forwards.
-- **C3/C4/C5 dense-anchor**: normalized accuracy denominator is C0 measured in
-  the same run/limit (spec §7.6) — one dense eval per model per limit setting.
+## Open Questions
+- ~~Rank grid~~ → resolved: r = 512 (h/8) only (user, 2026-07-22).
+- ~~Model/eval choices~~ → resolved: LLaMA2-7B + wikitext-2 PPL (user).
+- **Calibration corpus download on gateway**: 01_calibrate defaults to
+  allenai/c4 en streaming — network access from execution servers worked for
+  wikitext, c4 streaming untested. Fallback flag: `--dataset wikitext103`.
+- **PPL success threshold**: same open convention as the old topic — judge
+  ΔPPL vs dense (5.4736) against the Top-K anchors (C1-equivalent: 5.521/
+  5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
+  ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
 ## Next Experiments
-1. **Phase 1 — infra + OracleSparseMLP + 4 unit tests** (spec §2): wrapper with
-   buffers (g_bar, g_bar_star, col_norm, A, B), conditions {dense,c1..c5},
-   stats_mode, exclude_layers, per-layer achieved-sparsity logging; scripts
-   01–05 skeletons. Tests: p=1 identity (C3≡dense, atol 1e-3 bf16), C4 full-rank
-   ≡ C3 (rtol 1e-3), rank diagnostic norm per layer, mask-vs-slice equivalence.
-   CPU tiny-model first (same discipline as topk_intermediate 40edf40).
-   Gate: all 4 tests pass.
-2. **Phase 2 — calibration + Phase-0 distribution report (3B)**: c4-en 512
-   seq × 2048 tok (fp32 accumulators), second ḡ from wikitext-103; induced
-   sparsity curves i vs r, Hoyer/kurtosis, gate CV², ḡ corpus Pearson.
-   Gate: report generated; **r curve above i curve = go signal for H1**.
-3. **Phase 3 — C1 sweep 3B → 8B**: p grid ×11, lm-eval --limit 1000 + wikitext
-   PPL. Gate: 8B C1 critical sparsity in 50–70% (literature sanity).
-4. **Phase 4 — C2–C5 sweep, 8B main, repeat on 3B/Gemma**: main result table +
-   full (no-limit) eval at 2–3 p values near each critical point.
-5. **Phase 5 (optional) — C6 group masks, Instruct models.**
+1. **Phase 2 — calibration + Phase-0 distribution report (LLaMA2-7B)**: one
+   GPU job: 01_calibrate (c4-en 512×2048 → stats/c4; wikitext103 → second ḡ),
+   02_distribution_report (i vs r induced-sparsity curves, Hoyer/kurtosis,
+   CV², ḡ Pearson), 03_build_M (r=512 factors). Gate: **r curve above i curve
+   = go for H1**; c4↔wikitext ḡ Pearson high across layers.
+2. **Phase 3 — C1 + dense sweep (LLaMA2-7B)**: oracle_ppl_sweep.sh dense + c1
+   over p grid ×11, wikitext-2 PPL. Sanity: C1's PPL-vs-achieved-sparsity
+   curve should track the Top-K anchor points (same score family, top-p vs
+   top-k selection).
+3. **Phase 4 — C2–C5 sweep (LLaMA2-7B)**: one job per condition (c2, c3, c5;
+   c4 with r=512). Main table: PPL vs achieved sparsity per condition;
+   judgment per spec §8 mapped to ΔPPL (see Open Questions).
 
 ## Active Jobs
 - (none)
