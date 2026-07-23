@@ -54,7 +54,40 @@ r" is captured as the r_bar=1024 arm for comparison.
 - Env: a6000-2 venv (torch 2.6.0+cu124, transformers 4.46.3, sdpa), RTX A6000
 
 ### Results
-(pending)
+Main job (050-20260724-052033) completed; commit on server c50c55f. Results
+JSONs c4_wht_*.json + diag_trunc_vs_tail.csv + spectra_{plain,wht}.json under
+oracle/llama2-7b/results/ (a6000-2, fetched to host).
+
+C4 PPL by factor variant (dense 5.4738; C1/C3/plain-r512 from phase 3-4):
+
+| s   | C1     | C3     | plain r512 | wht r512 | wht alloc256 | wht alloc512 | wht alloc1024 |
+|-----|--------|--------|-----------|----------|--------------|--------------|---------------|
+| 0.5 | 5.5216 | 5.5051 | 6.2537    | 6.4859   | 9.2926       | 7.0903       | 5.9570        |
+| 0.7 | 5.7284 | 5.6283 | 6.5563    | 6.8483   | 10.0913      | 7.4886       | 6.1641        |
+| 0.9 | 8.1096 | 6.6381 | 8.7638    | 9.7606   | 17.4118      | 10.2638      | 7.6336        |
+
+Task-0 diagnostics (4 calib seqs, means over 32 layers):
+- trunc_err E||(M_hat−M)x||: plain 2.239 vs whitened 1.941 (−13%) — whitening
+  DOES reduce the L2 objective it optimizes, on real calibration inputs.
+- trunc/tail ratio: plain 0.80 (s_op=0.7) / 0.59 (0.9); worst layer 7 (~1.0)
+  — the r=512 compensation error is the same order as the tail signal it
+  replaces.
+- Whitened spectra are strongly concentrated: stable rank 16-129 per layer
+  (vs plain's heavy tail), which is why tau-allocation assigns tiny ranks
+  (budget 256 → min r_l = 5).
+
+Key contradictions:
+1. Whitened uniform r512 is WORSE in PPL than plain r512 at every s
+   (6.486/6.848/9.761 vs 6.254/6.556/8.764) despite 13% lower L2 error.
+2. At matched budget 512, whitened+alloc (7.09/7.49/10.26) also loses to
+   plain uniform. alloc256 is catastrophic (9.3/10.1/17.4).
+3. wht_alloc1024 is the best C4 yet (5.957/6.164/7.634; first C4 to beat C1
+   at s=0.9) — but rank doubled, so whitening-vs-rank is confounded.
+
+Completion arms (job 050-20260724-064258, running): uniform wht_r1024 and
+uniform plain_r1024 to (a) finish Task 2.3 uniform-vs-alloc at r_bar=1024 and
+(b) isolate whitening from rank at 1024.
+[to be appended when the job finishes]
 
 ### Interpretation
 (pending)
