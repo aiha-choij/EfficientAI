@@ -1,7 +1,8 @@
 # larosa-intermediate-sparsity — Per-token Top-K on the FFN intermediate activation
 
 ## Status
-active
+done — hypothesis confirmed on LLaMA2-7B (2026-07-22); thread closed by pivot
+to `oracle-residual-sparsity` (see journal/2026-07-22_pivot-oracle-residual-sparsity.md)
 
 ## Notation (used throughout this topic)
 FFN(x) = W_d i,  i = u ⊙ g,  u = W_u x,  g = σ(W_g x)
@@ -72,20 +73,18 @@ mechanism is data-free at setup time.
   (count_zero_solo) and confirm ≈ s (guards against K off-by-one / masking bugs).
 
 ## Next Experiments
-1. **3-model extension**: LLaMA3-8B (dense 6.1377) + Qwen2.5-7B (dense 6.8497),
-   same s=0/0.5/0.7/0.9 sweep via `repro_topk_ppl.sh {llama|qwen} <model_dir>`,
-   one job per model. Why: LLaMA2-7B confirmed the hypothesis; the claim is
-   about universality, so it must hold on a newer LLaMA and a different family
-   (note d differs: 14336 / 18944). Success: s=0 ≡ dense baseline ±0.1 per
-   model + full 3×3 ΔPPL table recorded; hypothesis strengthened if the
-   50%-near-lossless pattern (ΔPPL ≲ 0.1) holds on both.
-2. **Weight-aware scoring arm at high s** (after 1): ‖W_d[:,j]‖·|i_j| scoring
-   vs plain |i_j| at s=0.7/0.9 on LLaMA2-7B. Why: the s=90% degradation
-   (+2.635) is the weak point; weight-aware scoring is the cheapest known
-   refinement before reaching for rotation. Success: ΔPPL at s=0.9 improves
-   meaningfully (>0.5) over plain magnitude.
+(none — topic closed by 2026-07-22 pivot; the weight-aware scoring arm is
+absorbed as condition C2 of `oracle-residual-sparsity`)
 
 ## Future work
+- **Backlog (preserved at pivot, user decision)** — 3-model extension:
+  LLaMA3-8B (dense 6.1377) + Qwen2.5-7B (dense 6.8497), same s=0/0.5/0.7/0.9
+  sweep via `repro_topk_ppl.sh {llama|qwen} <model_dir>`, one job per model.
+  Why: universality claim needs a newer LLaMA and a different family
+  (d = 14336 / 18944). Success: s=0 ≡ dense baseline ±0.1 per model + full
+  3×3 ΔPPL table; hypothesis strengthened if the 50%-near-lossless pattern
+  (ΔPPL ≲ 0.1) holds on both. May still be worth running as a PPL-side
+  sanity line alongside the new topic's accuracy results.
 - RB-Sparse: rotated-basis variant of intermediate Top-K (block-shared mask +
   eigenspace low-rank compensation; 2026-06-24 discussion, research-wiki r-sparse
   note). Needs a d-dim rotation (pass-2-class compute — run on a100-80).
