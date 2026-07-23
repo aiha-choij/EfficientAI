@@ -56,19 +56,17 @@ mechanism is data-free at setup time.
   (count_zero_solo) and confirm ≈ s (guards against K off-by-one / masking bugs).
 
 ## Next Experiments
-1. **Implement `topk_intermediate` mode in larosa** + LLaMA2-7B validation.
-   Code changes (all in `larosa/`):
-   - `inference/mlp.py`: new forward path — compute u, g, i densely, then
-     per-token Top-K mask on |i| before down_proj. No Distribution/SparsifyFn/
-     histogram dependency; K = round((1−s)·d).
-   - Bypass attention sparsification entirely in this mode (dense
-     q/k/v/o path, no sparse_fns).
-   - `scripts/ppl_test_larosa_llama.py` (+ qwen variant): add
-     `--mode topk_intermediate --sparsity s`; no `--larosa_path`/D needed.
-   - New runner `scripts/repro_topk_ppl.sh <family> <model_dir>` — no gen_act
-     stage at all (loads the vanilla HF model).
+1. **LLaMA2-7B validation sweep** (implementation DONE 2026-07-22, commit
+   40edf40 — went into `inference/modeling_{llama,qwen2}_larosa.py` via a
+   `config.sparse_mode` flag, not the mlp.py monkeypatch path, because the
+   trusted PPL pipeline uses the packaged modeling classes; default 'larosa'
+   behavior unchanged; CPU tiny-model tests: s=0 bitwise-identical to vanilla
+   HF for llama+qwen, measured sparsity == s at 0.5/0.7).
+   Run: `scripts/repro_topk_ppl.sh llama /raid/LLM/llama2-7b`
+   (sweeps s=0/0.5/0.7/0.9; no gen_act stage; K = int((1−s)·d) per top_k_new).
    Sanity gates: (a) s=0 PPL ≡ dense baseline 5.47 (exact-match expectation,
-   trusted pipeline ±0.1); (b) measured zero-fraction of i ≈ s at each level.
+   trusted pipeline ±0.1); (b) printed "mlp h2" measured sparsity ≈ s while
+   "mlp h1"/"attn h1"/"attn h2" ≈ 0.
    Success: gates pass + s=50/70/90 PPLs recorded.
 2. **3-model extension** (after 1): LLaMA3-8B (dense 6.13) + Qwen2.5-7B
    (dense 6.85), same s sweep, one job per model.

@@ -7,9 +7,8 @@
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 
 ## This Session
-Focus: larosa-intermediate-sparsity — pivoted from input-side (LaRoSa) to
-intermediate activation Top-K sparsification; experiment plan ready, code not
-yet written.
+Focus: larosa-intermediate-sparsity — `topk_intermediate` mode implemented and
+CPU-verified (commit 40edf40); ready to submit the LLaMA2-7B sweep.
 
 ## Active Jobs
 - (none)
@@ -31,6 +30,9 @@ Qwen2.5-7B. Baseline comparison: dense ΔPPL only.
    ΔPPL table.
 
 ## Latest
+- 2026-07-22: `topk_intermediate` implemented (40edf40) — config.sparse_mode flag,
+  MLP Top-K on i, dense attention, no Q loading; CPU tiny-model tests: s=0
+  bitwise-identical to vanilla HF (llama+qwen), measured sparsity == s.
 - 2026-07-22: PIVOT — larosa-repro closed (done); new topic
   larosa-intermediate-sparsity: FFN intermediate Top-K, no rotation, s=50/70/90.
   Old next-steps: lm_eval packaging deprioritized, RB-Sparse carried as future work.
@@ -42,9 +44,10 @@ Qwen2.5-7B. Baseline comparison: dense ΔPPL only.
 
 ## If you're starting a new session
 - Focus topic: larosa-intermediate-sparsity (gist has full plan + notation).
-- Immediate next action: implement `topk_intermediate` mode in
-  `larosa/inference/mlp.py` + `scripts/ppl_test_larosa_llama.py` (--mode flag),
-  new runner without gen_act; then labtool-experiment for the LLaMA2-7B job.
+- Immediate next action: labtool-experiment — submit the LLaMA2-7B job:
+  `scripts/repro_topk_ppl.sh llama /raid/LLM/llama2-7b` (sweeps s=0/0.5/0.7/0.9;
+  code is implemented and CPU-verified, commit 40edf40). Gates: s=0 PPL ≡ 5.47;
+  printed "mlp h2" measured sparsity ≈ s; "mlp h1"/"attn h1"/"attn h2" ≈ 0.
 - Context: (1) this mode needs NO rotation matrices, NO histograms, NO gen_act —
   it loads the vanilla HF model; the saved D.pt files stay untouched for future
   RB-Sparse. (2) Trusted dense baselines from larosa-repro: 5.47 / 6.13 / 6.85
