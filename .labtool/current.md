@@ -7,11 +7,13 @@
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 
 ## This Session
-Focus: larosa-intermediate-sparsity — `topk_intermediate` mode implemented and
-CPU-verified (commit 40edf40); ready to submit the LLaMA2-7B sweep.
+Focus: larosa-intermediate-sparsity — `topk_intermediate` implemented, verified,
+and LLaMA2-7B sweep submitted.
 
 ## Active Jobs
-- (none)
+- `20260723-133728-larosa-llama2-topk-int-ppl` @ a100-40-2 — intermediate Top-K
+  PPL sweep s=0/0.5/0.7/0.9; gates: s=0 ≡ 5.47±0.1, mlp h2 ≈ s, others ≈ 0.
+  Journal: topics/larosa-intermediate-sparsity/journal/2026-07-22_experiment-larosa-llama2-topk-int-ppl.md
 
 ## Direction
 Sparsification point moves from the FFN input x (LaRoSa's rotated threshold
@@ -30,6 +32,8 @@ Qwen2.5-7B. Baseline comparison: dense ΔPPL only.
    ΔPPL table.
 
 ## Latest
+- 2026-07-22: `larosa-llama2-topk-int-ppl` submitted (20260723-133728, tag
+  exp/2026-07-22_larosa-llama2-topk-int-ppl, pinned a100-40-2).
 - 2026-07-22: `topk_intermediate` implemented (40edf40) — config.sparse_mode flag,
   MLP Top-K on i, dense attention, no Q loading; CPU tiny-model tests: s=0
   bitwise-identical to vanilla HF (llama+qwen), measured sparsity == s.
@@ -38,9 +42,6 @@ Qwen2.5-7B. Baseline comparison: dense ΔPPL only.
   Old next-steps: lm_eval packaging deprioritized, RB-Sparse carried as future work.
 - 2026-07-22: llama3-8b + qwen25-7b PPL DONE — all 12 points across 3 models within ±0.1 of paper Table 2. Reproduction complete.
 - 2026-07-22: `larosa-llama3-8b-ppl` + `larosa-qwen25-7b-ppl` submitted (validated runner, both on a100-40-2).
-- 2026-07-22: labtool initialized; conda env `larosa` + Qwen2.5-7B download started on a100-40-2.
-- 2026-07-22: found LLaMA2-7B/LLaMA3-8B already on gateway at `/raid/LLM/` (read-only) — no HF token needed.
-- 2026-07-22: fixed env: flash-attn pinned to 2.7.4.post1 (2.8.x wheel needs GLIBC≥2.32, gateway has 2.31).
 
 ## If you're starting a new session
 - Focus topic: larosa-intermediate-sparsity (gist has full plan + notation).

@@ -79,6 +79,11 @@ mechanism is data-free at setup time.
 - Weight-aware scoring arm (‖W_d[:,j]‖·|i_j|) if plain magnitude underperforms.
 - lm_eval accuracy for the new mode (replaces the old-mode packaging task).
 
+## Active Jobs
+- `20260723-133728-larosa-llama2-topk-int-ppl` @ a100-40-2 — LLaMA2-7B
+  intermediate Top-K PPL sweep (Next Experiments #1). Journal:
+  2026-07-22_experiment-larosa-llama2-topk-int-ppl.md
+
 ## Pointers
 - Motivating paper: arXiv:2509.00454, research-wiki
   `wiki/papers/universal-properties-activation-sparsity.md` (Finding 1, Fig. 2).
