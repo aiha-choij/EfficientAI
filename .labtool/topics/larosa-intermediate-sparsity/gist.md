@@ -36,7 +36,23 @@ mechanism is data-free at setup time.
   LLaMA3-8B + Qwen2.5-7B.
 
 ## Key Findings
-(none yet)
+- **LLaMA2-7B intermediate Top-K (2026-07-22)**: hypothesis confirmed on the
+  first model — with no rotation and no calibration, per-token Top-K on i gives
+  wikitext-2 PPL 5.5210 at s=50% (+0.047 vs dense 5.4736), 5.7296 at 70%
+  (+0.256), 8.1083 at 90% (+2.635); measured sparsity of i ≈ s at every level
+  and s=0 is dense-identical to 4 decimals. Intermediate 50% ≈ input-mode 25%
+  (5.5017), and intermediate 70% beats input-mode 50% (5.8167).
+  When relevant: choosing the sparsification target for any LaRoSa-derived
+  design — the intermediate point buys roughly 20-45pp extra sparsity over the
+  input side at equal PPL on LLaMA2-7B.
+  Journal: 2026-07-22_experiment-larosa-llama2-topk-int-ppl.md
+- **Eval log labels are swapped (upstream bug, utils/eval_ppl.py:136-140)**:
+  `eval_ppl_wikitext_with_inference_sparsity` appends `layer.mlp.*` into the
+  attn lists and vice versa, so the printed "attn h1/h2" are really MLP values
+  and "mlp h1/h2" are attention values.
+  When relevant: reading measured-sparsity lines in any PPL log from this
+  pipeline (incl. the upcoming LLaMA3/Qwen sweeps) — un-swap before judging
+  placement gates.
 
 ## Dead Ends
 (none yet)
@@ -56,21 +72,18 @@ mechanism is data-free at setup time.
   (count_zero_solo) and confirm ≈ s (guards against K off-by-one / masking bugs).
 
 ## Next Experiments
-1. **LLaMA2-7B validation sweep** (implementation DONE 2026-07-22, commit
-   40edf40 — went into `inference/modeling_{llama,qwen2}_larosa.py` via a
-   `config.sparse_mode` flag, not the mlp.py monkeypatch path, because the
-   trusted PPL pipeline uses the packaged modeling classes; default 'larosa'
-   behavior unchanged; CPU tiny-model tests: s=0 bitwise-identical to vanilla
-   HF for llama+qwen, measured sparsity == s at 0.5/0.7).
-   Run: `scripts/repro_topk_ppl.sh llama /raid/LLM/llama2-7b`
-   (sweeps s=0/0.5/0.7/0.9; no gen_act stage; K = int((1−s)·d) per top_k_new).
-   Sanity gates: (a) s=0 PPL ≡ dense baseline 5.47 (exact-match expectation,
-   trusted pipeline ±0.1); (b) printed "mlp h2" measured sparsity ≈ s while
-   "mlp h1"/"attn h1"/"attn h2" ≈ 0.
-   Success: gates pass + s=50/70/90 PPLs recorded.
-2. **3-model extension** (after 1): LLaMA3-8B (dense 6.13) + Qwen2.5-7B
-   (dense 6.85), same s sweep, one job per model.
-   Success: full 3×3 ΔPPL table vs dense.
+1. **3-model extension**: LLaMA3-8B (dense 6.1377) + Qwen2.5-7B (dense 6.8497),
+   same s=0/0.5/0.7/0.9 sweep via `repro_topk_ppl.sh {llama|qwen} <model_dir>`,
+   one job per model. Why: LLaMA2-7B confirmed the hypothesis; the claim is
+   about universality, so it must hold on a newer LLaMA and a different family
+   (note d differs: 14336 / 18944). Success: s=0 ≡ dense baseline ±0.1 per
+   model + full 3×3 ΔPPL table recorded; hypothesis strengthened if the
+   50%-near-lossless pattern (ΔPPL ≲ 0.1) holds on both.
+2. **Weight-aware scoring arm at high s** (after 1): ‖W_d[:,j]‖·|i_j| scoring
+   vs plain |i_j| at s=0.7/0.9 on LLaMA2-7B. Why: the s=90% degradation
+   (+2.635) is the weak point; weight-aware scoring is the cheapest known
+   refinement before reaching for rotation. Success: ΔPPL at s=0.9 improves
+   meaningfully (>0.5) over plain magnitude.
 
 ## Future work
 - RB-Sparse: rotated-basis variant of intermediate Top-K (block-shared mask +
@@ -80,9 +93,7 @@ mechanism is data-free at setup time.
 - lm_eval accuracy for the new mode (replaces the old-mode packaging task).
 
 ## Active Jobs
-- `20260723-133910-larosa-llama2-topk-int-ppl` @ a100-40-2 — LLaMA2-7B
-  intermediate Top-K PPL sweep (Next Experiments #1). Journal:
-  2026-07-22_experiment-larosa-llama2-topk-int-ppl.md
+- (none)
 
 ## Pointers
 - Motivating paper: arXiv:2509.00454, research-wiki

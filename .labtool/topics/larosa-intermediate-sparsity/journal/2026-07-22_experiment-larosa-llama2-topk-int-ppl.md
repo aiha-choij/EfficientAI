@@ -1,6 +1,6 @@
 # Experiment: larosa-llama2-topk-int-ppl
 
-Status: PENDING
+Status: DONE
 Date: 2026-07-22
 
 ## Hypothesis tested
@@ -55,5 +55,36 @@ arXiv:2509.00454).
   Dispatcher-side fix (expand/reject tilde workdirs) flagged as a QCom task.
 
 ### Results
+Source: log + meta of `20260723-133910-larosa-llama2-topk-int-ppl`
+(`~/workspace/runs/.../{log,meta}` on a100-40-2). STATUS=ok, runtime 7 min
+(13:39:32 → 13:46:27 KST) on one A100 40GB (PCI GPU 1); 166 eval samples.
+
+| s | PPL | ΔPPL vs dense | measured sparsity of i |
+|---|---|---|---|
+| 0.0 | 5.47356 | — | 0.00% |
+| 0.5 | 5.52099 | +0.047 | 49.92% |
+| 0.7 | 5.72959 | +0.256 | 69.91% |
+| 0.9 | 8.10831 | +2.635 | 89.95% |
+
+Both gates PASS:
+- (a) Dense equivalence: s=0 PPL 5.47356 — identical to larosa-repro's dense
+  5.4736 to 4 decimals.
+- (b) Sparsity placement: measured zero-fraction of i ≈ s at every level;
+  attention and gate/up paths all 0.00.
+
+Log-reading caveat (verified against utils/eval_ppl.py:136-140): the upstream
+eval collects the lists crossed, so the printed "attn h2" line is actually the
+MLP intermediate sparsity and "mlp h1/h2" are the attention values. The table
+above already un-swaps them.
+
+Reference anchors (larosa-repro, input-mode rotated threshold, same pipeline):
+25% → 5.5017, 40% → 5.6167, 50% → 5.8167. Intermediate Top-K at 50% (5.5210)
+≈ input mode at 25%; intermediate at 70% (5.7296) beats input mode at 50%.
 
 ### Interpretation
+(User, 2026-07-22, approving the proposed reading) Hypothesis confirmed — the
+paper's claim that the intermediate activation tolerates far higher sparsity
+than the input side reproduces in our setting: with no rotation and no
+calibration, intermediate Top-K at s=50% costs only +0.047 PPL (vs +0.343 for
+input-mode 50%), and s=70% still beats input-mode 50%. Degradation at s=90%
+is clear (+2.6) but not a collapse. Next: extend to LLaMA3-8B + Qwen2.5-7B.
