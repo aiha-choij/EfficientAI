@@ -119,18 +119,22 @@ No-go if C3 − C2 < 5%p.
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments (candidates — discuss before submitting)
-1. **C4 rank sweep**: rebuild factors at r ∈ {1024, 2048} (03_build_M, cheap)
-   and rerun C4 at s={0.5,0.7,0.9}. Question: at what r does C4 approach C3?
-   Compute overhead 2r/3d: 6.2% / 12.4%. This is the H3 make-or-break.
-2. **Layer-selective compensation**: C3/C4 with exclude_layers=[30,31] (late
-   layers dense) — secondary lever; Phase-0 says the r-vs-i advantage dies
-   there anyway.
+## Next Experiments
+1. **RUNNING — C4 whitening round** (spec-c4-whitening.md, user work order
+   2026-07-24): sigma calibration → whitened SVD factors (uniform r=512 +
+   budget-allocated r_bar {256,512,1024}) → Task-0 trunc-vs-tail diagnostics →
+   C4 sweeps. Success: C4-whitened beats C1 at s=0.7/0.9 and closes toward C3.
+   Scope note: doc mentions 8B/p-grid/normalized-acc; standing scope
+   (7B / top-K {0.5,0.7,0.9} / PPL) applied — code is model-agnostic for a
+   later 8B pass.
+2. (if whitening ≈ plain) spectrum is genuinely flat → discuss structured
+   compensation alternatives with user before more GPU spend.
 3. (later) generalize to LLaMA3-8B / other family once the deployable form
-   (C4 at some r) is settled.
+   is settled.
 
 ## Active Jobs
-- (none)
+- `050-20260724-052033-oracle-llama2-c4-whitening` (a6000-2) — whitened SVD +
+  rank allocation round. Journal: 2026-07-24_experiment-oracle-llama2-c4-whitening.md
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:
