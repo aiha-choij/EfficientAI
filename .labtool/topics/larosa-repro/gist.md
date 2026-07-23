@@ -36,15 +36,14 @@ lm_eval accuracy table for Qwen2.5-7B-larosa at sparse_level 0.25.
   doesn't matter — verify via reproduction quality.
 
 ## Next Experiments
-1. `larosa-llama3-8b-ppl` — repro_ppl.sh llama `/raid/LLM/llama3-8b`. Why: pipeline
-   validated on LLaMA2-7B in 26 min; LLaMA3-8B is the second quoted target.
-   Success: 6.13 → 6.23/6.60/7.22 each ±0.1.
-2. `larosa-qwen25-7b-ppl` — repro_ppl.sh qwen `~/workspace/models/Qwen2.5-7B`.
-   Why: covers the second model family (Qwen2 code path, GQA dims differ).
-   Success: 6.85 → 6.90/7.10/7.42 each ±0.1.
-3. After both match: package Qwen2.5-7B-larosa (sparse_level 0.25) + lm_eval
-   6 tasks vs README table — validates the accuracy pipeline, prerequisite for
-   RB-Sparse development evals (see research-wiki r-sparse note).
+1. Package Qwen2.5-7B-larosa (sparse_level 0.25) + lm_eval 6-task accuracy vs
+   README table. Why: PPL reproduced on all 3 models; accuracy pipeline is the
+   remaining unvalidated half, and RB-Sparse development evals need it.
+   Success: each task acc within ~1pp of README §5 table.
+2. RB-Sparse development (after 1): rotated-basis block-shared mask +
+   eigenspace low-rank compensation (2026-06-24 discussion; research-wiki
+   r-sparse note). First step: measure cross-token top-k index agreement in
+   the rotated basis using the saved D matrices.
 
 ## Active Jobs
 - `20260723-101220-larosa-llama3-8b-ppl` @ a100-40-2 — rotation gen + PPL sweep;

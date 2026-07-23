@@ -1,6 +1,6 @@
 # Experiment: larosa-llama3-8b-ppl
 
-**Status: PENDING**
+**Status: DONE**
 
 ## Hypothesis tested
 The upstream LaRoSa code reproduces paper Table 2 wikitext-2 PPL on LLaMA3-8B:
@@ -34,5 +34,18 @@ within ±0.06 — pipeline validated. Env fixes from that run apply (flash-attn
   Attempt 3 skips rotation (D.pt already complete) and runs the sweep directly.
 
 ### Results
+Source: job log + meta of `20260723-101220-larosa-llama3-8b-ppl`
+(`~/workspace/runs/.../{log,meta}` on a100-40-2). STATUS=ok, exit 0,
+runtime 14 min (10:12:21 -> 10:26:14 KST) on one A100 40GB (PCI GPU 0);
+rotation stage skipped (D.pt already complete from attempt 2's pass 1).
+
+| sparsity | PPL (this run) | paper Table 2 | delta |
+|---|---|---|---|
+| 0.0 (dense-equiv) | 6.1377 | 6.13 (Dense) | +0.008 |
+| 0.25 | 6.2297 | 6.23 | -0.000 |
+| 0.40 | 6.5736 | 6.60 | -0.026 |
+| 0.50 | 7.1307 | 7.22 | -0.089 |
+
+All four points within +-0.1 (max |delta| = 0.089 at 50%). Success criterion met.
 
 ### Interpretation

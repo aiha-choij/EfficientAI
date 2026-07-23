@@ -1,6 +1,6 @@
 # Experiment: larosa-qwen25-7b-ppl
 
-**Status: PENDING**
+**Status: DONE**
 
 ## Hypothesis tested
 The upstream LaRoSa code reproduces paper Table 2 wikitext-2 PPL on Qwen2.5-7B:
@@ -37,5 +37,20 @@ memory patch (081da28) but is untested until this run.
   dispatcher (global-variable return instead of stdout). Attempt 4 on GPU 1.
 
 ### Results
+Source: job log + meta of `20260723-102000-larosa-qwen25-7b-ppl`
+(`~/workspace/runs/.../{log,meta}` on a100-40-2). STATUS=ok, exit 0,
+runtime 11 min (10:20:22 -> 10:31:41 KST) on one A100 40GB (PCI GPU 1);
+rotation stage skipped (D.pt already complete from attempt 2's pass 1).
+Note: the qwen script prints "Larosa PPL" and uses eval_ppl_wikitext
+(sparsity applied inside the model forward) — same measurement as llama.
+
+| sparsity | PPL (this run) | paper Table 2 | delta |
+|---|---|---|---|
+| 0.0 (dense-equiv) | 6.8497 | 6.85 (Dense) | -0.000 |
+| 0.25 | 6.9043 | 6.90 | +0.004 |
+| 0.40 | 7.1112 | 7.10 | +0.011 |
+| 0.50 | 7.4702 | 7.42 | +0.050 |
+
+All four points within +-0.1 (max |delta| = 0.050). Success criterion met.
 
 ### Interpretation
