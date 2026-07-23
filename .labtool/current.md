@@ -16,7 +16,11 @@ Focus: larosa-repro — Table 2 PPL reproduction COMPLETE on all 3 models (12/12
 - Gateway agent hourly watch for both: request `...-084829-larosa-ppl-repro-watch`.
 
 ## Direction
-Reproduce paper Table 2 wikitext-2 PPL at 25/40/50% (40% is the headline "near-lossless" point) on LLaMA2-7B, LLaMA3-8B, Qwen2.5-7B via `larosa/scripts/repro_ppl.sh` (no packaging needed — sparsity is a runtime arg). lm_eval accuracy reproduction and RB-Sparse development come after PPL matches.
+Baseline reproduction is COMPLETE: Table 2 PPL matched on LLaMA2-7B/LLaMA3-8B/
+Qwen2.5-7B (12/12 points ±0.1). Leading approach next: validate the accuracy
+half (package Qwen2.5-7B-larosa 0.25 + lm_eval 6 tasks vs README), then start
+RB-Sparse using the saved per-layer D matrices. If lm_eval also matches →
+freeze the baseline and move fully to RB-Sparse development.
 
 ## Next Experiments
 1. Package Qwen2.5-7B-larosa (0.25) + lm_eval 6-task accuracy vs README table.
@@ -30,4 +34,15 @@ Reproduce paper Table 2 wikitext-2 PPL at 25/40/50% (40% is the headline "near-l
 - 2026-07-22: fixed env: flash-attn pinned to 2.7.4.post1 (2.8.x wheel needs GLIBC≥2.32, gateway has 2.31).
 
 ## If you're starting a new session
-Read `.labtool/topics/larosa-repro/gist.md`. Code runs on gateway a100-40-2 (`~/workspace/repos/EfficientAI/larosa`, conda env `larosa`). Submit jobs via `~/workspace/bin/qsub`; check with `runs`.
+- Check first: no active jobs (`ssh a100-40-2 '~/workspace/bin/runs'`); all three
+  PPL reproduction cards are DONE (see journal 2026-07-22_experiment-*).
+- Immediate next action: package Qwen2.5-7B-larosa (config sparse_level 0.25,
+  copy configuration_qwen2.py + modeling_qwen2_larosa.py, set absolute Q_path to
+  ~/workspace/models/qwen25_7b_larosa_Q) and run lm_eval 6 tasks vs README §5.
+- Context: (1) rotation matrices (D.pt) for all 3 models already exist under
+  ~/workspace/models/*_larosa_Q/histograms/ — do NOT rerun gen_act; its pass 2
+  OOMs on 40GB and is unnecessary (eval loads only pass-1 D.pt — see gist Dead
+  Ends). (2) The eval model reuses the attn Q for mlp; sparsity is a runtime
+  config (α baked in: h1=0.8p, h2=1.2p). (3) Infra fixes this session live in
+  QCom (dispatcher PCI_BUS_ID + subshell placement fix) and conda env larosa
+  (flash-attn pinned 2.7.4.post1) — QCom commits are local-only, not pushed.
