@@ -64,7 +64,7 @@ if __name__ == "__main__":
 
     config = transformers.AutoConfig.from_pretrained(args.model_name, trust_remote_code=True)
     config.use_cache = False
-    config._attn_implementation = "flash_attention_2"
+    config._attn_implementation = oracle_mlp.best_attn_impl()
     config.torch_dtype = "bfloat16"
     config.sparse_mode = "oracle"
     config.oracle_condition = args.condition

@@ -23,6 +23,19 @@ import torch
 CONDITIONS = ("dense", "c1", "c2", "c3", "c4", "c5")
 
 
+def best_attn_impl():
+    """flash_attention_2 where available, else sdpa (CUDA) / eager (CPU).
+    PPL impact of the backend is far inside pipeline noise; cross-condition
+    comparisons always run within a single backend."""
+    if not torch.cuda.is_available():
+        return "eager"
+    try:
+        import flash_attn  # noqa: F401
+        return "flash_attention_2"
+    except ImportError:
+        return "sdpa"
+
+
 def iter_mlps(model):
     for layer_idx, layer in enumerate(model.model.layers):
         yield layer_idx, layer.mlp
