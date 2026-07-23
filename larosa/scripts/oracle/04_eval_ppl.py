@@ -45,7 +45,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--model_name", type=str, required=True)
     ap.add_argument("--condition", type=str, required=True, choices=list(oracle_mlp.CONDITIONS))
-    ap.add_argument("--p", type=float, default=1.0, help="top-p knob (ignored for dense)")
+    ap.add_argument("--select", type=str, default="topp", choices=["topp", "topk"],
+                    help="topp: spec cumulative-mass knob; topk: exact sparsity s "
+                         "(K=int((1-s)*d), matches the larosa topk_intermediate setup)")
+    ap.add_argument("--p", type=float, default=1.0, help="top-p knob (select=topp)")
+    ap.add_argument("--s", type=float, default=0.0, help="exact sparsity (select=topk)")
     ap.add_argument("--rank", type=int, default=512, help="C4 compensation rank (record only)")
     ap.add_argument("--stats_dir", type=str, default=None, help="required for c3/c4/c5")
     ap.add_argument("--factors_dir", type=str, default=None, help="required for c4")
@@ -64,7 +68,9 @@ if __name__ == "__main__":
     config.torch_dtype = "bfloat16"
     config.sparse_mode = "oracle"
     config.oracle_condition = args.condition
+    config.oracle_select = args.select
     config.oracle_p = args.p
+    config.oracle_s = args.s
     config.oracle_exclude_layers = args.exclude_layers
 
     model = LlamaForCausalLM.from_pretrained(
@@ -79,12 +85,14 @@ if __name__ == "__main__":
         oracle_mlp.load_stats(model, args.stats_dir)
     if args.condition == "c4":
         oracle_mlp.load_factors(model, args.factors_dir)
-    oracle_mlp.set_condition(model, args.condition, args.p, exclude_layers=args.exclude_layers)
+    oracle_mlp.set_condition(model, args.condition, p=args.p, select=args.select,
+                             s=args.s, exclude_layers=args.exclude_layers)
 
     dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
 
+    knob = f"s={args.s}" if args.select == "topk" else f"p={args.p}"
     print("=" * 40)
-    print(f"oracle condition={args.condition} p={args.p} rank={args.rank}")
+    print(f"oracle condition={args.condition} select={args.select} {knob} rank={args.rank}")
     with torch.no_grad():
         ppl = eval_ppl_wikitext_with_inference_sparsity(
             model, tokenizer, device="cuda", dataset=dataset, debug=False)
@@ -97,7 +105,9 @@ if __name__ == "__main__":
     result = {
         "model_name": args.model_name,
         "condition": args.condition,
-        "p": args.p,
+        "select": args.select,
+        "s": args.s if args.select == "topk" else None,
+        "p": args.p if args.select == "topp" else None,
         "rank": args.rank if args.condition == "c4" else None,
         "ppl": ppl,
         "achieved_sparsity_mean": mean_sp,

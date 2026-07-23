@@ -29,8 +29,26 @@ def iter_mlps(model):
 
 
 # ---------------------------------------------------------------------------
-# top-p mask
+# selection masks: top-p (spec default) and top-K (exact-s, matches the
+# larosa topk_intermediate experiment's semantics)
 # ---------------------------------------------------------------------------
+
+def top_k_mask(score, s):
+    """Per-token top-K mask over the last dim with K = int((1-s)*d).
+
+    Same K formula and tie handling (>= kth value keeps ties) as top_k_new in
+    modeling_llama_larosa.py, so C1 under top-K selection reproduces the
+    topk_intermediate experiment exactly. Returns a bool mask.
+    """
+    d = score.shape[-1]
+    k = int((1.0 - s) * d)
+    if k >= d:
+        return torch.ones_like(score, dtype=torch.bool)
+    if k <= 0:
+        return torch.zeros_like(score, dtype=torch.bool)
+    kth = torch.topk(score.float(), k, dim=-1).values[..., -1:]
+    return score.float() >= kth
+
 
 def top_p_mask(score, p, chunk=8192):
     """Per-token top-p mask over the last dim.
@@ -87,7 +105,10 @@ def oracle_mlp_forward(mlp, x):
     else:
         raise ValueError(f"unknown oracle condition {cond!r}")
 
-    m_bool = top_p_mask(score, mlp.oracle_p)
+    if getattr(mlp, "oracle_select", "topp") == "topk":
+        m_bool = top_k_mask(score, mlp.oracle_s)
+    else:
+        m_bool = top_p_mask(score, mlp.oracle_p)
     achieved = 1.0 - m_bool.float().mean().item()
     mlp.infer_sparsity_h1 = 0.0
     mlp.infer_sparsity_h2 = achieved
@@ -227,11 +248,16 @@ def attach_factors_inplace(model, rank):
 # run configuration
 # ---------------------------------------------------------------------------
 
-def set_condition(model, condition, p, exclude_layers=()):
+def set_condition(model, condition, p=1.0, select="topp", s=0.0, exclude_layers=()):
+    """select='topp' uses the spec's cumulative-mass knob p; select='topk'
+    enforces exact sparsity s per token (K = int((1-s)*d), larosa semantics)."""
     assert condition in CONDITIONS, condition
+    assert select in ("topp", "topk"), select
     for layer_idx, mlp in iter_mlps(model):
         mlp.oracle_condition = condition
+        mlp.oracle_select = select
         mlp.oracle_p = p
+        mlp.oracle_s = s
         mlp.oracle_layer_dense = layer_idx in exclude_layers
         mlp.oracle_sp_sum = 0.0
         mlp.oracle_sp_cnt = 0

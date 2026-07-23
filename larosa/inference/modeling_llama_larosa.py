@@ -827,7 +827,9 @@ class LlamaDecoderLayer(nn.Module):
             # after from_pretrained (weights must be loaded first) via
             # oracle_mlp.{load_stats, attach_col_norms, load_factors}.
             self.mlp.oracle_condition = getattr(config, 'oracle_condition', 'dense')
+            self.mlp.oracle_select = getattr(config, 'oracle_select', 'topp')
             self.mlp.oracle_p = getattr(config, 'oracle_p', 1.0)
+            self.mlp.oracle_s = getattr(config, 'oracle_s', 0.0)
             self.mlp.oracle_layer_dense = layer_idx in getattr(config, 'oracle_exclude_layers', [])
             self.mlp.oracle_stats_mode = False
         else:

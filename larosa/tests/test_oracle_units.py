@@ -109,6 +109,35 @@ def test_3_rank_diagnostic(model):
               f"||(M_hat-M)x|| = {norm:.4e} (algebra residual {err.abs().max().item():.2e})")
 
 
+def test_5_topk_select(model, ids):
+    # (a) exact-sparsity semantics: measured sparsity == s for distinct scores
+    torch.manual_seed(3)
+    score = torch.rand(64, D)
+    for s in (0.5, 0.7, 0.9):
+        m = oracle_mlp.top_k_mask(score, s)
+        got = 1.0 - m.float().mean().item()
+        want = 1.0 - int((1 - s) * D) / D
+        assert abs(got - want) < 1e-6, (s, got, want)
+    # (b) C1 under top-K reproduces the topk_intermediate path bitwise
+    from inference.modeling_llama_larosa import top_k_new
+    _, mlp = next(oracle_mlp.iter_mlps(model))
+    x = torch.randn(1, 16, H)
+    oracle_mlp.set_condition(model, "c1", select="topk", s=0.7)
+    with torch.no_grad():
+        y_oracle = oracle_mlp.oracle_mlp_forward(mlp, x)
+        i = mlp.act_fn(mlp.gate_proj(x)) * mlp.up_proj(x)
+        y_ref = mlp.down_proj(top_k_new(i, 0.7))
+    assert torch.equal(y_oracle, y_ref), \
+        f"c1-topk vs topk_intermediate: max diff {(y_oracle - y_ref).abs().max().item()}"
+    # (c) s=0 identity for the compensated condition
+    oracle_mlp.set_condition(model, "c3", select="topk", s=0.0)
+    y = logits(model, ids)
+    oracle_mlp.set_condition(model, "dense")
+    diff = (y - logits(model, ids)).abs().max().item()
+    assert diff < 1e-3, f"c3 topk s=0 vs dense: max diff {diff}"
+    print("PASS top-K selection: exact sparsity, C1==topk_intermediate (bitwise), s=0 identity")
+
+
 def test_4_mask_vs_slice(model):
     _, mlp = next(oracle_mlp.iter_mlps(model))
     torch.manual_seed(2)
@@ -136,4 +165,5 @@ if __name__ == "__main__":
     test_2_c4_full_rank(model, ids)
     test_3_rank_diagnostic(model)
     test_4_mask_vs_slice(model)
+    test_5_topk_select(model, ids)
     print("ALL ORACLE UNIT TESTS PASSED")
