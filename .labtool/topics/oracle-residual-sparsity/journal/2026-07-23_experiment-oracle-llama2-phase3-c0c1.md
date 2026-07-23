@@ -1,6 +1,6 @@
 # Experiment: oracle-llama2-phase3-c0c1
 
-Status: PENDING
+Status: DONE (2026-07-24)
 Date: 2026-07-23
 
 ## Hypothesis tested
@@ -50,7 +50,21 @@ eval-loop integration.
   (conda env larosa)
 
 ### Results
-(pending)
+Attempt 2 (050-20260724-014928) failed fast: LlamaSdpaAttention lacked
+infer_sparsity_h1/h2 attrs (only the flash path set them) -> AttributeError in
+the eval loop. Fixed by initializing both attrs in LlamaAttention.__init__
+(commit 36b39ee). Attempt 3 (050-20260724-021237) completed in 108 min on
+a6000-2 GPU0 (sdpa, venv).
+
+GATE PASSED — anchors reproduced to 4 decimals despite A100->A6000 and
+flash->sdpa changes:
+- dense 5.4738 (anchor 5.4736, Δ +0.0002)
+- C1 s=0.5: 5.5216 (5.5210, Δ +0.0006), sp 0.4992
+- C1 s=0.7: 5.7284 (5.7296, Δ −0.0012), sp 0.6991
+- C1 s=0.9: 8.1096 (8.1083, Δ +0.0013), sp 0.8995
 
 ### Interpretation
-(pending)
+The oracle code path is experimentally equivalent to the trusted
+topk_intermediate pipeline (max Δ 0.0013 << ±0.1 noise bound), and backend/
+GPU-arch effects are ~1e-3 — C2-C5 deltas larger than that are real signal.
+Phase 4 unblocked; submitted immediately (see phase4 card).

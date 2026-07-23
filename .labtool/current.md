@@ -13,13 +13,11 @@ Focus: oracle-residual-sparsity — Phase 2 DONE, H1 distribution-level GO
 early; r=512 keeps ~55-60% Frobenius energy mid-stack). Next: Phase 3 sweep.
 
 ## Active Jobs
-- `050-20260724-014928-oracle-llama2-phase3-c0c1` — Phase 3 plumbing gate on
-  a6000-2 (venv, sdpa): dense + C1 top-K s={0.5,0.7,0.9}, gate = anchors
-  5.4736 / 5.521/5.730/8.108 within ±0.1.
-- `050-20260724-014836-oracle-llama2-hist` — i/r magnitude histograms on
-  a6000-2 (layers 0/7/16/24/31) for the phase-0 report artifact.
-- NOTE: gateway A100s fully occupied by other members' jobs (~30GB each) →
-  work moved to a6000-2 GPU0; venv at a6000-2:~/workspace/venv-larosa.
+- Phase 4 (4 jobs, serial on a6000-2 GPU0, submitted 2026-07-24 04:04):
+  `oracle-llama2-phase4-c3` → `-c4` → `-c2` → `-c5`, top-K s={0.5,0.7,0.9}.
+  Card: 2026-07-24_experiment-oracle-llama2-phase4-c2c5.md
+- NOTE: gateway A100s occupied by other members' jobs → running on a6000-2;
+  venv at a6000-2:~/workspace/venv-larosa (sdpa backend, no flash-attn).
 
 ## Direction
 New spec (2026-07-22): in the oracle setting, decompose the FFN via the
@@ -41,6 +39,11 @@ compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md
 3. Phase 4: C2–C5 sweeps, one job per condition; main PPL-vs-sparsity table.
 
 ## Latest
+- 2026-07-24: Phase 3 GATE PASSED on a6000-2 — dense 5.4738, C1 5.5216/5.7284/
+  8.1096 (anchors within 0.0013). Oracle path ≡ topk_intermediate. Phase 4
+  (C2-C5) submitted, one job per condition. sdpa-attr fix 36b39ee.
+- 2026-07-23: Histograms DONE — |r| shifted toward 0 vs |i| in all 5 sample
+  layers (med ratio 0.640 at L7 → 0.924 at L31); report artifact updated.
 - 2026-07-23: `oracle-llama2-phase0-calib` DONE — H1 GO at distribution level:
   r above i in 30/32 layers, mean gap +3%p (peak +5%p mid-stack, inverted at
   layers 30-31). ḡ Pearson(c4,wt103) 0.48-0.995 (weak early). r=512 Frobenius

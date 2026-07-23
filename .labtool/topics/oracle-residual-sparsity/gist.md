@@ -57,6 +57,18 @@ No-go if C3 − C2 < 5%p.
 - All sparsification simulated as compute-then-mask (oracle-equivalent).
 
 ## Key Findings
+- **Phase 3 gate passed (2026-07-24)**: oracle path under top-K reproduces the
+  topk_intermediate anchors to 4 decimals on a DIFFERENT GPU (A6000) and
+  attention backend (sdpa) — dense 5.4738 vs 5.4736; C1 5.5216/5.7284/8.1096
+  vs 5.5210/5.7296/8.1083 (max Δ 0.0013). When relevant: backend/arch effects
+  are ~1e-3, so any C2–C5 delta above ~0.01 PPL is real signal; also the C1
+  row of the main table is done. Journal: 2026-07-23_experiment-...phase3.md
+- **|r| histograms confirm the zero-shift (2026-07-23)**: on 5 sample layers
+  the |r| distribution sits left of |i| — med|r|/med|i| = 0.813/0.640/0.659/
+  0.841/0.924 at layers 0/7/16/24/31; shift largest exactly where the induced-
+  sparsity gap peaks, gone by layer 31. When relevant: layer-selective
+  application (exclude late layers) is the natural refinement if C3/C4 gains
+  are diluted. Data: a6000-2 ~/workspace/oracle/llama2-7b/phase0/histograms.json
 - **Phase-0 distribution report, LLaMA2-7B (2026-07-23): H1 go with caveats.**
   Residual r = u⊙(g−ḡ) is more top-p-concentrated than i in 30/32 layers;
   mean induced-sparsity gap ≈ +3%p (p=0.7→0.9), peaking +5%p mid-stack
@@ -107,9 +119,8 @@ No-go if C3 − C2 < 5%p.
    C3/C4 underperform, variant with exclude_layers=[30,31].
 
 ## Active Jobs
-- `050-20260723-234944-oracle-llama2-phase3-c0c1` — Phase 3 gate (dense + C1
-  top-K). Journal: 2026-07-23_experiment-oracle-llama2-phase3-c0c1.md
-- `050-20260723-234448-oracle-llama2-hist` — i/r histograms for the report.
+- Phase 4: `oracle-llama2-phase4-{c3,c4,c2,c5}` serial on a6000-2 GPU0.
+  Journal: 2026-07-24_experiment-oracle-llama2-phase4-c2c5.md
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:
