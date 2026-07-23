@@ -12,6 +12,12 @@ LLaMA3-8B 6.13 → 6.23 / 6.60 / 7.22; Qwen2.5-7B 6.85 → 6.90 / 7.10 / 7.42.
 lm_eval accuracy table for Qwen2.5-7B-larosa at sparse_level 0.25.
 
 ## Key Findings
+- **Baseline reproduction (2026-07-22)**: paper Table 2 wikitext-2 PPL reproduced
+  on all 3 models — LLaMA2-7B, LLaMA3-8B, Qwen2.5-7B — 12/12 points within ±0.1
+  (max |Δ| 0.089); 10-seq calibration (vs paper's 16) sufficient.
+  When relevant: any future LaRoSa-based experiment can trust this pipeline as
+  its dense/sparse baseline; deviations beyond ~0.1 PPL signal a real change,
+  not reproduction noise. Journals: 2026-07-22_experiment-larosa-{llama2-7b,llama3-8b,qwen25-7b}-ppl.md
 - PPL reproduction needs no model packaging: `scripts/ppl_test_larosa_*.py` takes
   `--sparsity` and `--larosa_path` at runtime (packaging only matters for lm_eval).
 - Sparsity 0.0 keeps everything in `top_k_new` → usable as a dense-equivalence

@@ -54,3 +54,6 @@ Note: the qwen script prints "Larosa PPL" and uses eval_ppl_wikitext
 All four points within +-0.1 (max |delta| = 0.050). Success criterion met.
 
 ### Interpretation
+(User, 2026-07-22) Hypothesis confirmed — reproduction succeeded on all models.
+Together with LLaMA2-7B this completes the 3-model baseline reproduction; the
+public code and our PPL pipeline are trusted as the baseline for further work.
