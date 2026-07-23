@@ -8,16 +8,15 @@
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 
 ## This Session
-Focus: oracle-residual-sparsity — Phase 2 DONE, H1 distribution-level GO
-(+3%p mean induced-sparsity gap, inverted in layers 30-31; ḡ corpus-noisy
-early; r=512 keeps ~55-60% Frobenius energy mid-stack). Next: Phase 3 sweep.
+Focus: oracle-residual-sparsity — ALL PHASES DONE. Main table complete:
+H1 confirmed (C3 cuts s=0.9 degradation 56%, PPL 8.110→6.638), H2 rejected,
+H3 partial-go (C4 r=512 collapses; needs bigger r). Verdict: PARTIAL-GO.
+Next decision: C4 rank sweep (r=1024/2048) — proposed, not yet submitted.
 
 ## Active Jobs
-- Phase 4 (4 jobs, serial on a6000-2 GPU0, submitted 2026-07-24 04:04):
-  `oracle-llama2-phase4-c3` → `-c4` → `-c2` → `-c5`, top-K s={0.5,0.7,0.9}.
-  Card: 2026-07-24_experiment-oracle-llama2-phase4-c2c5.md
-- NOTE: gateway A100s occupied by other members' jobs → running on a6000-2;
-  venv at a6000-2:~/workspace/venv-larosa (sdpa backend, no flash-attn).
+- (none)
+- NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
+  sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 
 ## Direction
 New spec (2026-07-22): in the oracle setting, decompose the FFN via the
@@ -39,6 +38,10 @@ compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md
 3. Phase 4: C2–C5 sweeps, one job per condition; main PPL-vs-sparsity table.
 
 ## Latest
+- 2026-07-24: PHASE 4 DONE — main table: C3 ΔPPL +0.031/+0.155/+1.164 vs C1
+  +0.048/+0.255/+2.636 at s=0.5/0.7/0.9 (H1 confirmed, −56% at 0.9). C2
+  worse than C1 (H2 rejected). C4 r=512 below C1 everywhere (H3 partial-go,
+  rank problem). C5 < C3. Spec §8: PARTIAL-GO. Next: C4 rank sweep proposal.
 - 2026-07-24: Phase 3 GATE PASSED on a6000-2 — dense 5.4738, C1 5.5216/5.7284/
   8.1096 (anchors within 0.0013). Oracle path ≡ topk_intermediate. Phase 4
   (C2-C5) submitted, one job per condition. sdpa-attr fix 36b39ee.

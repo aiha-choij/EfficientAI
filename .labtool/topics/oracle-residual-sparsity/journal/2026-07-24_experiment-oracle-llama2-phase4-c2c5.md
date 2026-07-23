@@ -1,6 +1,6 @@
 # Experiment: oracle-llama2-phase4-c2c5 (4 jobs, one per condition)
 
-Status: PENDING
+Status: DONE (2026-07-24)
 Date: 2026-07-24
 
 ## Hypothesis tested
@@ -53,7 +53,48 @@ condition sees the identical calibration constants.
 - Eval: wikitext-2 test, eval_ppl_wikitext_with_inference_sparsity, ctx 2048
 
 ### Results
-(pending)
+All 4 jobs completed 2026-07-24 04:06-04:25 (runs ~2-3 min each on A6000;
+the long ELAPSED numbers in `runs` include queue wait). Achieved sparsity ==
+s (±0.0001) in every run. Full JSONs: a6000-2
+~/workspace/oracle/llama2-7b/results/ (mirrored to gateway).
+
+Main table — wikitext-2 PPL (dense 5.4738):
+
+| s   | C1     | C2     | C3     | C4(r512) | C5     |
+|-----|--------|--------|--------|----------|--------|
+| 0.5 | 5.5216 | 5.5210 | 5.5051 | 6.2537   | 5.5144 |
+| 0.7 | 5.7284 | 5.7611 | 5.6283 | 6.5563   | 5.6665 |
+| 0.9 | 8.1096 | 8.2759 | 6.6381 | 8.7638   | 6.8889 |
+
+ΔPPL vs dense:
+
+| s   | C1      | C2      | C3      | C4      | C5      |
+|-----|---------|---------|---------|---------|---------|
+| 0.5 | +0.0477 | +0.0472 | +0.0313 | +0.7798 | +0.0405 |
+| 0.7 | +0.2546 | +0.2873 | +0.1545 | +1.0825 | +0.1927 |
+| 0.9 | +2.6358 | +2.8021 | +1.1643 | +3.2900 | +1.4151 |
 
 ### Interpretation
-(pending)
+Spec §8 verdict: **PARTIAL-GO** (C3 wins decisively; C4 collapses on rank).
+
+- **H1 CONFIRMED (primary result)**: exact mean-gate compensation (C3) cuts
+  the degradation vs C1 at every matched s — by 34% at s=0.5, 39% at 0.7,
+  and **56% at s=0.9** (+2.636 → +1.164; PPL 8.110 → 6.638). The residual
+  decomposition is worth ~1.5 PPL at 90% sparsity on the accuracy axis.
+- **H2 REJECTED**: C2 (|i|·col_norm score, no compensation) ≈ C1 at s=0.5 and
+  WORSE at 0.7/0.9 (+0.287/+2.802 vs +0.255/+2.636). So C3's gain comes from
+  the compensation term, not from the score correction — col_norm weighting
+  alone mis-ranks neurons at high s.
+- **H3 FAILED at r=512**: C4 is worse than even C1 everywhere. The rank-512
+  error of M̂ adds +0.78 PPL already at s=0.5 (where the tail term is small),
+  exactly what the Phase-0 Frobenius flag (54-60% energy mid-stack)
+  predicted. C4−C3 gap: 0.75/0.93/2.13 at s=0.5/0.7/0.9.
+- **C5 (ḡ*) loses to C3 (ḡ)** consistently (+0.041/+0.193/+1.415 vs
+  +0.031/+0.155/+1.164): the u²-weighted mean is a worse tail constant than
+  the plain mean here.
+
+Levers for the C4 rank problem (next): raise r (r=1024 → compute overhead
+2r/3d ≈ 6.2%, r=2048 ≈ 12.4%; SVD factors are cheap to rebuild), and/or
+exclude_layers=[30,31]-style layer selection — but note the energy deficit is
+MID-stack, so bigger r is the primary lever; layer-selective compensation
+(dense late layers) is secondary.

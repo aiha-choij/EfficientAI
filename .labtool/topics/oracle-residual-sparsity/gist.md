@@ -57,6 +57,19 @@ No-go if C3 − C2 < 5%p.
 - All sparsification simulated as compute-then-mask (oracle-equivalent).
 
 ## Key Findings
+- **[MAIN] Phase 4 table (2026-07-24): H1 confirmed, H2 rejected, H3
+  partial-go.** LLaMA2-7B, top-K matched s, wikitext-2 PPL (dense 5.4738):
+  C3 (residual score + exact mean-gate compensation) cuts C1's degradation by
+  34/39/56% at s=0.5/0.7/0.9 — s=0.9 PPL 8.110 → 6.638 (ΔPPL +2.636 →
+  +1.164). C2 (col_norm score only) ≈ C1 at 0.5, worse at 0.7/0.9 → the gain
+  is ALL from compensation, not the score. C4 (rank-512) collapses below C1
+  everywhere (+0.78 PPL comp error already at s=0.5) — the mid-stack
+  Frobenius deficit bites, exactly as Phase 0 flagged. C5 (ḡ*) consistently
+  a bit worse than C3's plain ḡ.
+  When relevant: (a) the deployable form needs bigger r — r=1024 costs ~6.2%
+  compute (2r/3d), r=2048 ~12.4%; (b) don't bother with col_norm-only or
+  ḡ* variants going forward.
+  Journal: 2026-07-24_experiment-oracle-llama2-phase4-c2c5.md
 - **Phase 3 gate passed (2026-07-24)**: oracle path under top-K reproduces the
   topk_intermediate anchors to 4 decimals on a DIFFERENT GPU (A6000) and
   attention backend (sdpa) — dense 5.4738 vs 5.4736; C1 5.5216/5.7284/8.1096
@@ -106,21 +119,18 @@ No-go if C3 − C2 < 5%p.
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments
-1. **Phase 3 — dense + C1 top-K sweep (LLaMA2-7B)**: oracle_ppl_sweep.sh
-   (SELECT=topk) dense + c1 over s grid ×9. Sanity gate: C1 at s=0.5/0.7/0.9
-   must REPRODUCE the topk_intermediate anchors (5.521/5.730/8.108) —
-   selection is now bitwise-identical, so any deviation is pipeline noise
-   only (~±0.1 at most, likely exact).
-2. **Phase 4 — C2–C5 top-K sweep (LLaMA2-7B)**: one job per condition (c2,
-   c3, c5; c4 with r=512, stats/factors already built). Primary readout:
-   **ΔPPL(C3) vs ΔPPL(C1) at equal s** — how much does mean-gate
-   compensation buy at matched compute. Then C4−C3 (H3), C2−C1 (H2). If
-   C3/C4 underperform, variant with exclude_layers=[30,31].
+## Next Experiments (candidates — discuss before submitting)
+1. **C4 rank sweep**: rebuild factors at r ∈ {1024, 2048} (03_build_M, cheap)
+   and rerun C4 at s={0.5,0.7,0.9}. Question: at what r does C4 approach C3?
+   Compute overhead 2r/3d: 6.2% / 12.4%. This is the H3 make-or-break.
+2. **Layer-selective compensation**: C3/C4 with exclude_layers=[30,31] (late
+   layers dense) — secondary lever; Phase-0 says the r-vs-i advantage dies
+   there anyway.
+3. (later) generalize to LLaMA3-8B / other family once the deployable form
+   (C4 at some r) is settled.
 
 ## Active Jobs
-- Phase 4: `oracle-llama2-phase4-{c3,c4,c2,c5}` serial on a6000-2 GPU0.
-  Journal: 2026-07-24_experiment-oracle-llama2-phase4-c2c5.md
+- (none)
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:
