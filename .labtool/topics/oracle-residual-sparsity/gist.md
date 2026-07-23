@@ -39,7 +39,8 @@ No-go if C3 − C2 < 5%p.
   equal s is the primary readout** (matched per-token compute; no achieved-
   sparsity interpolation). The spec's top-p mask stays implemented
   (select=topp) for spec-faithful runs; unit test pins C1-topk ==
-  topk_intermediate bitwise. s grid: 0.5–0.95 (9 points).
+  topk_intermediate bitwise. s grid: {0.5, 0.7, 0.9} only (user, 2026-07-23 —
+  match the existing Top-K experiment's levels exactly).
 - **Scope narrowed (user, 2026-07-22)**: LLaMA2-7B ONLY (h=4096, d=11008), to
   compare directly against the larosa Top-K results; evaluation is the SAME
   wikitext-2 PPL pipeline (`eval_ppl_wikitext_with_inference_sparsity`) — no
