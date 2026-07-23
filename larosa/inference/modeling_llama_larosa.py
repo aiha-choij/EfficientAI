@@ -48,9 +48,13 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from .configuration_llama import LlamaConfig
+from .oracle_mlp import oracle_mlp_forward
 
 
 logger = logging.get_logger(__name__)
+
+# Modes in which attention is fully dense and the MLP alone is modified.
+DENSE_ATTN_MODES = ("topk_intermediate", "oracle")
 
 _CONFIG_FOR_DOC = "LlamaConfig"
 
@@ -330,6 +334,10 @@ class LlamaMLP(nn.Module):
                 F.linear(intermediate_states[i], down_proj_slices[i]) for i in range(self.config.pretraining_tp)
             ]
             down_proj = sum(down_proj)
+        elif getattr(self, "sparse_mode", "larosa") == "oracle":
+            # Oracle conditions C0-C5 (top-p on i or on the mean-gate residual,
+            # with optional compensation); see inference/oracle_mlp.py.
+            down_proj = oracle_mlp_forward(self, x)
         elif getattr(self, "sparse_mode", "larosa") == "topk_intermediate":
             # Intermediate-only mode: dense gate/up on the original-basis x,
             # per-token magnitude Top-K on i = u * g before down_proj.
@@ -446,8 +454,8 @@ class LlamaAttention(nn.Module):
             value_states = [F.linear(hidden_states, value_slices[i]) for i in range(self.config.pretraining_tp)]
             value_states = torch.cat(value_states, dim=-1)
 
-        elif getattr(self, "sparse_mode", "larosa") == "topk_intermediate":
-            # attention stays fully dense in this mode
+        elif getattr(self, "sparse_mode", "larosa") in DENSE_ATTN_MODES:
+            # attention stays fully dense in these modes
             query_states = self.q_proj(hidden_states)
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
@@ -557,7 +565,7 @@ class LlamaFlashAttention2(LlamaAttention):
 
         bsz, q_len, _ = hidden_states.size()
 
-        dense_attn = getattr(self, "sparse_mode", "larosa") == "topk_intermediate"
+        dense_attn = getattr(self, "sparse_mode", "larosa") in DENSE_ATTN_MODES
         if not dense_attn:
             rot_x = torch.matmul(hidden_states.double(), self.Q.to(hidden_states.device))
             tmp_x = top_k_new(rot_x, self.sparse_level_h1)
@@ -698,7 +706,7 @@ class LlamaSdpaAttention(LlamaAttention):
 
         bsz, q_len, _ = hidden_states.size()
 
-        dense_attn = getattr(self, "sparse_mode", "larosa") == "topk_intermediate"
+        dense_attn = getattr(self, "sparse_mode", "larosa") in DENSE_ATTN_MODES
         if dense_attn:
             top_k_hidden_states = hidden_states
         else:
@@ -813,6 +821,15 @@ class LlamaDecoderLayer(nn.Module):
             # No rotation matrices; only the FFN intermediate i is sparsified,
             # at exactly config.sparse_level (no 0.8/1.2 h1/h2 split).
             self.mlp.sparse_level_h2 = config.sparse_level
+        elif self.sparse_mode == 'oracle':
+            # No rotation matrices. Condition/p come from the config; the
+            # calibration stats, column norms and C4 factors are attached
+            # after from_pretrained (weights must be loaded first) via
+            # oracle_mlp.{load_stats, attach_col_norms, load_factors}.
+            self.mlp.oracle_condition = getattr(config, 'oracle_condition', 'dense')
+            self.mlp.oracle_p = getattr(config, 'oracle_p', 1.0)
+            self.mlp.oracle_layer_dense = layer_idx in getattr(config, 'oracle_exclude_layers', [])
+            self.mlp.oracle_stats_mode = False
         else:
             self.Q_path = config.Q_path
             self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
