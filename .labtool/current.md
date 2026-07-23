@@ -8,15 +8,12 @@
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 
 ## This Session
-Focus: oracle-residual-sparsity — pivot recorded; scope narrowed to LLaMA2-7B
-+ wikitext-2 PPL + C4 r=512 only (user). Phase 1 DONE: oracle mode implemented,
-all 4 unit tests pass on CPU. Next: Phase-2 calibration job.
+Focus: oracle-residual-sparsity — Phase 2 DONE, H1 distribution-level GO
+(+3%p mean induced-sparsity gap, inverted in layers 30-31; ḡ corpus-noisy
+early; r=512 keeps ~55-60% Frobenius energy mid-stack). Next: Phase 3 sweep.
 
 ## Active Jobs
-- `050-20260723-155254-oracle-llama2-phase0-calib` — Phase 2: calibration
-  (wikitext103 + c4) + phase-0 i-vs-r report + M factors r=512, LLaMA2-7B,
-  a100-40-2. Card: topics/oracle-residual-sparsity/journal/
-  2026-07-22_experiment-oracle-llama2-phase0-calib.md
+- (none)
 
 ## Direction
 New spec (2026-07-22): in the oracle setting, decompose the FFN via the
@@ -38,6 +35,10 @@ compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md
 3. Phase 4: C2–C5 sweeps, one job per condition; main PPL-vs-sparsity table.
 
 ## Latest
+- 2026-07-23: `oracle-llama2-phase0-calib` DONE — H1 GO at distribution level:
+  r above i in 30/32 layers, mean gap +3%p (peak +5%p mid-stack, inverted at
+  layers 30-31). ḡ Pearson(c4,wt103) 0.48-0.995 (weak early). r=512 Frobenius
+  energy 0.54-0.985. c4 streaming worked; primary stats = c4.
 - 2026-07-22: `oracle-llama2-phase0-calib` submitted (050-20260723-155254,
   tag exp/2026-07-22_oracle-llama2-phase0-calib, pinned a100-40-2) — Phase 2:
   two-corpus calibration + phase-0 i-vs-r report (H1 go/no-go) + M r=512.
@@ -48,18 +49,9 @@ compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md
 - 2026-07-22: PIVOT — larosa-intermediate-sparsity closed (done; hypothesis
   confirmed on LLaMA2-7B, 3-model ext moved to backlog). New topic
   oracle-residual-sparsity: mean-gate residual decomposition + rank-r
-  compensation, oracle top-p, C0–C6, lm-eval critical sparsity. Spec preserved
-  verbatim; no R-Sparse fork (implement standalone in EfficientAI).
-- 2026-07-22: `larosa-llama2-topk-int-ppl` DONE — gates pass (s=0 ≡ 5.47356,
-  sparsity of i ≈ s); PPL 5.521/5.730/8.108 at s=50/70/90. Intermediate 70%
-  beats input-mode 50%. Hypothesis confirmed on LLaMA2-7B.
-- 2026-07-22: `topk_intermediate` implemented (40edf40) — config.sparse_mode flag,
-  MLP Top-K on i, dense attention, no Q loading; CPU tiny-model tests: s=0
-  bitwise-identical to vanilla HF (llama+qwen), measured sparsity == s.
-- 2026-07-22: PIVOT — larosa-repro closed (done); new topic
-  larosa-intermediate-sparsity: FFN intermediate Top-K, no rotation, s=50/70/90.
-- 2026-07-22: llama3-8b + qwen25-7b PPL DONE — all 12 points across 3 models
-  within ±0.1 of paper Table 2. Reproduction complete.
+  compensation, oracle top-p. Spec preserved verbatim; no R-Sparse fork.
+- 2026-07-22: `larosa-llama2-topk-int-ppl` DONE — PPL 5.521/5.730/8.108 at
+  s=50/70/90 (dense 5.4736). Intermediate 70% beats input-mode 50%.
 
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read its gist.md first, then spec.md

@@ -49,6 +49,17 @@ No-go if C3 − C2 < 5%p.
 - All sparsification simulated as compute-then-mask (oracle-equivalent).
 
 ## Key Findings
+- **Phase-0 distribution report, LLaMA2-7B (2026-07-23): H1 go with caveats.**
+  Residual r = u⊙(g−ḡ) is more top-p-concentrated than i in 30/32 layers;
+  mean induced-sparsity gap ≈ +3%p (p=0.7→0.9), peaking +5%p mid-stack
+  (layers 6–18) and INVERTING in layers 30–31 (−0.2/−2.6%p). ḡ corpus
+  stability is weak early (c4↔wikitext103 Pearson 0.48–0.53 at layers 2–4,
+  ~0.9 mid-stack). M is not strongly low-rank mid-stack: r=512 retains only
+  0.54–0.60 of Frobenius energy (layers 4–17), vs 0.94–0.985 at layers 30–31.
+  When relevant: (a) if C3/C4 underperform, try exclude_layers=[30,31];
+  (b) C4-vs-C3 gap is the H3 signal — the heavy singular tail predicts risk;
+  (c) early-layer C3/C5 results carry calibration-corpus noise.
+  Journal: 2026-07-22_experiment-oracle-llama2-phase0-calib.md
 - **Phase 1 complete (2026-07-22)**: oracle conditions implemented as
   `sparse_mode='oracle'` in the existing modeling file
   (`inference/oracle_mlp.py` + small hooks in modeling_llama_larosa.py);
@@ -76,23 +87,17 @@ No-go if C3 − C2 < 5%p.
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
 ## Next Experiments
-1. **Phase 2 — calibration + Phase-0 distribution report (LLaMA2-7B)**: one
-   GPU job: 01_calibrate (c4-en 512×2048 → stats/c4; wikitext103 → second ḡ),
-   02_distribution_report (i vs r induced-sparsity curves, Hoyer/kurtosis,
-   CV², ḡ Pearson), 03_build_M (r=512 factors). Gate: **r curve above i curve
-   = go for H1**; c4↔wikitext ḡ Pearson high across layers.
-2. **Phase 3 — C1 + dense sweep (LLaMA2-7B)**: oracle_ppl_sweep.sh dense + c1
+1. **Phase 3 — dense + C1 sweep (LLaMA2-7B)**: oracle_ppl_sweep.sh dense + c1
    over p grid ×11, wikitext-2 PPL. Sanity: C1's PPL-vs-achieved-sparsity
-   curve should track the Top-K anchor points (same score family, top-p vs
-   top-k selection).
-3. **Phase 4 — C2–C5 sweep (LLaMA2-7B)**: one job per condition (c2, c3, c5;
-   c4 with r=512). Main table: PPL vs achieved sparsity per condition;
-   judgment per spec §8 mapped to ΔPPL (see Open Questions).
+   curve should track the Top-K anchor points (5.521/5.730/8.108 at
+   s=50/70/90; same score family, top-p vs top-k selection).
+2. **Phase 4 — C2–C5 sweep (LLaMA2-7B)**: one job per condition (c2, c3, c5;
+   c4 with r=512, stats/factors already built). Main table: PPL vs achieved
+   sparsity; judgment per spec §8 mapped to ΔPPL. If C3/C4 underperform,
+   variant with exclude_layers=[30,31] (Phase-0 inversion layers).
 
 ## Active Jobs
-- `050-20260723-155254-oracle-llama2-phase0-calib` (a100-40-2) — Phase 2
-  calibration + phase-0 report + M factors. Journal:
-  2026-07-22_experiment-oracle-llama2-phase0-calib.md
+- (none)
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:
