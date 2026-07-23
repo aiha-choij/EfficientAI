@@ -14,7 +14,7 @@ within ±0.06 — pipeline validated. Env fixes from that run apply (flash-attn
 
 ## Reproducibility
 - **Git tag**: `exp/2026-07-22_larosa-llama3-8b-ppl` (commit 17043d5)
-- **Job ID**: `20260723-085136-larosa-llama3-8b-ppl` (2nd attempt; see Notes)
+- **Job ID**: `20260723-101220-larosa-llama3-8b-ppl` (3rd attempt; see Notes)
 - **Assigned host/GPU**: a100-40-2, GPU 0 (PCI)
 - **Command**: `bash scripts/repro_ppl.sh llama /raid/LLM/llama3-8b ~/workspace/models/llama3_8b_larosa_Q` (cwd `~/workspace/repos/EfficientAI/larosa`)
 - **Config path**: n/a — script args; sparsity is a runtime arg
@@ -27,6 +27,11 @@ within ±0.06 — pipeline validated. Env fixes from that run apply (flash-attn
   this job and the qwen job on the same GPU 0 (probe saw the GPU free before the
   first process allocated memory) -> OOM. Fixed in QCom dispatcher: RECENT
   grace-period reservation (GRACE_SEC=180).
+- Attempt 2 (`20260723-085136`) failed alone on GPU 0: gen_act pass 2 loads the
+  rotated model on top of residual buffers and OOMs at find_histogram (37.9GB).
+  Finding: the PPL eval model only needs pass-1 D.pt (one per layer, mlp reuses
+  attn Q) — runner now tolerates pass-2 failure when D.pt set is complete.
+  Attempt 3 skips rotation (D.pt already complete) and runs the sweep directly.
 
 ### Results
 

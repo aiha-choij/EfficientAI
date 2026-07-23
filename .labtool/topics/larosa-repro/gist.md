@@ -20,6 +20,11 @@ lm_eval accuracy table for Qwen2.5-7B-larosa at sparse_level 0.25.
   (not grid-searched per model as in the paper).
 
 ## Dead Ends
+- 2026-07-22 — gen_act pass 2 (histogram collection) on 40GB GPUs for
+  LLaMA3-8B/Qwen2.5-7B: OOMs even alone (rotated model + fp64 buffers + full-
+  tensor GPU sort). Not needed for PPL (eval loads only pass-1 D.pt); revisit
+  only if threshold-style (CATS/TEAL) analysis is ever needed — then run on
+  a100-80 or patch find_histogram to sort on CPU.
 - flash-attn 2.8.x PyPI wheels: require GLIBC≥2.32, gateway is Ubuntu 20.04
   (glibc 2.31). Pin the official 2.7.4.post1 cu12torch2.6cxx11abiFALSE wheel.
 
@@ -42,9 +47,9 @@ lm_eval accuracy table for Qwen2.5-7B-larosa at sparse_level 0.25.
    RB-Sparse development evals (see research-wiki r-sparse note).
 
 ## Active Jobs
-- `20260723-085136-larosa-llama3-8b-ppl` @ a100-40-2 — rotation gen + PPL sweep;
+- `20260723-101220-larosa-llama3-8b-ppl` @ a100-40-2 — rotation gen + PPL sweep;
   targets 6.13/6.23/6.60/7.22 ±0.1. Journal: 2026-07-22_experiment-larosa-llama3-8b-ppl.md.
-- `20260723-085240-larosa-qwen25-7b-ppl` @ a100-40-2 — rotation gen + PPL sweep;
+- `20260723-101220-larosa-qwen25-7b-ppl` @ a100-40-2 — rotation gen + PPL sweep;
   targets 6.85/6.90/7.10/7.42 ±0.1. Journal: 2026-07-22_experiment-larosa-qwen25-7b-ppl.md.
 - Gateway agent hourly watch for both: request `20260723-084829-larosa-ppl-repro-watch`.
 

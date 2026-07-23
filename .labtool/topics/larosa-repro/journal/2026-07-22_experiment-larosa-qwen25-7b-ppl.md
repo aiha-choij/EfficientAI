@@ -15,7 +15,7 @@ memory patch (081da28) but is untested until this run.
 
 ## Reproducibility
 - **Git tag**: `exp/2026-07-22_larosa-qwen25-7b-ppl` (commit 17043d5)
-- **Job ID**: `20260723-085240-larosa-qwen25-7b-ppl` (2nd attempt; see Notes)
+- **Job ID**: `20260723-101220-larosa-qwen25-7b-ppl` (3rd attempt; see Notes)
 - **Assigned host/GPU**: a100-40-2, GPU 1 (PCI)
 - **Command**: `bash scripts/repro_ppl.sh qwen ~/workspace/models/Qwen2.5-7B ~/workspace/models/qwen25_7b_larosa_Q` (cwd `~/workspace/repos/EfficientAI/larosa`)
 - **Config path**: n/a — script args; sparsity is a runtime arg
@@ -28,6 +28,9 @@ memory patch (081da28) but is untested until this run.
   (dispatcher cross-cycle race); device_map=auto offloaded to CPU under the
   shared-memory pressure, ballooned to 36GB and OOMed even after the co-tenant
   died. Same dispatcher fix as llama3 attempt 1 (GRACE_SEC reservation).
+- Attempt 2 (`20260723-085240`) failed alone on GPU 1: same pass-2 find_histogram
+  OOM as llama3 (36.0GB; h3/h4 are 18944-dim so histogram sort is larger).
+  Attempt 3 skips rotation (D.pt complete, 28 layers) and runs the sweep directly.
 
 ### Results
 
