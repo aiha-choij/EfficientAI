@@ -34,10 +34,10 @@ arXiv:2509.00454).
 ## Reproducibility
 - **Git tag**: `exp/2026-07-22_larosa-llama2-topk-int-ppl` (repo
   `aiha-choij/EfficientAI`, commit 6e3c91e; mode code in 40edf40)
-- **Job ID**: `20260723-133728-larosa-llama2-topk-int-ppl`
-- **Assigned host/GPU**: a100-40-2 (pinned via -H), GPU [pending dispatch]
+- **Job ID**: `20260723-133910-larosa-llama2-topk-int-ppl` (2nd attempt; see Notes)
+- **Assigned host/GPU**: a100-40-2 (pinned via -H), GPU 1 (PCI index)
 - **Command**: `bash scripts/repro_topk_ppl.sh llama /raid/LLM/llama2-7b`
-  (cwd `~/workspace/repos/EfficientAI/larosa`; qsub `-g 1 -m 30`)
+  (cwd `/home/choij/workspace/repos/EfficientAI/larosa`; qsub `-g 1 -m 30`)
 - **Config path**: n/a — parameters passed as script args; mode/sparsity set
   at runtime via `--mode topk_intermediate --sparsity`
 - **Key parameters**: sparse_mode=topk_intermediate; sweep s=0.0/0.5/0.7/0.9;
@@ -46,6 +46,13 @@ arXiv:2509.00454).
 - **Key deps**: python 3.10, torch 2.6.0+cu124, transformers 4.46.3,
   flash-attn 2.7.4.post1
 - **Model**: `/raid/LLM/llama2-7b` (shared read-only meta-llama/Llama-2-7b-hf)
+
+## Notes (submission history)
+- Attempt 1 (`20260723-133728`) failed at launch: workdir was passed to qsub as
+  a quoted `~/...` path; the tilde stayed literal and the dispatcher's
+  `cd "$workdir"` failed silently, falling back to the rundir where
+  `scripts/repro_topk_ppl.sh` doesn't exist. Resubmitted with the absolute path.
+  Dispatcher-side fix (expand/reject tilde workdirs) flagged as a QCom task.
 
 ### Results
 

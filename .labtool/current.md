@@ -11,7 +11,7 @@ Focus: larosa-intermediate-sparsity — `topk_intermediate` implemented, verifie
 and LLaMA2-7B sweep submitted.
 
 ## Active Jobs
-- `20260723-133728-larosa-llama2-topk-int-ppl` @ a100-40-2 — intermediate Top-K
+- `20260723-133910-larosa-llama2-topk-int-ppl` @ a100-40-2 — intermediate Top-K
   PPL sweep s=0/0.5/0.7/0.9; gates: s=0 ≡ 5.47±0.1, mlp h2 ≈ s, others ≈ 0.
   Journal: topics/larosa-intermediate-sparsity/journal/2026-07-22_experiment-larosa-llama2-topk-int-ppl.md
 
@@ -32,7 +32,7 @@ Qwen2.5-7B. Baseline comparison: dense ΔPPL only.
    ΔPPL table.
 
 ## Latest
-- 2026-07-22: `larosa-llama2-topk-int-ppl` submitted (20260723-133728, tag
+- 2026-07-22: `larosa-llama2-topk-int-ppl` submitted (20260723-133910, tag
   exp/2026-07-22_larosa-llama2-topk-int-ppl, pinned a100-40-2).
 - 2026-07-22: `topk_intermediate` implemented (40edf40) — config.sparse_mode flag,
   MLP Top-K on i, dense attention, no Q loading; CPU tiny-model tests: s=0

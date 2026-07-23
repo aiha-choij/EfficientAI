@@ -80,7 +80,7 @@ mechanism is data-free at setup time.
 - lm_eval accuracy for the new mode (replaces the old-mode packaging task).
 
 ## Active Jobs
-- `20260723-133728-larosa-llama2-topk-int-ppl` @ a100-40-2 — LLaMA2-7B
+- `20260723-133910-larosa-llama2-topk-int-ppl` @ a100-40-2 — LLaMA2-7B
   intermediate Top-K PPL sweep (Next Experiments #1). Journal:
   2026-07-22_experiment-larosa-llama2-topk-int-ppl.md
 
