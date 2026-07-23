@@ -1,7 +1,9 @@
 # larosa-repro — LaRoSa reproduction (arXiv:2507.01299)
 
 ## Status
-active
+done — reproduction goal achieved (12/12 PPL points ±0.1, 3 models).
+Closed 2026-07-22 by pivot to `larosa-intermediate-sparsity`
+(see journal/2026-07-22_pivot-intermediate-topk-sparsity.md).
 
 ## Hypothesis
 The LaRoSa pipeline in `larosa/` (upstream Alibaba Cloud code, forked to
@@ -42,21 +44,13 @@ lm_eval accuracy table for Qwen2.5-7B-larosa at sparse_level 0.25.
   doesn't matter — verify via reproduction quality.
 
 ## Next Experiments
-1. Package Qwen2.5-7B-larosa (sparse_level 0.25) + lm_eval 6-task accuracy vs
-   README table. Why: PPL reproduced on all 3 models; accuracy pipeline is the
-   remaining unvalidated half, and RB-Sparse development evals need it.
-   Success: each task acc within ~1pp of README §5 table.
-2. RB-Sparse development (after 1): rotated-basis block-shared mask +
-   eigenspace low-rank compensation (2026-06-24 discussion; research-wiki
-   r-sparse note). First step: measure cross-token top-k index agreement in
-   the rotated basis using the saved D matrices.
+(closed — superseded by the pivot; see journal/2026-07-22_pivot-intermediate-topk-sparsity.md)
+- lm_eval accuracy packaging (Qwen2.5-7B-larosa 0.25): deprioritized, not
+  orphaned — validated the old input-sparsity mode only.
+- RB-Sparse: carried forward into `larosa-intermediate-sparsity` future work.
 
 ## Active Jobs
-- `20260723-101220-larosa-llama3-8b-ppl` @ a100-40-2 — rotation gen + PPL sweep;
-  targets 6.13/6.23/6.60/7.22 ±0.1. Journal: 2026-07-22_experiment-larosa-llama3-8b-ppl.md.
-- `20260723-102000-larosa-qwen25-7b-ppl` @ a100-40-2 — rotation gen + PPL sweep;
-  targets 6.85/6.90/7.10/7.42 ±0.1. Journal: 2026-07-22_experiment-larosa-qwen25-7b-ppl.md.
-- Gateway agent hourly watch for both: request `20260723-084829-larosa-ppl-repro-watch`.
+- (none — all PPL reproduction jobs completed 2026-07-22)
 
 ## Pointers
 - Paper: arXiv:2507.01299 (La RoSA, Liu et al., ICML 2025); PDF in research-wiki
