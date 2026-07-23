@@ -107,7 +107,9 @@ No-go if C3 − C2 < 5%p.
    C3/C4 underperform, variant with exclude_layers=[30,31].
 
 ## Active Jobs
-- (none)
+- `050-20260723-234944-oracle-llama2-phase3-c0c1` — Phase 3 gate (dense + C1
+  top-K). Journal: 2026-07-23_experiment-oracle-llama2-phase3-c0c1.md
+- `050-20260723-234448-oracle-llama2-hist` — i/r histograms for the report.
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:

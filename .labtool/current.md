@@ -13,7 +13,10 @@ Focus: oracle-residual-sparsity — Phase 2 DONE, H1 distribution-level GO
 early; r=512 keeps ~55-60% Frobenius energy mid-stack). Next: Phase 3 sweep.
 
 ## Active Jobs
-- (none)
+- `050-20260723-234944-oracle-llama2-phase3-c0c1` — Phase 3 plumbing gate:
+  dense + C1 top-K s={0.5,0.7,0.9}, must reproduce 5.4736 / 5.521/5.730/8.108.
+- `050-20260723-234448-oracle-llama2-hist` — i/r magnitude histograms
+  (layers 0/7/16/24/31) for the phase-0 report artifact.
 
 ## Direction
 New spec (2026-07-22): in the oracle setting, decompose the FFN via the
