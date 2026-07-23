@@ -38,10 +38,16 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Parse command line arguments for the script.")
     parser.add_argument('--model_name', type=str, default="meta-llama/Llama-2-7b-hf",help='Name of the model to use')
-    parser.add_argument('--larosa_path', type=str, required=True,help='Path to the larosa input')
+    parser.add_argument('--larosa_path', type=str, default=None,help='Path to the larosa input (required for --mode larosa)')
     # parser.add_argument('--greedy_flag', action='store_true', help='Flag for greedy')
     parser.add_argument('--sparsity', type=float, default=0.5, help='Sparsity level')
+    parser.add_argument('--mode', type=str, default='larosa', choices=['larosa', 'topk_intermediate'],
+                        help='larosa: rotated input+intermediate threshold Top-K; '
+                             'topk_intermediate: FFN-only per-token Top-K on i (no rotation, dense attention)')
     args = parser.parse_args()
+
+    if args.mode == 'larosa' and args.larosa_path is None:
+        parser.error('--larosa_path is required for --mode larosa')
 
     config = transformers.AutoConfig.from_pretrained(
         args.model_name,
@@ -51,6 +57,7 @@ if __name__ == "__main__":
     config._attn_implementation= "flash_attention_2"
     config.torch_dtype = 'bfloat16'
     config.sparse_level = args.sparsity
+    config.sparse_mode = args.mode
     config.Q_path = args.larosa_path
 
     model = Qwen2ForCausalLM.from_pretrained(args.model_name, torch_dtype=torch.bfloat16, device_map='auto', config=config)

@@ -330,6 +330,16 @@ class LlamaMLP(nn.Module):
                 F.linear(intermediate_states[i], down_proj_slices[i]) for i in range(self.config.pretraining_tp)
             ]
             down_proj = sum(down_proj)
+        elif getattr(self, "sparse_mode", "larosa") == "topk_intermediate":
+            # Intermediate-only mode: dense gate/up on the original-basis x,
+            # per-token magnitude Top-K on i = u * g before down_proj.
+            intermediate_states = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
+            intermediate_states = top_k_new(intermediate_states, self.sparse_level_h2)
+
+            self.infer_sparsity_h1 = 0.0
+            self.infer_sparsity_h2 = count_zero_solo(intermediate_states)
+
+            down_proj = self.down_proj(intermediate_states)
         else:
             rot_x = torch.matmul(x.double(), self.Q.to(x.device))
             tmp_x = top_k_new(rot_x, self.sparse_level_h1)
@@ -436,6 +446,11 @@ class LlamaAttention(nn.Module):
             value_states = [F.linear(hidden_states, value_slices[i]) for i in range(self.config.pretraining_tp)]
             value_states = torch.cat(value_states, dim=-1)
 
+        elif getattr(self, "sparse_mode", "larosa") == "topk_intermediate":
+            # attention stays fully dense in this mode
+            query_states = self.q_proj(hidden_states)
+            key_states = self.k_proj(hidden_states)
+            value_states = self.v_proj(hidden_states)
         else:
             rot_x = torch.matmul(hidden_states.double(), self.D)
             # rot_x = hidden_states.double() @ self.D
@@ -542,10 +557,12 @@ class LlamaFlashAttention2(LlamaAttention):
 
         bsz, q_len, _ = hidden_states.size()
 
-        rot_x = torch.matmul(hidden_states.double(), self.Q.to(hidden_states.device))
-        tmp_x = top_k_new(rot_x, self.sparse_level_h1)
-        top_k_x = torch.matmul(tmp_x, self.Q.T.to(hidden_states.device))
-        hidden_states = top_k_x.to(hidden_states.dtype)
+        dense_attn = getattr(self, "sparse_mode", "larosa") == "topk_intermediate"
+        if not dense_attn:
+            rot_x = torch.matmul(hidden_states.double(), self.Q.to(hidden_states.device))
+            tmp_x = top_k_new(rot_x, self.sparse_level_h1)
+            top_k_x = torch.matmul(tmp_x, self.Q.T.to(hidden_states.device))
+            hidden_states = top_k_x.to(hidden_states.dtype)
 
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
@@ -625,10 +642,14 @@ class LlamaFlashAttention2(LlamaAttention):
 
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
 
-        attn_output = top_k_new(attn_output, self.sparse_level_h2)
+        if dense_attn:
+            self.infer_sparsity_h1 = 0.0
+            self.infer_sparsity_h2 = 0.0
+        else:
+            attn_output = top_k_new(attn_output, self.sparse_level_h2)
 
-        self.infer_sparsity_h1 = count_zero_solo(tmp_x)
-        self.infer_sparsity_h2 = count_zero_solo(attn_output)
+            self.infer_sparsity_h1 = count_zero_solo(tmp_x)
+            self.infer_sparsity_h2 = count_zero_solo(attn_output)
 
         attn_output = self.o_proj(attn_output)
 
@@ -677,9 +698,13 @@ class LlamaSdpaAttention(LlamaAttention):
 
         bsz, q_len, _ = hidden_states.size()
 
-        rot_x = torch.matmul(hidden_states.double(), self.Q)
-        top_k_x = torch.matmul(top_k_new(rot_x, self.sparse_level_h1) , self.Q.T)
-        top_k_hidden_states = top_k_x.to(hidden_states.dtype)
+        dense_attn = getattr(self, "sparse_mode", "larosa") == "topk_intermediate"
+        if dense_attn:
+            top_k_hidden_states = hidden_states
+        else:
+            rot_x = torch.matmul(hidden_states.double(), self.Q)
+            top_k_x = torch.matmul(top_k_new(rot_x, self.sparse_level_h1) , self.Q.T)
+            top_k_hidden_states = top_k_x.to(hidden_states.dtype)
 
         query_states = self.q_proj(top_k_hidden_states)
         key_states = self.k_proj(top_k_hidden_states)
@@ -753,7 +778,8 @@ class LlamaSdpaAttention(LlamaAttention):
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.view(bsz, q_len, -1)
 
-        attn_output = top_k_new(attn_output, self.sparse_level_h2)
+        if not dense_attn:
+            attn_output = top_k_new(attn_output, self.sparse_level_h2)
         attn_output = self.o_proj(attn_output)
 
         return attn_output, None, past_key_value
@@ -780,14 +806,22 @@ class LlamaDecoderLayer(nn.Module):
         self.mlp = LlamaMLP(config)
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.Q_path = config.Q_path
-        self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
-        self.self_attn.Q = self.Q
-        self.mlp.Q = self.Q
-        self.self_attn.sparse_level_h1 = config.sparse_level * 0.8
-        self.self_attn.sparse_level_h2 = config.sparse_level * 1.2
-        self.mlp.sparse_level_h1 = config.sparse_level * 0.8
-        self.mlp.sparse_level_h2 = config.sparse_level * 1.2
+        self.sparse_mode = getattr(config, 'sparse_mode', 'larosa')
+        self.self_attn.sparse_mode = self.sparse_mode
+        self.mlp.sparse_mode = self.sparse_mode
+        if self.sparse_mode == 'topk_intermediate':
+            # No rotation matrices; only the FFN intermediate i is sparsified,
+            # at exactly config.sparse_level (no 0.8/1.2 h1/h2 split).
+            self.mlp.sparse_level_h2 = config.sparse_level
+        else:
+            self.Q_path = config.Q_path
+            self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
+            self.self_attn.Q = self.Q
+            self.mlp.Q = self.Q
+            self.self_attn.sparse_level_h1 = config.sparse_level * 0.8
+            self.self_attn.sparse_level_h2 = config.sparse_level * 1.2
+            self.mlp.sparse_level_h1 = config.sparse_level * 0.8
+            self.mlp.sparse_level_h2 = config.sparse_level * 1.2
         
 
     def forward(

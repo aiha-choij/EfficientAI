@@ -233,6 +233,14 @@ class Qwen2MLP(nn.Module):
         self.act_fn = ACT2FN[config.hidden_act]
 
     def forward(self, hidden_state):
+        if getattr(self, "sparse_mode", "larosa") == "topk_intermediate":
+            # Intermediate-only mode: dense gate/up on the original-basis input,
+            # per-token magnitude Top-K on i = u * g before down_proj.
+            intermediate_states = self.act_fn(self.gate_proj(hidden_state)) * self.up_proj(hidden_state)
+            intermediate_states = top_k_new(intermediate_states, self.sparse_level_h2)
+            down_proj = self.down_proj(intermediate_states)
+            return down_proj
+
         rot_x = torch.matmul(hidden_state.double(), self.Q.to(hidden_state.device))
         # rot_x = x.double() @ self.D
         top_k_x = torch.matmul(top_k_new(rot_x, self.sparse_level_h1), self.Q.T.to(hidden_state.device))
@@ -396,9 +404,11 @@ class Qwen2FlashAttention2(Qwen2Attention):
     ):
         bsz, q_len, _ = hidden_states.size()
 
-        rot_x = torch.matmul(hidden_states.double(), self.Q.to(hidden_states.device))
-        top_k_x = torch.matmul(top_k_new(rot_x, self.sparse_level_h1) , self.Q.T.to(hidden_states.device))
-        hidden_states = top_k_x.to(hidden_states.dtype)
+        dense_attn = getattr(self, "sparse_mode", "larosa") == "topk_intermediate"
+        if not dense_attn:
+            rot_x = torch.matmul(hidden_states.double(), self.Q.to(hidden_states.device))
+            top_k_x = torch.matmul(top_k_new(rot_x, self.sparse_level_h1) , self.Q.T.to(hidden_states.device))
+            hidden_states = top_k_x.to(hidden_states.dtype)
 
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
@@ -481,7 +491,8 @@ class Qwen2FlashAttention2(Qwen2Attention):
 
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
 
-        attn_output = top_k_new(attn_output, self.sparse_level_h2)
+        if not dense_attn:
+            attn_output = top_k_new(attn_output, self.sparse_level_h2)
 
         attn_output = self.o_proj(attn_output)
 
@@ -610,15 +621,23 @@ class Qwen2DecoderLayer(nn.Module):
         self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-        self.Q_path = config.Q_path
-        self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
-        self.self_attn.Q = self.Q
-        self.mlp.Q = self.Q
+        self.sparse_mode = getattr(config, 'sparse_mode', 'larosa')
+        self.self_attn.sparse_mode = self.sparse_mode
+        self.mlp.sparse_mode = self.sparse_mode
+        if self.sparse_mode == 'topk_intermediate':
+            # No rotation matrices; only the FFN intermediate i is sparsified,
+            # at exactly config.sparse_level (no 0.8/1.2 h1/h2 split).
+            self.mlp.sparse_level_h2 = config.sparse_level
+        else:
+            self.Q_path = config.Q_path
+            self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
+            self.self_attn.Q = self.Q
+            self.mlp.Q = self.Q
 
-        self.self_attn.sparse_level_h1 = config.sparse_level * 0.8
-        self.self_attn.sparse_level_h2 = config.sparse_level * 1.2
-        self.mlp.sparse_level_h1 = config.sparse_level * 0.8
-        self.mlp.sparse_level_h2 = config.sparse_level * 1.2
+            self.self_attn.sparse_level_h1 = config.sparse_level * 0.8
+            self.self_attn.sparse_level_h2 = config.sparse_level * 1.2
+            self.mlp.sparse_level_h1 = config.sparse_level * 0.8
+            self.mlp.sparse_level_h2 = config.sparse_level * 1.2
 
     def forward(
         self,
