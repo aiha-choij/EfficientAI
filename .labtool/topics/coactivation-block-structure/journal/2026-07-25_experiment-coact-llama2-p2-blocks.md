@@ -68,5 +68,38 @@ Sanity: all masses in [0,1]; block-union ≥ 1; clustered ratios ≥ ~1.0
   (md5 7f66376 verified)
 
 ### Results
+Source: meta + log of `20260725-004032-coact-llama2-p2-blocks` (gateway
+`~/workspace/runs/.../{meta,log}`); raw partitions + metrics in
+`a6000-4:/home/choij/workspace/analysis/llama2_coactivation_blocks_s09.pt`.
+STATUS=ok, runtime 3 min 23 s (00:40:45 → 00:44:08 KST), a6000-4 GPU 0.
+
+Clustered vs random-mean ratios (random = 3 balanced seeds; B row-stable,
+showing B=64 / 128 / 256):
+
+| layer | mass_A ratio | dyn_cov clustered (abs) | dyn_cov ratio | blkU16 / blkU64 ratio |
+|---|---|---|---|---|
+| 0  | 2.18 / 2.07 / 1.91× | 0.359 / 0.351 / 0.303 | 2.15–2.44× | 1.00× (saturated) |
+| 8  | 1.36 / 1.32 / 1.25× | 0.252 / 0.244 / 0.206 | 1.51–1.66× | 1.00× (saturated) |
+| 16 | 1.44 / 1.38 / 1.31× | 0.269 / 0.260 / 0.224 | 1.61–1.81× | 1.00× (saturated) |
+| 24 | 1.54 / 1.47 / 1.41× | 0.283 / 0.274 / 0.240 | 1.69–1.94× | 1.00× (saturated) |
+| 31 | 4.12 / 3.91 / 3.77× | 0.569 / 0.571 / 0.518 | 3.39–4.17× | 1.00× (saturated) |
+
+- mass_A = within-block off-diagonal co-activation mass fraction (clustered
+  absolute values 0.008–0.087; random 0.006–0.023). Static coverage @ budget
+  shows the same ordering (e.g. L31: 0.53 vs 0.14 random).
+- dyn_cov = per-token coverage of the top-m blocks (m·B ≈ K budget),
+  measured on the real sparsified forward. Random baseline ≈ 0.12–0.17.
+- blkU (block-union tiling, touched_blocks×B/|union|) is IDENTICAL for
+  clustered and random at every layer and every B: the metric is saturated
+  at its ceiling d/|union| (g=16: 1.57–1.66 ≈ 11008/(6.0–6.3×K_eff);
+  g=64: 1.06–1.09; L31: 2.58/1.52). Group unions are so spread out that
+  they touch essentially every block under ANY balanced partition at these
+  B — the metric is uninformative here, not a tie in structure quality.
+- Sanity: all masses in [0,1], blkU ≥ 1, clustered ≥ random everywhere. ✓
+
+Pre-registered criterion check (≥1.3× vs random): within-block mass passes
+at 13/15 (layer, B) settings (fails only L8 B=256 at 1.25×; L8 B=128 at
+1.32× is borderline); dyn_cov passes everywhere (1.51–4.17×); block-union
+is saturated/uninformative rather than passed or failed.
 
 ### Interpretation
