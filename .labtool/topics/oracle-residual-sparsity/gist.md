@@ -118,15 +118,18 @@ No-go if C3 − C2 < 5%p.
   not implementation bugs.
 
 ## Dead Ends
-- 2026-07-24 — Whitened SVD for the C4 compensation factors (SVD of M@C,
-  C=cholesky(E[xx^T])) — achieved −13% E||(M_hat−M)x|| but worsened PPL at
-  every rank/budget; input-space L2 is the wrong objective for downstream
-  loss. Journal: 2026-07-24_experiment-oracle-llama2-c4-whitening.md
-- 2026-07-24 — Per-layer rank allocation by (whitened) spectral energy —
-  lost to uniform rank at every matched budget; the whitened energy metric
-  starves early/mid layers. Same journal.
+(none — the two whitening-round negatives are ON HOLD, not dead: see Open
+Questions "deferred" items; user decision 2026-07-24, revisit with the
+adaptive-rank-allocation line of work)
 
 ## Open Questions
+- **DEFERRED (user, 2026-07-24 — revisit with adaptive rank allocation
+  research)**: (1) whitened SVD compensation — worsened PPL at every rank
+  despite −13% input-L2, but the objective-mismatch mechanism deserves its
+  own study before writing it off; (2) per-layer rank allocation by spectral
+  energy — failed with the whitened metric; an allocation metric aligned
+  with downstream loss may still work.
+  Journal: 2026-07-24_experiment-oracle-llama2-c4-whitening.md
 - ~~Rank grid~~ → resolved: r = 512 (h/8) only (user, 2026-07-22).
 - ~~Model/eval choices~~ → resolved: LLaMA2-7B + wikitext-2 PPL (user).
 - **Calibration corpus download on gateway**: 01_calibrate defaults to
