@@ -103,17 +103,33 @@ Completion arms (job 050-20260724-064258, DONE) — full C4 variant table
   (alloc1024 > wht1024 uniform > plain1024; alloc512 >> plain512).
 
 ### Interpretation
-(provisional — presented to user with the completed table)
+(FINALIZED 2026-07-24 — user requested supporting analysis instead of
+accepting the provisional reading; each claim is now grounded in an artifact:
+spectra_{plain,wht}.json, diag_all_variants.csv, error_directions.json.)
 
-Both spec hypotheses about the C4 collapse are now answered: the cause is
-(a) the flat (heavy-tailed) spectrum of M, NOT (b) plain SVD ignoring the
-input distribution. Evidence: whitening achieves its own objective (−13%
-E||(M_hat−M)x|| on real calibration inputs) yet makes PPL worse at every
-rank and budget — input-distribution L2 is misaligned with downstream loss,
-consistent with important low-variance (outlier-ish) directions being
-down-weighted by whitening. Allocation fails for the same reason: it trusts
-the whitened energy metric, starving early/mid layers (budget 256 → r_l=5).
-The lever that works is brute rank: plain uniform r=1024 (compute +6.2%,
-2r/3d) more than halves plain-r512's excess over C3 at s=0.9 and finally
-beats C1. Decision point: r=2048 (+12.4%) to test convergence to C3 vs
-accepting r=1024, vs output-side-weighted objectives as a smarter direction.
+1. **Flat spectrum is the cause (a); (b) rejected.** Plain spectra: rank for
+   90% energy r90 = 1270 mean, 1400-1500 mid-stack (~35% of h=4096); energy
+   captured at r=512 is only 0.54-0.67 outside the last layers. The PPL
+   recovery at r=1024 (energy 0.84) matches quantitatively.
+2. **Input-side L2 is the wrong metric — mechanism identified.** Whitening
+   lowers E||(M_hat−M)x|| in 32/32 layers (−12% to −37%) by construction:
+   the decile decomposition shows it halves error on the top-variance
+   directions (D10 wht/plain = 0.47-0.57 in all 5 sampled layers) while
+   RAISING error +10-22% on low/mid-variance directions (D1-D5). Since PPL
+   worsens at matched rank, the loss-relevant signal must live
+   disproportionately in those low/mid-variance directions — input-
+   covariance weighting sacrifices exactly what matters.
+3. **Rank is the working lever.** Within the plain family the input-L2
+   metric IS predictive: trunc/tail (s_op=0.9) 0.586 → 0.385 as r 512→1024,
+   PPL 8.764 → 7.229, monotone. Across families the ordering inverts:
+   wht1024 has the LOWEST trunc/tail (0.319) yet worse PPL than plain1024 —
+   the metric ranks within a geometry, not across geometries.
+4. **Correction to the interim reading**: tau-allocation starves LATE layers,
+   not early ones — alloc1024's worst trunc/tail is layer 31 (0.96 vs 0.56
+   uniform), because the whitened energy metric declares late layers
+   trivially low-rank while their absolute compensation accuracy still
+   matters.
+
+Whitening and allocation are ON HOLD per user (not Dead Ends) — revisit with
+the adaptive-rank-allocation line; any revival should use a loss-aligned
+(output-side) metric, not input covariance.

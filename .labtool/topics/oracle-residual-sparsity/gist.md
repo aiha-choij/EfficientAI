@@ -63,8 +63,11 @@ No-go if C3 − C2 < 5%p.
   to C3 down to +0.23/+0.29/+0.59) at +6.2% compute. Whitening reduces its
   own L2 objective by 13% on real inputs yet worsens PPL at every rank
   (+1.00 at r512 s=0.9) — input-distribution L2 is misaligned with
-  downstream loss (low-variance directions matter). Energy allocation
-  starves early/mid layers (budget 256 → r_l=5, PPL 17.4).
+  downstream loss — decile analysis: whitening halves error on top-variance
+  directions (D10 ×0.47-0.57) but raises it +10-22% on low/mid-variance ones
+  (D1-D5), so loss-relevant signal lives in LOW-variance directions. Energy
+  allocation starves LATE layers (alloc1024 worst trunc/tail = layer 31,
+  0.96; budget 256 collapses, PPL 17.4).
   When relevant: (a) scaling r is the safe C4 lever (r=2048 = +12.4% is the
   next test); (b) any future compensation objective should weight the
   OUTPUT side (downstream sensitivity), not the input distribution.
