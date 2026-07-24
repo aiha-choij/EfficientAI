@@ -1,0 +1,984 @@
+<meta charset="utf-8">
+<title>Oracle Residual Sparsity — Phase 0 리포트</title>
+<style>
+:root {
+  color-scheme: light;
+  --plane: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6;
+  --s1: #2a78d6;      /* series 1: i */
+  --s2: #eb6834;      /* series 2: r */
+  --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --pos: #2a78d6;     /* diverging + */
+  --neg: #e34948;     /* diverging − */
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warn: #fab219;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --plane: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --accent: #3987e5;
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --pos: #3987e5;
+    --neg: #e66767;
+    --good-text: #0ca30c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane: #0d0d0d;
+  --surface: #1a1a19;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255,255,255,0.10);
+  --accent: #3987e5;
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  --pos: #3987e5;
+  --neg: #e66767;
+  --good-text: #0ca30c;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --plane: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6;
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --pos: #2a78d6;
+  --neg: #e34948;
+  --good-text: #006300;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font-family: -apple-system, "Apple SD Gothic Neo", Pretendard, "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 900px; margin: 0 auto; padding: 48px 24px 80px; }
+code, .mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88em;
+}
+code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+
+/* header */
+.eyebrow {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px; letter-spacing: 0.14em; color: var(--accent);
+  margin-bottom: 10px;
+}
+h1 { font-size: 27px; line-height: 1.35; margin: 0 0 8px; text-wrap: balance; font-weight: 700; }
+.subtitle { color: var(--ink-2); margin: 0 0 20px; max-width: 62ch; }
+.meta-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px; background: var(--border); border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden; margin: 24px 0 0;
+}
+.meta-grid > div { background: var(--surface); padding: 10px 14px; }
+.meta-grid .k { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; margin-bottom: 2px; }
+.meta-grid .v { font-size: 13px; }
+
+/* verdict */
+.verdict {
+  display: flex; gap: 14px; align-items: flex-start;
+  background: var(--surface); border: 1px solid var(--border);
+  border-left: 4px solid var(--good);
+  border-radius: 8px; padding: 16px 18px; margin: 28px 0 0;
+}
+.verdict .chip {
+  flex-shrink: 0;
+  font-weight: 700; font-size: 13px; color: var(--good-text);
+  border: 1.5px solid var(--good); border-radius: 999px;
+  padding: 3px 12px; margin-top: 2px; white-space: nowrap;
+}
+.verdict p { margin: 0; color: var(--ink-2); }
+.verdict strong { color: var(--ink); }
+
+/* sections */
+h2 {
+  font-size: 19px; margin: 52px 0 6px; padding-top: 20px;
+  border-top: 1px solid var(--grid); font-weight: 700;
+}
+h2 .num { color: var(--accent); font-family: ui-monospace, monospace; font-size: 15px; margin-right: 8px; }
+h3 { font-size: 15px; margin: 28px 0 8px; font-weight: 700; }
+p { margin: 10px 0; max-width: 70ch; }
+p.lede { color: var(--ink-2); }
+ul, ol { max-width: 68ch; padding-left: 22px; }
+li { margin: 6px 0; }
+li::marker { color: var(--muted); }
+
+/* tables */
+.tbl-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 7px 12px; text-align: left; white-space: nowrap; }
+thead th {
+  font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--grid); position: sticky; top: 0; background: var(--surface);
+}
+tbody td { border-bottom: 1px solid var(--grid); }
+tbody tr:last-child td { border-bottom: none; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tr.hl td { background: color-mix(in srgb, var(--neg) 8%, var(--surface)); }
+.cond-note { font-size: 12px; color: var(--muted); }
+
+/* stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 18px 0; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+.tile .label { font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+.tile .value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+.tile .note { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.tile.good .value { color: var(--good-text); }
+.tile.warn .value::before { content: "⚠ "; font-size: 16px; vertical-align: 2px; }
+
+/* charts */
+.fig { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px 10px; margin: 18px 0; }
+.fig-title { font-size: 14px; font-weight: 700; margin: 0 0 2px; }
+.fig-sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+.fig svg { display: block; width: 100%; height: auto; }
+.legend { display: flex; gap: 18px; font-size: 12px; color: var(--ink-2); margin: 6px 0 8px; flex-wrap: wrap; }
+.legend .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 6px; }
+.axis-lab { font-size: 11px; fill: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.grid-line { stroke: var(--grid); stroke-width: 1; }
+.axis-line { stroke: var(--axis); stroke-width: 1; }
+.dlabel { font-size: 12px; font-weight: 600; }
+#tooltip {
+  position: fixed; pointer-events: none; z-index: 10; display: none;
+  background: var(--ink); color: var(--plane);
+  font-size: 12px; line-height: 1.5; padding: 6px 10px; border-radius: 6px;
+  font-variant-numeric: tabular-nums; max-width: 260px; white-space: nowrap;
+}
+
+/* callouts */
+.callout {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 18px; margin: 14px 0; max-width: 100%;
+}
+.callout .ct { font-weight: 700; font-size: 13.5px; margin-bottom: 4px; }
+.callout .ct .warn-ico { color: var(--warn); margin-right: 4px; }
+.callout p { margin: 4px 0; font-size: 13.5px; color: var(--ink-2); max-width: none; }
+
+/* metric definition boxes */
+.defbox {
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 12px 16px; margin: 14px 0; font-size: 13px;
+}
+.defbox .dt { font-size: 11px; letter-spacing: 0.1em; color: var(--accent);
+  font-family: ui-monospace, monospace; margin-bottom: 8px; }
+.defbox dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; }
+.defbox dt { font-weight: 700; white-space: nowrap; }
+.defbox dd { margin: 0; color: var(--ink-2); }
+.defbox .fx { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+  color: var(--ink); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+@media (max-width: 640px) { .defbox dl { grid-template-columns: 1fr; gap: 2px; }
+  .defbox dd { margin-bottom: 8px; } }
+
+.formula {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 18px; margin: 14px 0; overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13.5px; line-height: 1.9;
+  white-space: nowrap;
+}
+footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--grid); font-size: 12px; color: var(--muted); }
+footer .mono { font-size: 11px; }
+details { margin: 14px 0; }
+summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--ink-2); }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">ORACLE-RESIDUAL-SPARSITY · PHASE 0–4 REPORT · 2026-07-23 → 07-24</div>
+  <h1>Mean-gate residual 분해 검증 — LLaMA2-7B</h1>
+  <p class="subtitle">FFN intermediate activation을 "선형 성분 + residual"로 분해하면 더 높은 sparsity에서
+  정확도를 지킬 수 있는가. 분포 지표(Phase 0)부터 조건 C0–C5의 wikitext-2 PPL 메인 테이블(Phase 3–4)까지의
+  전체 결과 리포트.</p>
+  <div class="meta-grid">
+    <div><div class="k">모델</div><div class="v">LLaMA2-7B <span class="mono">(h=4096, d=11008, 32층)</span></div></div>
+    <div><div class="k">잡</div><div class="v mono">050-20260723-155254</div></div>
+    <div><div class="k">코드 스냅샷</div><div class="v mono">exp/2026-07-22_oracle-llama2-phase0-calib (6bf95b1)</div></div>
+    <div><div class="k">실행</div><div class="v">a100-40-2 · GPU 1장 · 440분</div></div>
+  </div>
+</header>
+
+<div class="verdict">
+  <span class="chip">◐ PARTIAL-GO</span>
+  <p><strong>H1 확증</strong> — 정확 보상 조건 C3가 같은 sparsity에서 C1의 열화를 34/39/<strong>56%</strong>
+  줄였습니다 (s=0.9: PPL 8.110 → <strong>6.638</strong>). <strong>H2 기각</strong> — score 교정(C2)만으로는 이득 없음:
+  개선은 전부 보상 항의 몫. <strong>H3는 rank 문제</strong> — M의 스펙트럼이 flat해서(90% 에너지에 r≈1,270 필요)
+  r=512 보상은 붕괴하고, <strong>plain 균일 r=1024</strong>가 최선의 배포형(s=0.9 PPL 7.229, +6.2% 연산).
+  whitening·rank 배분은 역효과로 보류. 남은 결정: <strong>r=2048 수렴 테스트 vs 출력측 가중 설계</strong>.</p>
+</div>
+
+<h2><span class="num">1</span>실험이 검증하려는 것</h2>
+<p class="lede">gated MLP의 FFN 출력은 <code>y = W_d(u ⊙ g)</code>로, intermediate <code>i = u ⊙ g</code>의
+sparsity를 활용하면 FFN의 세 linear를 모두 건너뛸 수 있다. 직전 실험(Top-K)에서 <code>|i|</code> 기준 마스킹만으로도
+50% sparsity에서 ΔPPL +0.047로 거의 무손실임을 확인했다. 이번 실험 라인은 여기서 한 발 더 나간다:</p>
+
+<div class="formula">
+y = Σ<sub>j</sub> u<sub>j</sub> g<sub>j</sub> W<sub>d</sub>[:,j]
+&nbsp;&nbsp;=&nbsp;&nbsp;<b>M x</b> &nbsp;+&nbsp; Σ<sub>j</sub> u<sub>j</sub>(g<sub>j</sub> − ḡ<sub>j</sub>) W<sub>d</sub>[:,j]
+&nbsp;&nbsp;&nbsp;&nbsp;여기서&nbsp; M = W<sub>d</sub> · diag(ḡ) · W<sub>u</sub>,&nbsp;&nbsp; r<sub>j</sub> = u<sub>j</sub>(g<sub>j</sub> − ḡ<sub>j</sub>)
+</div>
+
+<p>gate를 calibration 평균 <code>ḡ</code>로 근사한 선형 성분 <code>Mx</code>를 떼어내면, 남는 것은 residual
+<code>r = u ⊙ (g − ḡ)</code>뿐이다. <b>H1</b>: r의 분포가 i보다 집중되어 있다면, 같은 유효 연산량에서
+더 높은 sparsity로 정확도를 유지할 수 있다. <b>H3</b>: 배포 가능하려면 M의 rank-r 근사(여기선 r=512=h/8)가
+이 이득을 잠식하지 않아야 한다. 전체 검증은 oracle 세팅(마스크를 실제 activation에서 계산, 전체 계산 후 마스킹
+시뮬레이션)의 조건 사다리로 진행한다:</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th>조건</th><th>score (top-p 대상)</th><th>출력 계산식</th><th>성격</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">C0</td><td>—</td><td class="mono">dense</td><td class="cond-note">기준선</td></tr>
+    <tr><td class="mono">C1</td><td class="mono">|i_j|</td><td class="mono">W_d(m⊙i)</td><td class="cond-note">기존 Top-K의 top-p판</td></tr>
+    <tr><td class="mono">C2</td><td class="mono">|i_j|·‖W_d[:,j]‖</td><td class="mono">C1과 동일</td><td class="cond-note">weight-aware (H2)</td></tr>
+    <tr><td class="mono">C3</td><td class="mono">|r_j|·‖W_d[:,j]‖</td><td class="mono">W_d(m⊙i) + W_d((1−m)⊙ḡ⊙u)</td><td class="cond-note">정확한 보상 — 진단용</td></tr>
+    <tr><td class="mono">C4</td><td class="mono">C3과 동일</td><td class="mono">W_d(m⊙i) + B(Ax) − W_d(m⊙ḡ⊙u)</td><td class="cond-note">rank-512 배포형 (H3)</td></tr>
+    <tr><td class="mono">C5</td><td class="mono">C3, ḡ→ḡ*</td><td class="mono">C3, ḡ→ḡ* (u²-가중 평균)</td><td class="cond-note">가중 평균 변형</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>이번 잡(Phase 2)이 수행한 것</h3>
+<p>조건별 PPL sweep에 GPU를 쓰기 전, 분포 지표만으로 H1의 조기 go/no-go를 판정하고 이후 phase의 재료를 전부
+만들어 두는 잡이다. 파이프라인 세 단계:</p>
+<ol>
+  <li><b>Calibration</b> — 코퍼스 2종(c4-en, wikitext-103) 각 512 시퀀스 × 2048 토큰에서 뉴런별
+  <code>ḡ</code>, <code>ḡ*</code>, <code>E[g²]</code>를 fp32/fp64 누적으로 추정. c4 스트리밍이 정상 동작해
+  <b>primary = c4</b>, wikitext-103은 ḡ 안정성 대조용.</li>
+  <li><b>Phase-0 분포 리포트</b> — calibration 시퀀스 32개 위에서 층별로 i와 r 각각의 top-p 유도 sparsity
+  (p ∈ {0.7, 0.8, 0.9, 0.95, 0.99}), Hoyer, kurtosis, gate 통계, ḡ 코퍼스 간 Pearson 상관을 계산.</li>
+  <li><b>M 구성 + SVD</b> — 층별 <code>M = W_d·diag(ḡ)·W_u</code> (4096×4096)를 만들고 rank-512 인자
+  A, B를 저장 (C4 sweep의 입력). 층별 Frobenius 에너지 보존율 기록.</li>
+</ol>
+<p class="cond-note">판정 기준(사전 등록): 같은 p에서 r의 유도 sparsity 곡선이 i 곡선 위에 있으면 H1 go 신호.
+평가는 이후 phase에서 기존 wikitext-2 PPL 파이프라인으로 진행 (Top-K 결과와 직접 비교).</p>
+
+<h2><span class="num">2</span>결과</h2>
+
+<div class="defbox">
+  <div class="dt">이 절의 지표</div>
+  <dl>
+    <dt>유도 sparsity</dt><dd>top-p 마스크가 실제로 잘라낸 뉴런 비율 <span class="fx">1 − mean(m)</span>.
+      top-p는 score 내림차순 누적합이 전체의 p×100%가 되는 지점까지 보존 — <b>같은 p에서 유도 sparsity가
+      높을수록 분포가 소수 뉴런에 집중</b>되어 있다는 뜻 (H1의 직접 지표).</dd>
+    <dt>Hoyer</dt><dd><span class="fx">(√d − ‖v‖₁/‖v‖₂)/(√d − 1)</span> ∈ [0,1].
+      벡터가 완전 균등하면 0, 원소 하나만 남으면 1 — 집중도가 높을수록 크다.</dd>
+    <dt>kurtosis</dt><dd><span class="fx">E[(v−μ)⁴]/Var(v)²</span>. 꼬리가 두꺼울수록(=소수의 큰 값에
+      질량이 몰릴수록) 크다. Hoyer와 함께 "집중" 주장의 보조 지표.</dd>
+    <dt>CV²</dt><dd>뉴런별 gate 변동성 <span class="fx">Var(g_j)/E[g_j]²</span>.
+      크면 "평균 gate ḡ_j"가 실제 g_j를 잘 대표하지 못한다 — 보상 근사가 성립하기 어려운 구간의 신호.</dd>
+    <dt>ḡ Pearson</dt><dd>서로 다른 calibration 코퍼스(c4 vs wikitext-103)로 추정한 ḡ 벡터 간 상관.
+      1에 가까울수록 ḡ가 코퍼스 불변의 "모델 상수"라는 뜻.</dd>
+  </dl>
+</div>
+
+<div class="tiles">
+  <div class="tile good">
+    <div class="label">r이 i보다 집중된 층</div>
+    <div class="value">30 / 32</div>
+    <div class="note">역전: 층 30, 31뿐</div>
+  </div>
+  <div class="tile good">
+    <div class="label">평균 유도 sparsity 격차 (p=0.9)</div>
+    <div class="value">+3.0%p</div>
+    <div class="note">중간층 최대 +5.3%p</div>
+  </div>
+  <div class="tile warn">
+    <div class="label">ḡ 코퍼스 Pearson 최소</div>
+    <div class="value">0.48</div>
+    <div class="note">층 2 · 초반 층에서 불안정</div>
+  </div>
+  <div class="tile warn">
+    <div class="label">r=512 에너지 보존 최소</div>
+    <div class="value">0.54</div>
+    <div class="note">층 7 · Frobenius 기준</div>
+  </div>
+</div>
+
+<div class="fig">
+  <div class="fig-title">유도 sparsity 곡선 — r vs i (32층 평균)</div>
+  <div class="fig-sub">같은 top-p 노브에서 유도되는 sparsity의 토큰·층 평균. 모든 p에서 r 곡선이 i 곡선 위 = H1 go 신호.</div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--s1)"></span>i = u ⊙ g</span>
+    <span><span class="sw" style="background:var(--s2)"></span>r = u ⊙ (g − ḡ)</span>
+  </div>
+  <div id="chart-curves"></div>
+</div>
+
+<div class="fig">
+  <div class="fig-title">층별 진단 3종 (x축 공유: 층 0 → 31)</div>
+  <div class="fig-sub">① r−i 유도 sparsity 격차(p=0.9) · ② ḡ의 c4↔wikitext-103 Pearson 상관 · ③ rank-512가 보존하는 M의 Frobenius 에너지</div>
+  <div id="chart-layers"></div>
+</div>
+
+<div class="fig">
+  <div class="fig-title">크기 분포 히스토그램 — |i| vs |r| (대표 5개 층, calibration 8 시퀀스 = 층당 1.8억 값)</div>
+  <div class="fig-sub">x축 log₁₀|v| (−6 → 2), y축 bin당 비율. 곡선이 왼쪽으로 이동 = 값이 0 쪽으로 쏠림. 세로 눈금은 각 분포의 중앙값.</div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--s1)"></span>|i| = |u ⊙ g|</span>
+    <span><span class="sw" style="background:var(--s2)"></span>|r| = |u ⊙ (g − ḡ)|</span>
+  </div>
+  <div id="chart-hist"></div>
+</div>
+
+<p><b>히스토그램 판독.</b> 확인하려던 현상 — <b>r의 질량이 i보다 0 쪽으로 쏠려 있는가</b> — 은 5개 층 모두에서
+관찰된다: r 곡선(주황)이 i 곡선(파랑) 대비 왼쪽으로 이동해 있고, 중앙값 비 med|r|/med|i|는
+층 7에서 <b>0.640</b>, 층 16에서 0.659로 격차가 최대이며(유도 sparsity 격차가 최대인 구간과 일치),
+층 24(0.841) → 층 31(0.924)로 갈수록 1에 접근한다 — 층별 진단에서 본 "후반 층에서 이득 소멸"의
+분포 버전이다. 이동 폭 자체는 크지 않은데(중앙값 기준 ~1.5배), 이는 평균 유도 sparsity 격차가
++3%p 수준인 것과 일관된다.</p>
+
+<p><b>읽는 법.</b> 세 패널이 같은 이야기를 층 축에서 보여준다. 격차(①)는 층 6–18에서 +4.5~+5.3%p로 가장 크고
+층이 깊어질수록 줄다가 층 30(−0.2%p)·31(−2.6%p)에서 음수로 뒤집힌다. 이 뒤집힘은 gate 변동성과 정확히 겹친다 —
+후반 층은 CV²(= Var(g)/E[g]²) 중앙값이 40을 넘어, "평균 gate"라는 근사 자체가 성립하지 않는 구간이다.
+반대로 M의 저rank성(③)은 후반 층에서만 좋다(층 31은 0.985). 즉 <b>보상이 잘 되는 곳과 residual이 집중되는 곳이
+서로 다른 층</b>이라는 것이 이 실험의 구조적 발견이다.</p>
+
+<p>보조 지표도 방향이 일치한다: Hoyer·kurtosis는 층 31 하나를 제외한 전 층에서 r이 우세하고, 보상이 항별로
+이기는 비율 <code>P(|g−ḡ| &lt; |g|)</code>은 전 층에서 0.5를 넘는다(0.54–0.68).</p>
+
+<details>
+<summary>층별 전체 수치 테이블 (32층 × 11지표)</summary>
+<div class="tbl-scroll" style="margin-top:10px; max-height: 430px; overflow-y: auto;">
+<table id="full-table">
+  <thead><tr>
+    <th class="n">층</th><th class="n">sp_i@.9</th><th class="n">sp_r@.9</th><th class="n">격차@.9</th>
+    <th class="n">Hoyer i</th><th class="n">Hoyer r</th><th class="n">kurt i</th><th class="n">kurt r</th>
+    <th class="n">P(보상승)</th><th class="n">CV² 중앙값</th><th class="n">ḡ Pearson</th><th class="n">r512 에너지</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+</div>
+</details>
+
+<h2><span class="num">3</span>Phase 3–4: PPL 메인 결과</h2>
+
+<p class="lede">선택 방식은 <b>top-K</b> (K = int((1−s)·d), 기존 Top-K 실험과 동률 처리까지 동일 — C1이 기존 세팅의
+정확한 재현이 되도록; 2026-07-23 결정). Phase 3 게이트에서 dense 5.4738, C1 5.5216/5.7284/8.1096으로
+기존 anchor를 소수 4자리에서 재현(최대 Δ 0.0013, GPU A100→A6000·attention flash→sdpa 변경에도) —
+이후 조건 간 ~0.01 이상의 차이는 전부 실제 신호다.</p>
+
+<div class="defbox">
+  <div class="dt">이 절의 지표</div>
+  <dl>
+    <dt>top-K 선택</dt><dd>토큰마다 score 상위 <span class="fx">K = ⌊(1−s)·d⌋</span>개 뉴런만 보존
+      (s = 잘리는 비율, d = 11008). 모든 토큰이 정확히 같은 연산량을 갖게 되어, 조건 간 비교가
+      "같은 연산량에서 누가 덜 잃는가"가 된다.</dd>
+    <dt>PPL</dt><dd>perplexity <span class="fx">exp(평균 next-token NLL)</span> — wikitext-2 test,
+      문맥 2048. 낮을수록 좋고, dense(5.4738)가 하한. 언어모델 품질의 연속 지표.</dd>
+    <dt>ΔPPL</dt><dd><span class="fx">PPL(조건) − PPL(dense)</span>. sparsification이 유발한 열화량.
+      조건 비교는 같은 s에서 ΔPPL이 작은 쪽이 승.</dd>
+    <dt>유효 연산 비율</dt><dd>FFN 연산의 잔존 비율. C1–C3/C5는 <span class="fx">(1−s)</span>,
+      C4는 rank-r 보상 브랜치 비용을 더해 <span class="fx">(1−s) + 2r/(3d)</span>
+      (r=512 → +3.1%p, 1024 → +6.2%p, 2048 → +12.4%p).</dd>
+  </dl>
+</div>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th class="n">s</th><th class="n">C0 dense</th><th class="n">C1 |i|</th><th class="n">C2 +coln</th>
+    <th class="n">C3 보상(정확)</th><th class="n">C4 r=512</th><th class="n">C5 ḡ*</th></tr></thead>
+  <tbody>
+    <tr><td class="n">0.5</td><td class="n">5.4738</td><td class="n">5.5216</td><td class="n">5.5210</td>
+      <td class="n"><b>5.5051</b></td><td class="n">6.2537</td><td class="n">5.5144</td></tr>
+    <tr><td class="n">0.7</td><td class="n">5.4738</td><td class="n">5.7284</td><td class="n">5.7611</td>
+      <td class="n"><b>5.6283</b></td><td class="n">6.5563</td><td class="n">5.6665</td></tr>
+    <tr><td class="n">0.9</td><td class="n">5.4738</td><td class="n">8.1096</td><td class="n">8.2759</td>
+      <td class="n"><b>6.6381</b></td><td class="n">8.7638</td><td class="n">6.8889</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="cond-note">측정 sparsity는 전 런에서 s와 일치(±0.0001). C3는 배포 불가능한 진단 조건(자른 뉴런의 u를
+실제 계산해야 함); 배포형은 C4이며 rank 항의 추가 연산 2r/3d(r=512 → +3.1%p)가 붙는다.</p>
+
+<div class="fig">
+  <div class="fig-title">ΔPPL vs sparsity — 조건별 (log 스케일)</div>
+  <div class="fig-sub">dense 대비 PPL 증가분. 아래에 있을수록 좋다. C3(보상)가 전 구간 최저, C4(r=512)는 보상 근사 오차로 최악.</div>
+  <div id="chart-main"></div>
+</div>
+
+<p><b>판독.</b> ① <b>H1 확증</b> — C3의 ΔPPL은 +0.031/+0.155/+1.164로 C1(+0.048/+0.255/+2.636)의 열화를
+s=0.9에서 <b>56%</b> 줄인다. mean-gate 분해는 정확도 축에서 s=0.9 기준 <b>~1.5 PPL</b>의 가치가 있다.
+② <b>H2 기각</b> — C2는 s=0.5에서 C1과 동률, 0.7/0.9에서는 오히려 나쁘다. 즉 C3의 이득은 score 교정이 아니라
+<b>전적으로 보상 항</b>에서 온다. ③ <b>H3 부분 실패</b> — C4(r=512)는 전 구간에서 C1보다도 나쁘다. 보상이 거의
+필요 없는 s=0.5에서조차 +0.78 PPL이 얹히는데, 이것이 바로 (M̂−M)x 근사 오차의 기저 비용이다 — Phase 0에서
+경고한 "중간층 Frobenius 에너지 54–60%"가 그대로 현실화됐다. ④ C5(ḡ*)는 C3보다 일관되게 조금 나쁘다 —
+단순 평균 ḡ가 더 나은 보상 상수다.</p>
+
+<h3>C4 개선 라운드 — whitening × rank × 배분 분해 (2026-07-24)</h3>
+
+<p>C4 붕괴의 원인 후보 (a) M 스펙트럼이 flat vs (b) plain SVD가 입력 분포를 무시 — 를 가리기 위해
+whitened SVD(<code>M·C</code>에 SVD, C = cholesky(E[xxᵀ]+εI))와 층별 rank 배분(whitened 스펙트럼 에너지
+τ-기준, 예산 모드는 τ 이분탐색)을 구현해 2×2+배분으로 분해했다:</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th class="n">s</th><th class="n">C3 (참조)</th><th class="n">plain r512</th><th class="n">wht r512</th>
+    <th class="n">plain r1024</th><th class="n">wht r1024</th><th class="n">alloc r̄1024</th><th class="n">alloc r̄512</th><th class="n">alloc r̄256</th></tr></thead>
+  <tbody>
+    <tr><td class="n">0.5</td><td class="n">5.5051</td><td class="n">6.2537</td><td class="n">6.4859</td>
+      <td class="n"><b>5.7365</b></td><td class="n">5.7668</td><td class="n">5.9570</td><td class="n">7.0903</td><td class="n">9.2926</td></tr>
+    <tr><td class="n">0.7</td><td class="n">5.6283</td><td class="n">6.5563</td><td class="n">6.8483</td>
+      <td class="n"><b>5.9152</b></td><td class="n">5.9638</td><td class="n">6.1641</td><td class="n">7.4886</td><td class="n">10.0913</td></tr>
+    <tr><td class="n">0.9</td><td class="n">6.6381</td><td class="n">8.7638</td><td class="n">9.7606</td>
+      <td class="n"><b>7.2294</b></td><td class="n">7.3974</td><td class="n">7.6336</td><td class="n">10.2638</td><td class="n">17.4118</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><b>분해 결과.</b> ① <b>rank만이 유효한 지렛대</b> — plain 균일 r 512→1024로 −0.52/−0.64/−1.53 PPL.
+plain r1024가 최고의 C4: s=0.9에서 C1(8.11)을 이기고 C3와의 격차가 +0.23/+0.29/+0.59로 줄어든다
+(추가 연산 2r/3d = +6.2%). ② <b>whitening은 해로움</b> — 자기 목적함수(실측 입력 기준 E‖(M̂−M)x‖)는
+13% 줄였는데 PPL은 모든 rank에서 악화(r512에서 s=0.9 +1.00). 입력 분포 L2가 downstream 손실과
+정렬되지 않는다는 증거 — 저분산(outlier성) 방향이 출력에 중요할 가능성. ③ <b>에너지 기반 배분도
+해로움</b> — 같은 예산에서 균일 rank에 전패 (τ-배분이 초·중반 층을 굶김: 예산 256에서 최소 r_l=5).
+원인 판정: <b>(a) flat 스펙트럼이 맞고, (b)는 기각</b> — whitening과 τ-배분은 보류(추후 adaptive rank
+allocation 연구 시 재검토).</p>
+
+<h3>해석을 뒷받침하는 분석 3종 (2026-07-24 확정)</h3>
+
+<div class="defbox">
+  <div class="dt">이 절의 지표 — 의미와 수식</div>
+  <dl>
+    <dt>보상 오차 (trunc_err)</dt><dd><span class="fx">E_x‖(M̂−M)x‖₂</span> — rank-r 근사 M̂=BA가
+      원래 보상행렬 M을 대신할 때, calibration 입력 x 위에서 생기는 오차 벡터의 평균 크기.
+      본문에서 <b>"입력측 L2"</b>는 정확히 이 값이다 (L2 = 벡터의 유클리드 노름 ‖·‖₂).</dd>
+    <dt>tail 크기 (tail_norm)</dt><dd><span class="fx">E‖((1−m)⊙(ḡ⊙u))·W_dᵀ‖₂</span> —
+      운영점 s에서 잘린 뉴런들의 몫, 즉 <b>보상이 대체해야 할 신호의 크기</b>.</dd>
+    <dt>trunc/tail 비</dt><dd>보상 오차 ÷ 대체 신호. <b>1에 가까우면 "신호만큼 큰 노이즈를 얹는"
+      보상</b>이라 쓸모가 없고, 0에 가까울수록 깨끗한 보상.</dd>
+    <dt>누적 에너지 · r90</dt><dd>M의 특이값 S₁≥S₂≥…에 대해 rank r까지의 에너지 비율
+      <span class="fx">Σ_{k≤r} S_k² / Σ_k S_k²</span>. r90 = 이 값이 0.9에 도달하는 최소 r.
+      <b>r90가 크다 = 스펙트럼이 flat하다 = 저rank 근사가 본질적으로 어렵다</b>.</dd>
+    <dt>D1–D10 (분산 십분위)</dt><dd>입력 자기상관 <span class="fx">Σ = E[xxᵀ]</span>을
+      고유분해하면 입력 공간의 직교 방향 4096개와 각 방향의 입력 분산 λ_k가 나온다.
+      이를 λ 오름차순으로 10등분한 것이 D1(입력 분산 최저 10% 방향)…D10(최고 10%).
+      각 방향에서의 보상 오차는 <span class="fx">n_k = ‖(M̂−M)v_k‖₂</span>.</dd>
+    <dt>whitening의 목적</dt><dd>보상 오차의 기대값은 <span class="fx">E‖(M̂−M)x‖² = Σ_k λ_k·n_k²</span>로
+      분해된다 — 즉 whitening(M·C에 SVD, C=cholesky(Σ))은 <b>입력 분산 λ가 큰 방향의 오차를
+      우선적으로 줄이도록</b> rank 예산을 재배치하는 것과 같다.</dd>
+  </dl>
+</div>
+
+<p><b>① "flat 스펙트럼이 원인" — 스펙트럼을 직접 보면.</b> 아래 곡선이 각 층 M의 rank별 누적
+에너지다. r=512(첫 세로선)에서 중간층(7·16·24)은 에너지의 54–67%밖에 못 담는다 — <b>M의 1/8
+rank로는 M을 표현할 수 없다</b>는 것이 C4 붕괴의 직접 원인이다. r=1024에서 78–85%로 올라오는 것이
+PPL 회복(8.76→7.23)과 맞물린다. 90% 도달 rank(r90)는 층 평균 1,270, 중간층 1,400–1,500 (h=4096의
+~35%). 유일한 예외가 후반 층(31: r90=92)인데, 이 예외가 아래 ③의 배분 실패와 연결된다.</p>
+
+<div class="fig">
+  <div class="fig-title">M의 누적 스펙트럼 에너지 vs rank (plain SVD, 대표 5개 층)</div>
+  <div class="fig-sub">x축 rank(log), y축 누적 에너지 Σ<sub>k≤r</sub>S²/ΣS². 세로 점선 = r=512/1024/2048, 가로 점선 = 90%. 곡선이 오른쪽으로 누울수록(=늦게 올라갈수록) flat한 스펙트럼.</div>
+  <div id="chart-spectra"></div>
+</div>
+
+<p><b>② "입력측 L2는 잘못된 지표" — 오차를 방향별로 분해하면.</b> whitening은 보상 오차
+E‖(M̂−M)x‖를 32층 전부에서 줄였다(−12%~−37%). 그런데 PPL은 모든 rank에서 나빠졌다. 모순처럼 보이는
+이 결과는 오차를 <b>어느 방향에서 줄였는지</b>를 보면 풀린다: 아래 도표(층 16, r=512)에서 whitened의
+오차는 D10(입력 분산 최고 방향)에서만 절반으로 줄고, D1–D8에서는 오히려 plain보다 <b>크다</b>.
+5개 표본 층 전부 같은 패턴(D10 비율 0.47–0.57, D1 비율 1.13–1.22)이다. 오차 총량(가중합)은 줄었지만
+저·중분산 방향의 오차는 늘어난 상태에서 PPL이 악화 → <b>손실에 중요한 신호가 저·중분산 방향에
+산다</b>는 결론이 따라온다. 입력 분산으로 중요도를 매기는 가중(whitening)은 정확히 중요한 방향을
+희생하는 것이다.</p>
+
+<div class="fig">
+  <div class="fig-title">방향별 보상 오차 n<sub>k</sub> — 분산 십분위별 평균 (층 16, r=512)</div>
+  <div class="fig-sub">D1 = 입력 분산 최저 10% 방향, D10 = 최고 10%. whitened(주황)는 D10만 싸게 사고 D1–D8에 오차를 전가한다. 나머지 4개 표본 층도 동일 패턴.</div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--s1)"></span>plain SVD</span>
+    <span><span class="sw" style="background:var(--s2)"></span>whitened SVD</span>
+  </div>
+  <div id="chart-decile"></div>
+</div>
+
+<p><b>③ "rank가 유효 지렛대" — 지표와 PPL의 정합성 지도.</b> 아래 산점도는 다섯 변형의
+(trunc/tail 비, PPL)이다. <b>같은 기하 안에서는 지표가 PPL을 정확히 예측한다</b>: plain 512→1024로
+비가 0.586→0.385로 줄고 PPL도 8.76→7.23으로 따라 내려간다(파란 화살표). 그러나 <b>기하를 건너면
+역전된다</b>: wht1024는 전 변형 중 최저 비(0.319)인데 PPL은 plain1024보다 나쁘다. 즉 입력측 L2는
+"같은 분해 방식 안에서 rank를 비교"할 때만 유효한 지표다 — rank 증가는 이 지표가 유효한 유일한
+축이고, 실제로 PPL을 움직인 유일한 지렛대였다. 부가 교정: τ-배분(alloc1024)의 최악 층은 31
+(trunc/tail 0.96 vs 균일 0.56) — whitened 에너지 지표가 층 31을 "r90=30짜리 저rank"로 선언해 rank를
+빼앗았지만, ①에서 봤듯 그 층 보상의 절대 정확도는 여전히 필요했기 때문이다.</p>
+
+<div class="fig">
+  <div class="fig-title">입력측 L2 지표(trunc/tail 비) vs 실제 PPL — 변형 5종 @ s=0.9</div>
+  <div class="fig-sub">지표가 PPL을 예측한다면 모든 점이 우상향 단조 배열이어야 한다. plain 계열(파랑)은 단조; whitened 계열(주황)은 지표가 더 좋은데 PPL이 더 나쁜 역전.</div>
+  <div id="chart-metric-ppl"></div>
+</div>
+
+<h2><span class="num">4</span>Phase-0 단서 회고와 다음 단계</h2>
+
+<p class="lede">Phase 0이 남긴 단서 세 가지 중 하나가 그대로 현실화됐고, 둘은 다음 라운드의 지렛대로 남아 있다:</p>
+
+<div class="callout">
+  <div class="ct"><span class="warn-ico">⚠</span>단서 3 (rank) — 현실화됨</div>
+  <p>"rank 512가 중간층 M의 Frobenius 에너지 54–60%만 보존" → Phase 4에서 C4가 C1 아래로 붕괴하는 것으로
+  확인. C4 − C3 격차 0.75/0.93/2.13 (s=0.5/0.7/0.9). <b>r 증가가 1순위 지렛대</b>: r=1024는 연산 +6.2%,
+  r=2048은 +12.4% (2r/3d 기준).</p>
+</div>
+<div class="callout">
+  <div class="ct"><span class="warn-ico">⚠</span>단서 1 (마지막 두 층 역전) — 미검증</div>
+  <p>층 30·31은 r이 i보다 퍼져 있다. <code>exclude_layers=[30,31]</code> 변형은 아직 안 돌렸다 —
+  C3가 이미 크게 이기므로 우선순위는 내려갔지만, C4 rank sweep과 결합하면 배포형의 여지를 더 벌 수 있다.</p>
+</div>
+<div class="callout">
+  <div class="ct"><span class="warn-ico">⚠</span>단서 2 (ḡ 코퍼스 민감성) — 잔존 리스크</div>
+  <p>초반 층의 ḡ가 코퍼스에 민감(Pearson 0.48–0.53)한데도 C3가 크게 이겼다 — 보상이 calibration 노이즈에
+  어느 정도 강건하다는 간접 증거. wikitext-ḡ로 C3를 재실행하면 정량 확인 가능(미실행).</p>
+</div>
+
+<h3>다음 단계 (제안 — 미투입)</h3>
+<ul>
+  <li><b>plain 균일 r=2048</b> (+12.4% 연산): C4가 C3로 수렴하는지 최종 확인 (성공 기준: s=0.9 격차 &lt; 0.2).
+  잡 하나면 됨.</li>
+  <li><b>출력측 가중 목적함수</b>: whitening의 실패가 "입력 공간 L2는 잘못된 지표"임을 보였으므로,
+  후속 레이어 민감도(출력측)로 가중한 분해가 다음 설계 후보 — 설계 논의 필요.</li>
+  <li><b>일반화</b>: 배포형이 성립하면 LLaMA3-8B / 타 family로 확장 (백로그).</li>
+</ul>
+
+<footer>
+  <div><b>Reproducibility</b></div>
+  <div class="mono">job 050-20260723-155254-oracle-llama2-phase0-calib · tag exp/2026-07-22_oracle-llama2-phase0-calib · commit 6bf95b1 · seed 42</div>
+  <div class="mono">calibration: c4-en + wikitext-103, 각 512×2048 tok · phase-0: 32 seq · 산출물: a100-40-2:~/workspace/oracle/llama2-7b/{stats, phase0, factors/r512}</div>
+  <div class="mono">phase 3-4: jobs 050-20260724-021237 (dense+c1) · 050-20260724-040432 (c2/c3/c4/c5) · tags exp/2026-07-23_...phase3-c0c1, exp/2026-07-24_...phase4-c2c5 (36b39ee) · a6000-2 GPU0, venv (torch 2.6.0+cu124, transformers 4.46.3, sdpa) · select=topk K=int((1-s)d)</div>
+  <div class="mono">실험 카드: .labtool/topics/oracle-residual-sparsity/journal/ — phase0-calib, phase3-c0c1, phase4-c2c5</div>
+</footer>
+
+</div>
+<div id="tooltip"></div>
+
+<script>
+const HIST = {"0": {"i": [0.000865, 0.001054, 0.001279, 0.001566, 0.001885, 0.002291, 0.002776, 0.003362, 0.004055, 0.004883, 0.005862, 0.007054, 0.008444, 0.010083, 0.012002, 0.014262, 0.016852, 0.019828, 0.023222, 0.026976, 0.031236, 0.035888, 0.040841, 0.046011, 0.051056, 0.055753, 0.059808, 0.062834, 0.063888, 0.063399, 0.060484, 0.055594, 0.048968, 0.041344, 0.033109, 0.02525, 0.018193, 0.012417, 0.008058, 0.005031, 0.003085, 0.001897, 0.001173, 0.00072, 0.000449, 0.000289, 0.000199, 0.000135, 0.00011, 0.000122, 9.6e-05, 6.6e-05, 2.4e-05, 1.9e-05, 1.4e-05, 1e-05, 4e-06, 2e-06, 1e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "r": [0.001124, 0.00137, 0.001663, 0.002009, 0.002435, 0.002942, 0.003547, 0.004268, 0.005142, 0.006161, 0.007365, 0.008793, 0.010461, 0.012405, 0.014643, 0.017228, 0.020164, 0.023472, 0.027159, 0.0312, 0.035487, 0.040055, 0.04463, 0.049113, 0.053238, 0.056697, 0.059157, 0.060309, 0.059905, 0.057773, 0.054018, 0.048684, 0.042228, 0.035179, 0.028008, 0.021247, 0.015375, 0.010637, 0.007064, 0.004554, 0.002869, 0.001811, 0.001144, 0.000728, 0.000458, 0.000297, 0.000198, 0.000133, 9.3e-05, 9e-05, 0.0001, 6.1e-05, 3.4e-05, 2.4e-05, 1.6e-05, 1.3e-05, 6e-06, 2e-06, 1e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "below6_i": 0.00382, "below6_r": 0.00501, "med_i": 0.0005150046199560165, "med_r": 0.0004185118596069515, "ratio": 0.813, "q90_i": 0.0026879459619522095, "q90_r": 0.002418993506580591}, "7": {"i": [3.6e-05, 4.5e-05, 5.5e-05, 6.8e-05, 8.5e-05, 0.000104, 0.000128, 0.000155, 0.000191, 0.000233, 0.000289, 0.000352, 0.000435, 0.00053, 0.000647, 0.000797, 0.00097, 0.001184, 0.001445, 0.00175, 0.00213, 0.002591, 0.003142, 0.003806, 0.004597, 0.005535, 0.006674, 0.008051, 0.009606, 0.011558, 0.013766, 0.016359, 0.019376, 0.022901, 0.026928, 0.031521, 0.036664, 0.042232, 0.048267, 0.054514, 0.061019, 0.066718, 0.071546, 0.074362, 0.074356, 0.070489, 0.062721, 0.050701, 0.036853, 0.023489, 0.013123, 0.006734, 0.003506, 0.001969, 0.001132, 0.000631, 0.000347, 0.000194, 0.00011, 6.1e-05, 3.3e-05, 1.8e-05, 9e-06, 4e-06, 2e-06, 1e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "r": [6.2e-05, 7.6e-05, 9.5e-05, 0.000115, 0.000141, 0.000174, 0.000212, 0.000261, 0.000321, 0.000394, 0.00048, 0.000586, 0.000719, 0.000874, 0.001065, 0.001299, 0.001581, 0.001918, 0.002329, 0.002823, 0.003407, 0.00411, 0.004949, 0.005944, 0.007146, 0.008566, 0.01022, 0.012181, 0.014434, 0.017066, 0.020117, 0.023559, 0.027444, 0.031802, 0.036554, 0.041606, 0.046932, 0.052254, 0.057355, 0.061829, 0.065101, 0.066725, 0.066094, 0.062864, 0.056852, 0.048648, 0.039056, 0.029462, 0.021015, 0.01439, 0.009665, 0.006386, 0.004146, 0.002603, 0.00158, 0.000942, 0.000541, 0.000304, 0.000171, 9.6e-05, 5e-05, 2.6e-05, 1.3e-05, 7e-06, 3e-06, 1e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "below6_i": 0.00015, "below6_r": 0.00026, "med_i": 0.01547384262084961, "med_r": 0.00989857129752636, "ratio": 0.64, "q90_i": 0.059496402740478516, "q90_r": 0.04744291305541992}, "16": {"i": [1.8e-05, 2.3e-05, 2.8e-05, 3.5e-05, 4.1e-05, 5.3e-05, 6.6e-05, 8.1e-05, 9.9e-05, 0.000122, 0.00015, 0.000184, 0.000224, 0.000277, 0.00034, 0.000415, 0.000509, 0.000618, 0.000757, 0.000922, 0.001123, 0.00137, 0.001672, 0.002031, 0.002465, 0.002987, 0.003611, 0.004385, 0.005266, 0.006348, 0.007628, 0.009147, 0.010951, 0.01306, 0.015552, 0.018455, 0.021848, 0.025691, 0.030063, 0.035028, 0.040741, 0.046718, 0.053207, 0.059791, 0.066051, 0.071415, 0.075319, 0.075934, 0.072976, 0.065288, 0.053079, 0.038362, 0.024356, 0.013963, 0.00788, 0.004652, 0.002771, 0.00162, 0.000925, 0.000532, 0.000303, 0.000173, 9.9e-05, 5.5e-05, 3e-05, 1.8e-05, 1e-05, 6e-06, 3e-06, 1e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "r": [2.8e-05, 3.5e-05, 4.4e-05, 5.4e-05, 6.5e-05, 8.2e-05, 9.9e-05, 0.000123, 0.000152, 0.000186, 0.000228, 0.000279, 0.000346, 0.000421, 0.000513, 0.000629, 0.000761, 0.000937, 0.001141, 0.001385, 0.001699, 0.002057, 0.002489, 0.003022, 0.003648, 0.00441, 0.005308, 0.006399, 0.007668, 0.009201, 0.010978, 0.013092, 0.015533, 0.018381, 0.021677, 0.025415, 0.02963, 0.034305, 0.039438, 0.044938, 0.050583, 0.056194, 0.061324, 0.06545, 0.06801, 0.068273, 0.065712, 0.060101, 0.051832, 0.041993, 0.03199, 0.023178, 0.016309, 0.011245, 0.007615, 0.005033, 0.003226, 0.002004, 0.001224, 0.000736, 0.000449, 0.000267, 0.000152, 8.1e-05, 4.7e-05, 2.8e-05, 1.4e-05, 7e-06, 3e-06, 1e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "below6_i": 8e-05, "below6_r": 0.00012, "med_i": 0.032792091369628906, "med_r": 0.021625319495797157, "ratio": 0.659, "q90_i": 0.12349128723144531, "q90_r": 0.1012941300868988}, "24": {"i": [1.5e-05, 1.9e-05, 2.3e-05, 2.9e-05, 3.5e-05, 4.4e-05, 5.4e-05, 6.7e-05, 8.1e-05, 0.0001, 0.000123, 0.000148, 0.000185, 0.000229, 0.000276, 0.000338, 0.000415, 0.000509, 0.000627, 0.000759, 0.000921, 0.001127, 0.00137, 0.001671, 0.00202, 0.002445, 0.002962, 0.003594, 0.004316, 0.005217, 0.006261, 0.007527, 0.008985, 0.010743, 0.012747, 0.015158, 0.017926, 0.021116, 0.024766, 0.028873, 0.03367, 0.038797, 0.044484, 0.050517, 0.056672, 0.062589, 0.068061, 0.071745, 0.073446, 0.071994, 0.066441, 0.05675, 0.043819, 0.030168, 0.018633, 0.010977, 0.00669, 0.004285, 0.002673, 0.001603, 0.000924, 0.000516, 0.000287, 0.000162, 9.5e-05, 5.5e-05, 2.9e-05, 1.6e-05, 8e-06, 5e-06, 2e-06, 1e-06, 1e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "r": [1.7e-05, 2.3e-05, 2.8e-05, 3.4e-05, 4.1e-05, 5.1e-05, 6.3e-05, 7.6e-05, 9.6e-05, 0.000116, 0.000144, 0.000176, 0.000216, 0.000262, 0.000323, 0.000398, 0.000487, 0.000595, 0.000725, 0.000885, 0.00108, 0.001314, 0.001598, 0.001941, 0.002358, 0.002854, 0.003454, 0.004164, 0.005021, 0.006034, 0.007238, 0.008667, 0.010376, 0.012338, 0.014675, 0.017351, 0.02045, 0.024013, 0.028054, 0.032576, 0.037572, 0.043028, 0.048799, 0.054695, 0.060386, 0.065491, 0.069311, 0.071045, 0.070018, 0.065435, 0.057245, 0.046151, 0.033936, 0.02298, 0.014942, 0.009925, 0.00681, 0.004602, 0.002967, 0.001822, 0.001075, 0.000615, 0.000342, 0.000186, 0.000105, 6.1e-05, 3.5e-05, 1.9e-05, 9e-06, 5e-06, 3e-06, 1e-06, 1e-06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "below6_i": 6e-05, "below6_r": 7e-05, "med_i": 0.044075727462768555, "med_r": 0.03706830367445946, "ratio": 0.841, "q90_i": 0.1758408546447754, "q90_r": 0.15911312401294708}, "31": {"i": [1e-05, 1.1e-05, 1.5e-05, 1.9e-05, 2.2e-05, 2.8e-05, 3.5e-05, 4.2e-05, 5.3e-05, 6.4e-05, 7.8e-05, 9.6e-05, 0.000119, 0.000145, 0.000179, 0.00022, 0.00027, 0.000332, 0.000406, 0.000492, 0.000605, 0.000738, 0.000905, 0.001099, 0.001335, 0.001624, 0.001969, 0.002399, 0.002891, 0.003498, 0.004218, 0.005064, 0.006097, 0.007328, 0.008747, 0.01045, 0.012445, 0.014725, 0.017352, 0.020393, 0.023923, 0.027716, 0.032046, 0.036706, 0.041631, 0.046603, 0.05167, 0.055952, 0.059429, 0.061514, 0.061419, 0.058873, 0.053951, 0.047493, 0.040909, 0.035675, 0.032044, 0.029226, 0.024792, 0.01729, 0.010227, 0.006803, 0.004855, 0.003405, 0.002428, 0.001863, 0.001477, 0.001173, 0.000896, 0.00064, 0.000406, 0.000221, 0.000108, 4.7e-05, 1.7e-05, 7e-06, 3e-06, 1e-06, 0.0, 0.0], "r": [1e-05, 1.2e-05, 1.5e-05, 1.9e-05, 2.3e-05, 2.9e-05, 3.5e-05, 4.3e-05, 5.4e-05, 6.7e-05, 8.1e-05, 0.0001, 0.000124, 0.000152, 0.000186, 0.000227, 0.000279, 0.000343, 0.00042, 0.000514, 0.00063, 0.000764, 0.000941, 0.001146, 0.001393, 0.001693, 0.002055, 0.002484, 0.003004, 0.00364, 0.004385, 0.0053, 0.006364, 0.007649, 0.009146, 0.010909, 0.012972, 0.015361, 0.018162, 0.021356, 0.02497, 0.029029, 0.033505, 0.038405, 0.043525, 0.048698, 0.053708, 0.058136, 0.06147, 0.063265, 0.062843, 0.060028, 0.054895, 0.048225, 0.041166, 0.034705, 0.028715, 0.022914, 0.017488, 0.013021, 0.009555, 0.00678, 0.004613, 0.002991, 0.001871, 0.001192, 0.000813, 0.00054, 0.000314, 0.000183, 0.000115, 7.4e-05, 4.2e-05, 3e-05, 2e-05, 1e-05, 5e-06, 3e-06, 1e-06, 0.0], "below6_i": 4e-05, "below6_r": 5e-05, "med_i": 0.08027434349060059, "med_r": 0.07416120916604996, "ratio": 0.924, "q90_i": 0.5424976348876953, "q90_r": 0.4434552788734436}};
+const P = [0.7, 0.8, 0.9, 0.95, 0.99];
+const MEAN_I = [0.722, 0.623, 0.475, 0.358, 0.179];
+const MEAN_R = [0.755, 0.655, 0.505, 0.383, 0.194];
+// per layer: [sp_i@.9, sp_r@.9, hoyer_i, hoyer_r, kurt_i, kurt_r, compwin, cv2, pearson, energy]
+const L = [
+[0.521,0.544,0.689,0.724,1809.1,2186.6,0.614,6.88,0.6462,0.7901],
+[0.507,0.528,0.616,0.652,1246.4,1369.4,0.613,8.65,0.5919,0.6714],
+[0.493,0.506,0.489,0.521,297.2,331.3,0.591,17.42,0.4823,0.6204],
+[0.485,0.505,0.481,0.531,325.8,384.1,0.616,9.58,0.5284,0.6151],
+[0.479,0.506,0.460,0.527,230.6,300.3,0.637,6.79,0.4884,0.6047],
+[0.469,0.505,0.428,0.517,172.9,243.6,0.660,4.71,0.7201,0.5876],
+[0.462,0.507,0.420,0.529,171.5,261.3,0.681,3.49,0.8056,0.5595],
+[0.458,0.508,0.416,0.529,173.1,255.0,0.684,3.22,0.8741,0.5404],
+[0.459,0.507,0.409,0.517,137.8,191.6,0.674,3.83,0.9005,0.5574],
+[0.458,0.507,0.404,0.513,98.2,196.1,0.673,4.05,0.9154,0.5693],
+[0.457,0.508,0.403,0.511,95.0,148.7,0.672,3.80,0.9202,0.5784],
+[0.456,0.508,0.406,0.521,107.2,185.4,0.677,3.57,0.9110,0.5617],
+[0.456,0.507,0.409,0.519,124.1,203.1,0.672,3.77,0.9189,0.5623],
+[0.456,0.508,0.422,0.537,194.4,278.5,0.674,3.58,0.9234,0.5613],
+[0.458,0.507,0.434,0.540,227.6,307.2,0.669,4.40,0.9212,0.5623],
+[0.460,0.508,0.444,0.546,245.9,310.3,0.665,4.95,0.9281,0.5734],
+[0.460,0.508,0.451,0.552,269.0,336.6,0.674,5.47,0.9040,0.5827],
+[0.458,0.504,0.452,0.551,272.7,332.7,0.681,6.06,0.8677,0.5794],
+[0.461,0.500,0.463,0.551,295.3,360.3,0.679,7.28,0.8830,0.6005],
+[0.466,0.498,0.465,0.540,279.5,342.6,0.664,11.28,0.8757,0.6278],
+[0.465,0.497,0.474,0.546,283.6,334.7,0.669,12.22,0.8450,0.6373],
+[0.467,0.493,0.468,0.541,260.2,341.7,0.661,17.41,0.8269,0.6584],
+[0.467,0.490,0.468,0.524,244.1,276.8,0.655,24.68,0.7426,0.6446],
+[0.469,0.489,0.467,0.518,271.0,309.4,0.644,34.31,0.7755,0.6914],
+[0.469,0.486,0.465,0.514,256.3,316.3,0.640,43.34,0.7187,0.6713],
+[0.469,0.487,0.465,0.517,261.5,338.7,0.640,45.70,0.7955,0.7546],
+[0.471,0.487,0.459,0.515,241.9,310.0,0.639,44.67,0.7720,0.7075],
+[0.475,0.489,0.464,0.518,235.1,304.0,0.639,42.21,0.8312,0.7409],
+[0.482,0.493,0.472,0.535,202.9,318.2,0.629,45.08,0.8406,0.7755],
+[0.492,0.496,0.476,0.535,190.6,287.7,0.620,44.23,0.8882,0.8294],
+[0.515,0.512,0.523,0.543,180.9,203.8,0.608,40.88,0.9664,0.9404],
+[0.580,0.554,0.660,0.625,245.4,446.7,0.543,32.18,0.9950,0.9850]];
+
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const tip = document.getElementById('tooltip');
+function showTip(html, ev) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const pad = 14, w = tip.offsetWidth;
+  let x = ev.clientX + pad;
+  if (x + w > window.innerWidth - 8) x = ev.clientX - w - pad;
+  tip.style.left = x + 'px'; tip.style.top = (ev.clientY + pad) + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+/* ---- chart 1: induced-sparsity curves ---- */
+(function() {
+  const W = 840, H = 300, m = {t: 14, r: 118, b: 34, l: 46};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`}, document.getElementById('chart-curves'));
+  const x = p => m.l + iw * (p - 0.7) / (0.99 - 0.7);
+  const y = v => m.t + ih * (1 - (v - 0.1) / (0.8 - 0.1));
+  for (let v = 0.2; v <= 0.8; v += 0.2) {
+    el('line', {x1: m.l, x2: m.l + iw, y1: y(v), y2: y(v), class: 'grid-line'}, svg);
+    const t = el('text', {x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+    t.textContent = v.toFixed(1);
+  }
+  el('line', {x1: m.l, x2: m.l + iw, y1: y(0.1), y2: y(0.1), class: 'axis-line'}, svg);
+  P.forEach(p => {
+    const t = el('text', {x: x(p), y: H - 12, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+    t.textContent = 'p=' + p;
+  });
+  [[MEAN_I, '--s1', 'i = u⊙g', 14], [MEAN_R, '--s2', 'r = u⊙(g−ḡ)', -6]].forEach(([data, cvar, name, dy]) => {
+    const color = `var(${cvar})`;
+    el('path', {d: data.map((v, k) => (k ? 'L' : 'M') + x(P[k]) + ' ' + y(v)).join(' '),
+      fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round'}, svg);
+    data.forEach((v, k) => {
+      el('circle', {cx: x(P[k]), cy: y(v), r: 4, fill: color, stroke: 'var(--surface)', 'stroke-width': 2}, svg);
+      const hit = el('circle', {cx: x(P[k]), cy: y(v), r: 12, fill: 'transparent'}, svg);
+      hit.addEventListener('mousemove', ev => showTip(
+        `<b>${name}</b><br>p = ${P[k]}<br>유도 sparsity ${(v * 100).toFixed(1)}%` +
+        `<br>격차 ${((MEAN_R[k] - MEAN_I[k]) * 100).toFixed(1)}%p`, ev));
+      hit.addEventListener('mouseleave', hideTip);
+    });
+    const lab = el('text', {x: x(0.99) + 10, y: y(data[4]) + dy, fill: color, class: 'dlabel'}, svg);
+    lab.textContent = name;
+  });
+})();
+
+/* ---- chart 2: three aligned per-layer panels ---- */
+(function() {
+  const W = 840, panels = [
+    {key: 'gap',    title: '① r − i 유도 sparsity 격차 @ p=0.9 (%p)', h: 130,
+     min: -0.03, max: 0.06, ticks: [-0.02, 0, 0.02, 0.04], fmt: v => (v * 100).toFixed(0)},
+    {key: 'pearson',title: '② ḡ Pearson (c4 ↔ wikitext-103)', h: 110,
+     min: 0.4, max: 1.0, ticks: [0.5, 0.75, 1.0], fmt: v => v.toFixed(2)},
+    {key: 'energy', title: '③ M의 Frobenius 에너지 보존율 (rank 512)', h: 110,
+     min: 0.5, max: 1.0, ticks: [0.5, 0.75, 1.0], fmt: v => v.toFixed(2)}
+  ];
+  const m = {r: 16, l: 46}, gapY = 30, axisH = 26;
+  const totalH = panels.reduce((s, p) => s + p.h + gapY, 0) + axisH;
+  const iw = W - m.l - m.r;
+  const svg = el('svg', {viewBox: `0 0 ${W} ${totalH}`}, document.getElementById('chart-layers'));
+  const n = L.length, bw = iw / n;
+  const xL = k => m.l + bw * k;
+  let top = 18;
+  panels.forEach(pn => {
+    const y = v => top + pn.h * (1 - (v - pn.min) / (pn.max - pn.min));
+    const tt = el('text', {x: m.l, y: top - 0, class: 'dlabel', fill: 'var(--ink)', 'font-size': '12.5'}, svg);
+    tt.textContent = pn.title;
+    top += 14;
+    const y2 = v => top + (pn.h - 14) * (1 - (v - pn.min) / (pn.max - pn.min));
+    pn.ticks.forEach(v => {
+      el('line', {x1: m.l, x2: m.l + iw, y1: y2(v), y2: y2(v), class: 'grid-line'}, svg);
+      const t = el('text', {x: m.l - 8, y: y2(v) + 4, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+      t.textContent = pn.fmt(v);
+    });
+    if (pn.key === 'gap') {
+      const y0 = y2(0);
+      el('line', {x1: m.l, x2: m.l + iw, y1: y0, y2: y0, class: 'axis-line'}, svg);
+      L.forEach((row, k) => {
+        const g = row[1] - row[0];
+        const yv = y2(g), pos = g >= 0;
+        el('rect', {x: xL(k) + 1, width: Math.max(bw - 2, 2),
+          y: pos ? yv : y0, height: Math.max(Math.abs(yv - y0), 1),
+          rx: 1.5, fill: pos ? 'var(--pos)' : 'var(--neg)'}, svg);
+      });
+    } else {
+      const idx = pn.key === 'pearson' ? 8 : 9;
+      const pts = L.map((row, k) => [xL(k) + bw / 2, y2(row[idx])]);
+      el('path', {d: pts.map((p, k) => (k ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' '),
+        fill: 'none', stroke: 'var(--s1)', 'stroke-width': 2, 'stroke-linejoin': 'round'}, svg);
+      pts.forEach(p => el('circle', {cx: p[0], cy: p[1], r: 2.5, fill: 'var(--s1)'}, svg));
+    }
+    // shared hover: one invisible column per layer per panel
+    L.forEach((row, k) => {
+      const hit = el('rect', {x: xL(k), y: top, width: bw, height: pn.h - 14, fill: 'transparent'}, svg);
+      hit.addEventListener('mousemove', ev => showTip(
+        `<b>층 ${k}</b><br>격차@0.9: ${((row[1] - row[0]) * 100).toFixed(1)}%p` +
+        `<br>ḡ Pearson: ${row[8].toFixed(3)}<br>r512 에너지: ${row[9].toFixed(3)}` +
+        `<br>CV² 중앙값: ${row[7].toFixed(1)}`, ev));
+      hit.addEventListener('mouseleave', hideTip);
+    });
+    top += pn.h - 14 + gapY;
+  });
+  [0, 5, 10, 15, 20, 25, 31].forEach(k => {
+    const t = el('text', {x: xL(k) + bw / 2, y: top - gapY + 18, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+    t.textContent = k;
+  });
+})();
+
+/* ---- histograms: |i| vs |r| small multiples ---- */
+(function() {
+  if (typeof HIST === 'undefined') return;
+  const keys = Object.keys(HIST);
+  const PW = 156, PH = 150, gapX = 14, m = {l: 8, r: 8, t: 8, b: 34};
+  const W = keys.length * (PW + gapX) - gapX + m.l + m.r, H = PH + m.t + m.b;
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`}, document.getElementById('chart-hist'));
+  const NB = 80, X0 = -6, X1 = 2;
+  const ymax = 0.08;
+  keys.forEach((k, pi) => {
+    const ox = m.l + pi * (PW + gapX);
+    const x = bi => ox + PW * (bi / NB);
+    const xv = v => ox + PW * ((Math.log10(v) - X0) / (X1 - X0));
+    const y = f => m.t + PH * (1 - Math.min(f, ymax) / ymax);
+    el('line', {x1: ox, x2: ox + PW, y1: m.t + PH, y2: m.t + PH, class: 'axis-line'}, svg);
+    [[HIST[k].i, 'var(--s1)'], [HIST[k].r, 'var(--s2)']].forEach(([h, color]) => {
+      el('path', {d: h.map((f, bi) => (bi ? 'L' : 'M') + x(bi + 0.5).toFixed(1) + ' ' + y(f).toFixed(1)).join(' '),
+        fill: 'none', stroke: color, 'stroke-width': 1.8, 'stroke-linejoin': 'round'}, svg);
+    });
+    [[HIST[k].med_i, 'var(--s1)'], [HIST[k].med_r, 'var(--s2)']].forEach(([v, color]) => {
+      el('line', {x1: xv(v), x2: xv(v), y1: m.t + PH - 16, y2: m.t + PH, stroke: color,
+        'stroke-width': 1.6, 'stroke-dasharray': '2 2'}, svg);
+    });
+    const t1 = el('text', {x: ox + PW / 2, y: H - 20, 'text-anchor': 'middle', class: 'dlabel',
+      fill: 'var(--ink)', 'font-size': '12'}, svg);
+    t1.textContent = `층 ${k}`;
+    const t2 = el('text', {x: ox + PW / 2, y: H - 6, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+    t2.textContent = `med r/i = ${HIST[k].ratio.toFixed(3)}`;
+    const hit = el('rect', {x: ox, y: m.t, width: PW, height: PH, fill: 'transparent'}, svg);
+    hit.addEventListener('mousemove', ev => {
+      const r = svg.getBoundingClientRect();
+      const sx = (ev.clientX - r.left) / r.width * W;
+      const bi = Math.max(0, Math.min(NB - 1, Math.floor((sx - ox) / PW * NB)));
+      const lv = X0 + (bi + 0.5) * (X1 - X0) / NB;
+      showTip(`<b>층 ${k}</b> · |v| ≈ 10<sup>${lv.toFixed(1)}</sup><br>` +
+        `i: ${(HIST[k].i[bi] * 100).toFixed(2)}%  r: ${(HIST[k].r[bi] * 100).toFixed(2)}%<br>` +
+        `med|i| ${HIST[k].med_i.toPrecision(3)} · med|r| ${HIST[k].med_r.toPrecision(3)}`, ev);
+    });
+    hit.addEventListener('mouseleave', hideTip);
+  });
+})();
+
+/* ---- main result: ΔPPL vs s, log scale ---- */
+(function() {
+  const S = [0.5, 0.7, 0.9];
+  const MAIN = {
+    'C1 |i|':        {d: [0.0477, 0.2546, 2.6358], c: 'var(--s1)'},
+    'C2 +coln':      {d: [0.0472, 0.2873, 2.8021], c: 'var(--s2)'},
+    'C3 보상(정확)': {d: [0.0313, 0.1545, 1.1643], c: 'var(--s3)'},
+    'C4 r=512':      {d: [0.7798, 1.0825, 3.2900], c: 'var(--s4)'},
+    'C5 ḡ*':         {d: [0.0405, 0.1927, 1.4151], c: 'var(--s5)'},
+  };
+  const box = document.getElementById('chart-main');
+  if (!box) return;
+  const W = 840, H = 330, m = {t: 14, r: 150, b: 34, l: 52};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`}, box);
+  const x = s => m.l + iw * (s - 0.5) / 0.4;
+  const LY0 = Math.log10(0.02), LY1 = Math.log10(4);
+  const y = v => m.t + ih * (1 - (Math.log10(v) - LY0) / (LY1 - LY0));
+  [0.03, 0.1, 0.3, 1, 3].forEach(v => {
+    el('line', {x1: m.l, x2: m.l + iw, y1: y(v), y2: y(v), class: 'grid-line'}, svg);
+    const t = el('text', {x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+    t.textContent = v;
+  });
+  S.forEach(s => {
+    const t = el('text', {x: x(s), y: H - 12, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+    t.textContent = 's=' + s;
+  });
+  Object.entries(MAIN).forEach(([name, sr]) => {
+    const color = sr.c;
+    el('path', {d: sr.d.map((v, k) => (k ? 'L' : 'M') + x(S[k]) + ' ' + y(v)).join(' '),
+      fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round'}, svg);
+    sr.d.forEach((v, k) => {
+      el('circle', {cx: x(S[k]), cy: y(v), r: 4, fill: color, stroke: 'var(--surface)', 'stroke-width': 2}, svg);
+      const hit = el('circle', {cx: x(S[k]), cy: y(v), r: 12, fill: 'transparent'}, svg);
+      hit.addEventListener('mousemove', ev => showTip(
+        `<b>${name}</b><br>s = ${S[k]}<br>ΔPPL +${v.toFixed(4)}<br>PPL ${(5.4738 + v).toFixed(4)}`, ev));
+      hit.addEventListener('mouseleave', hideTip);
+    });
+  });
+  // right-edge labels: stack in endpoint order so each label sits next to its line
+  const order = Object.entries(MAIN).map(([name, sr]) => ({name, c: sr.c, ey: y(sr.d[2])}))
+    .sort((a, b) => a.ey - b.ey);
+  let prev = -1e9;
+  order.forEach(o => {
+    const ly = Math.max(o.ey + 4, prev + 15);
+    prev = ly;
+    const lab = el('text', {x: x(0.9) + 10, y: ly, fill: o.c, class: 'dlabel'}, svg);
+    lab.textContent = o.name;
+  });
+  const yl = el('text', {x: m.l - 8, y: m.t - 2, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+  yl.textContent = 'ΔPPL';
+})();
+
+
+/* ---- analysis charts: spectra / decile / metric-vs-ppl ---- */
+const SPECTRA = {"0": {"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 23, 25, 27, 29, 32, 34, 37, 40, 43, 46, 50, 54, 58, 63, 68, 74, 79, 86, 93, 100, 108, 117, 126, 136, 147, 158, 171, 185, 200, 215, 233, 251, 271, 293, 316, 341, 369, 398, 430, 464, 501, 512, 541, 584, 631, 681, 736, 794, 858, 926, 1000, 1024, 1080, 1166, 1259, 1359, 1468, 1585, 1711, 1848, 1995, 2048, 2154, 2326, 2512, 2712, 2929, 3162, 3415, 3687, 3981, 4096], "cum": [0.0615, 0.0771, 0.092, 0.1063, 0.1197, 0.1321, 0.1439, 0.1553, 0.1662, 0.1765, 0.1862, 0.1949, 0.203, 0.2109, 0.2182, 0.2253, 0.2321, 0.2386, 0.251, 0.2624, 0.268, 0.2784, 0.2881, 0.2973, 0.3102, 0.3181, 0.329, 0.339, 0.3483, 0.3569, 0.3676, 0.3776, 0.3871, 0.3983, 0.4087, 0.4207, 0.4302, 0.4428, 0.4549, 0.4663, 0.4789, 0.4923, 0.5051, 0.5187, 0.533, 0.5465, 0.5616, 0.5771, 0.5926, 0.6072, 0.6237, 0.6391, 0.6551, 0.6716, 0.6876, 0.7039, 0.7207, 0.7368, 0.7533, 0.7694, 0.7855, 0.7901, 0.8014, 0.817, 0.8325, 0.8473, 0.862, 0.8759, 0.8894, 0.9021, 0.9143, 0.9179, 0.9257, 0.9363, 0.9461, 0.955, 0.9631, 0.9703, 0.9765, 0.9819, 0.9865, 0.9879, 0.9903, 0.9933, 0.9956, 0.9973, 0.9985, 0.9993, 0.9998, 1.0, 1.0, 1.0]}, "7": {"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 23, 25, 27, 29, 32, 34, 37, 40, 43, 46, 50, 54, 58, 63, 68, 74, 79, 86, 93, 100, 108, 117, 126, 136, 147, 158, 171, 185, 200, 215, 233, 251, 271, 293, 316, 341, 369, 398, 430, 464, 501, 512, 541, 584, 631, 681, 736, 794, 858, 926, 1000, 1024, 1080, 1166, 1259, 1359, 1468, 1585, 1711, 1848, 1995, 2048, 2154, 2326, 2512, 2712, 2929, 3162, 3415, 3687, 3981, 4096], "cum": [0.0077, 0.0109, 0.0134, 0.0157, 0.018, 0.0201, 0.0222, 0.0242, 0.0261, 0.028, 0.0298, 0.0317, 0.0335, 0.0352, 0.037, 0.0387, 0.0404, 0.0421, 0.0455, 0.0488, 0.0505, 0.0537, 0.057, 0.0602, 0.065, 0.0681, 0.0728, 0.0774, 0.0819, 0.0865, 0.0924, 0.0983, 0.1041, 0.1113, 0.1184, 0.1268, 0.1337, 0.1432, 0.1525, 0.1617, 0.172, 0.1834, 0.1946, 0.2067, 0.2199, 0.2327, 0.2475, 0.2631, 0.2793, 0.2951, 0.3135, 0.3313, 0.3505, 0.3709, 0.3915, 0.413, 0.4362, 0.4591, 0.4833, 0.5078, 0.5331, 0.5404, 0.559, 0.5853, 0.6122, 0.6391, 0.6666, 0.6934, 0.7207, 0.7473, 0.7735, 0.7815, 0.7991, 0.8238, 0.8474, 0.8696, 0.8906, 0.9098, 0.9272, 0.9429, 0.9564, 0.9606, 0.968, 0.9776, 0.9852, 0.9909, 0.995, 0.9977, 0.9992, 0.9998, 1.0, 1.0]}, "16": {"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 23, 25, 27, 29, 32, 34, 37, 40, 43, 46, 50, 54, 58, 63, 68, 74, 79, 86, 93, 100, 108, 117, 126, 136, 147, 158, 171, 185, 200, 215, 233, 251, 271, 293, 316, 341, 369, 398, 430, 464, 501, 512, 541, 584, 631, 681, 736, 794, 858, 926, 1000, 1024, 1080, 1166, 1259, 1359, 1468, 1585, 1711, 1848, 1995, 2048, 2154, 2326, 2512, 2712, 2929, 3162, 3415, 3687, 3981, 4096], "cum": [0.0184, 0.0262, 0.0319, 0.0366, 0.041, 0.0447, 0.0482, 0.0517, 0.0549, 0.0581, 0.0609, 0.0638, 0.0665, 0.0692, 0.0717, 0.0742, 0.0766, 0.0789, 0.0835, 0.088, 0.0902, 0.0945, 0.0985, 0.1025, 0.1084, 0.1121, 0.1177, 0.1231, 0.1283, 0.1334, 0.1401, 0.1466, 0.153, 0.1607, 0.1684, 0.1773, 0.1846, 0.1946, 0.2043, 0.2138, 0.2245, 0.2362, 0.2476, 0.2599, 0.2732, 0.2861, 0.3009, 0.3164, 0.3324, 0.348, 0.3661, 0.3835, 0.4022, 0.422, 0.4418, 0.4624, 0.4844, 0.5062, 0.5291, 0.5521, 0.5759, 0.5827, 0.6, 0.6244, 0.6494, 0.6741, 0.6994, 0.7239, 0.7488, 0.7728, 0.7966, 0.8037, 0.8196, 0.8418, 0.8629, 0.8828, 0.9015, 0.9187, 0.9342, 0.9482, 0.9604, 0.9641, 0.9708, 0.9794, 0.9863, 0.9915, 0.9953, 0.9978, 0.9992, 0.9998, 1.0, 1.0]}, "24": {"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 23, 25, 27, 29, 32, 34, 37, 40, 43, 46, 50, 54, 58, 63, 68, 74, 79, 86, 93, 100, 108, 117, 126, 136, 147, 158, 171, 185, 200, 215, 233, 251, 271, 293, 316, 341, 369, 398, 430, 464, 501, 512, 541, 584, 631, 681, 736, 794, 858, 926, 1000, 1024, 1080, 1166, 1259, 1359, 1468, 1585, 1711, 1848, 1995, 2048, 2154, 2326, 2512, 2712, 2929, 3162, 3415, 3687, 3981, 4096], "cum": [0.0252, 0.0406, 0.0526, 0.0633, 0.0721, 0.0791, 0.0855, 0.0918, 0.0977, 0.1034, 0.1089, 0.1142, 0.1193, 0.1245, 0.1291, 0.1333, 0.1374, 0.1413, 0.1486, 0.1556, 0.159, 0.1655, 0.1718, 0.1778, 0.186, 0.1913, 0.1989, 0.2062, 0.2132, 0.2199, 0.2286, 0.237, 0.245, 0.2547, 0.2641, 0.2749, 0.2835, 0.2953, 0.3066, 0.3175, 0.3296, 0.3426, 0.3552, 0.3686, 0.3827, 0.3963, 0.4116, 0.4274, 0.4435, 0.4589, 0.4765, 0.4933, 0.5109, 0.5293, 0.5475, 0.5663, 0.5861, 0.6054, 0.6254, 0.6453, 0.6655, 0.6713, 0.6859, 0.7062, 0.7268, 0.747, 0.7673, 0.787, 0.8067, 0.8256, 0.8441, 0.8497, 0.8619, 0.8789, 0.8951, 0.9102, 0.9244, 0.9374, 0.9492, 0.9598, 0.9691, 0.972, 0.977, 0.9837, 0.989, 0.9931, 0.9962, 0.9982, 0.9993, 0.9999, 1.0, 1.0]}, "31": {"ranks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 23, 25, 27, 29, 32, 34, 37, 40, 43, 46, 50, 54, 58, 63, 68, 74, 79, 86, 93, 100, 108, 117, 126, 136, 147, 158, 171, 185, 200, 215, 233, 251, 271, 293, 316, 341, 369, 398, 430, 464, 501, 512, 541, 584, 631, 681, 736, 794, 858, 926, 1000, 1024, 1080, 1166, 1259, 1359, 1468, 1585, 1711, 1848, 1995, 2048, 2154, 2326, 2512, 2712, 2929, 3162, 3415, 3687, 3981, 4096], "cum": [0.0509, 0.0941, 0.1313, 0.1582, 0.1819, 0.2031, 0.2238, 0.2421, 0.2597, 0.2767, 0.2933, 0.3098, 0.3259, 0.3416, 0.3572, 0.3722, 0.387, 0.4015, 0.429, 0.4552, 0.4678, 0.4922, 0.5158, 0.5383, 0.5707, 0.5912, 0.6205, 0.6476, 0.6726, 0.6963, 0.7246, 0.7509, 0.7745, 0.8008, 0.8241, 0.8482, 0.8654, 0.8856, 0.9022, 0.9149, 0.926, 0.9347, 0.941, 0.946, 0.9504, 0.9539, 0.9573, 0.9605, 0.9633, 0.9658, 0.9683, 0.9705, 0.9725, 0.9744, 0.9762, 0.9778, 0.9794, 0.9808, 0.9822, 0.9835, 0.9847, 0.985, 0.9859, 0.987, 0.9881, 0.9891, 0.9902, 0.9911, 0.992, 0.9929, 0.9937, 0.994, 0.9945, 0.9952, 0.9959, 0.9965, 0.9971, 0.9976, 0.9981, 0.9985, 0.9989, 0.999, 0.9992, 0.9994, 0.9996, 0.9998, 0.9999, 0.9999, 1.0, 1.0, 1.0, 1.0]}};
+const DECILE = {"plain512": [0.1792183518409729, 0.18202626705169678, 0.1828160285949707, 0.18418613076210022, 0.1852685809135437, 0.18654340505599976, 0.18736882507801056, 0.1889697015285492, 0.19074024260044098, 0.1891254335641861], "wht512": [0.21015480160713196, 0.21108007431030273, 0.21088583767414093, 0.21067076921463013, 0.20974625647068024, 0.20770402252674103, 0.2033870369195938, 0.1954978108406067, 0.17285718023777008, 0.09349917620420456]};
+const SCATTER = {"plain512": {"ratio": 0.5862, "ppl": 8.7638}, "wht512": {"ratio": 0.5, "ppl": 9.7606}, "plain1024": {"ratio": 0.3853, "ppl": 7.2294}, "wht1024": {"ratio": 0.3193, "ppl": 7.3974}, "alloc1024": {"ratio": 0.3254, "ppl": 7.6336}};
+
+(function() {
+  const box = document.getElementById('chart-spectra');
+  if (!box) return;
+  const W = 840, H = 320, m = {t: 14, r: 60, b: 36, l: 46};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`}, box);
+  const LX0 = 0, LX1 = Math.log10(4096);
+  const x = r => m.l + iw * (Math.log10(r) - LX0) / (LX1 - LX0);
+  const y = v => m.t + ih * (1 - v);
+  [0.25, 0.5, 0.75, 1.0].forEach(v => {
+    el('line', {x1: m.l, x2: m.l + iw, y1: y(v), y2: y(v), class: 'grid-line'}, svg);
+    const t = el('text', {x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+    t.textContent = v.toFixed(2);
+  });
+  el('line', {x1: m.l, x2: m.l + iw, y1: y(0.9), y2: y(0.9), stroke: 'var(--muted)',
+    'stroke-width': 1, 'stroke-dasharray': '4 3'}, svg);
+  const t90 = el('text', {x: m.l + iw + 4, y: y(0.9) + 4, class: 'axis-lab'}, svg);
+  t90.textContent = '90%';
+  [1, 8, 64, 512, 4096].forEach(r => {
+    const t = el('text', {x: x(r), y: H - 14, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+    t.textContent = r;
+  });
+  [512, 1024, 2048].forEach(r => {
+    el('line', {x1: x(r), x2: x(r), y1: m.t, y2: m.t + ih, stroke: 'var(--axis)',
+      'stroke-width': 1, 'stroke-dasharray': '2 3'}, svg);
+    const t = el('text', {x: x(r), y: m.t - 2, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+    t.textContent = 'r=' + r;
+  });
+  const colors = {'0': 'var(--s1)', '7': 'var(--s2)', '16': 'var(--s3)', '24': 'var(--s4)', '31': 'var(--s5)'};
+  const labelYs = [];
+  Object.entries(SPECTRA).forEach(([l, c]) => {
+    const pts = c.ranks.map((r, k) => [x(r), y(c.cum[k])]);
+    el('path', {d: pts.map((p, k) => (k ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' '),
+      fill: 'none', stroke: colors[l], 'stroke-width': 2, 'stroke-linejoin': 'round'}, svg);
+    const i512 = c.ranks.indexOf(512);
+    const hit = el('rect', {x: m.l, y: m.t, width: iw, height: ih, fill: 'transparent',
+      'pointer-events': 'none'}, svg);
+    let ly = y(c.cum[c.ranks.indexOf(64)] ?? c.cum[0]) + 4;
+    while (labelYs.some(v => Math.abs(v - ly) < 14)) ly += 14;
+    labelYs.push(ly);
+    const lab = el('text', {x: x(64) + 6, y: ly, fill: colors[l], class: 'dlabel'}, svg);
+    lab.textContent = '층 ' + l;
+    [[512, c.cum[c.ranks.indexOf(512)]], [1024, c.cum[c.ranks.indexOf(1024)]]].forEach(([r, v]) => {
+      const dot = el('circle', {cx: x(r), cy: y(v), r: 3.5, fill: colors[l],
+        stroke: 'var(--surface)', 'stroke-width': 1.5}, svg);
+      const hp = el('circle', {cx: x(r), cy: y(v), r: 10, fill: 'transparent'}, svg);
+      hp.addEventListener('mousemove', ev => showTip(
+        `<b>층 ${l}</b> · r=${r}<br>누적 에너지 ${(v * 100).toFixed(1)}%`, ev));
+      hp.addEventListener('mouseleave', hideTip);
+    });
+  });
+})();
+
+(function() {
+  const box = document.getElementById('chart-decile');
+  if (!box) return;
+  const W = 840, H = 260, m = {t: 12, r: 16, b: 34, l: 52};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`}, box);
+  const ymax = 0.24;
+  const y = v => m.t + ih * (1 - v / ymax);
+  [0.05, 0.1, 0.15, 0.2].forEach(v => {
+    el('line', {x1: m.l, x2: m.l + iw, y1: y(v), y2: y(v), class: 'grid-line'}, svg);
+    const t = el('text', {x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+    t.textContent = v.toFixed(2);
+  });
+  el('line', {x1: m.l, x2: m.l + iw, y1: y(0), y2: y(0), class: 'axis-line'}, svg);
+  const gw = iw / 10, bw = gw * 0.32;
+  for (let k = 0; k < 10; k++) {
+    const gx = m.l + gw * k + gw / 2;
+    const t = el('text', {x: gx, y: H - 12, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+    t.textContent = 'D' + (k + 1);
+    [['plain512', 'var(--s1)', -bw - 1], ['wht512', 'var(--s2)', 1]].forEach(([name, color, off]) => {
+      const v = DECILE[name][k];
+      el('rect', {x: gx + off, y: y(v), width: bw, height: y(0) - y(v), rx: 2, fill: color}, svg);
+      const hit = el('rect', {x: gx + off, y: m.t, width: bw, height: ih, fill: 'transparent'}, svg);
+      hit.addEventListener('mousemove', ev => showTip(
+        `<b>${name}</b> · D${k + 1}<br>평균 오차 n_k = ${v.toFixed(4)}<br>` +
+        `wht/plain = ${(DECILE.wht512[k] / DECILE.plain512[k]).toFixed(2)}`, ev));
+      hit.addEventListener('mouseleave', hideTip);
+    });
+  }
+  const yl = el('text', {x: m.l - 8, y: m.t + 2, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+  yl.textContent = 'n_k';
+})();
+
+(function() {
+  const box = document.getElementById('chart-metric-ppl');
+  if (!box) return;
+  const W = 840, H = 300, m = {t: 16, r: 30, b: 40, l: 52};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`}, box);
+  const X0 = 0.28, X1 = 0.64, Y0 = 7.0, Y1 = 10.0;
+  const x = v => m.l + iw * (v - X0) / (X1 - X0);
+  const y = v => m.t + ih * (1 - (v - Y0) / (Y1 - Y0));
+  [7, 8, 9, 10].forEach(v => {
+    el('line', {x1: m.l, x2: m.l + iw, y1: y(v), y2: y(v), class: 'grid-line'}, svg);
+    const t = el('text', {x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+    t.textContent = v.toFixed(1);
+  });
+  [0.3, 0.4, 0.5, 0.6].forEach(v => {
+    const t = el('text', {x: x(v), y: H - 16, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+    t.textContent = v.toFixed(1);
+  });
+  const xt = el('text', {x: m.l + iw / 2, y: H - 2, 'text-anchor': 'middle', class: 'axis-lab'}, svg);
+  xt.textContent = 'trunc/tail 비 (낮을수록 지표상 좋음) →';
+  const yt = el('text', {x: m.l - 8, y: m.t - 4, 'text-anchor': 'end', class: 'axis-lab'}, svg);
+  yt.textContent = 'PPL@s=0.9';
+  const P = SCATTER;
+  el('line', {x1: x(P.plain512.ratio), y1: y(P.plain512.ppl), x2: x(P.plain1024.ratio),
+    y2: y(P.plain1024.ppl), stroke: 'var(--s1)', 'stroke-width': 1.5, 'stroke-dasharray': '5 3'}, svg);
+  const fam = {plain512: 'var(--s1)', plain1024: 'var(--s1)', wht512: 'var(--s2)',
+               wht1024: 'var(--s2)', alloc1024: 'var(--s2)'};
+  const dlab = {plain512: [8, -8], plain1024: [8, 14], wht512: [8, -8], wht1024: [8, -8], alloc1024: [8, 16]};
+  Object.entries(P).forEach(([name, p]) => {
+    el('circle', {cx: x(p.ratio), cy: y(p.ppl), r: 6, fill: fam[name],
+      stroke: 'var(--surface)', 'stroke-width': 2}, svg);
+    const lab = el('text', {x: x(p.ratio) + dlab[name][0], y: y(p.ppl) + dlab[name][1],
+      fill: fam[name], class: 'dlabel'}, svg);
+    lab.textContent = name;
+    const hit = el('circle', {cx: x(p.ratio), cy: y(p.ppl), r: 14, fill: 'transparent'}, svg);
+    hit.addEventListener('mousemove', ev => showTip(
+      `<b>${name}</b><br>trunc/tail(s=0.9) = ${p.ratio.toFixed(3)}<br>PPL = ${p.ppl.toFixed(4)}`, ev));
+    hit.addEventListener('mouseleave', hideTip);
+  });
+})();
+
+/* ---- full table ---- */
+(function() {
+  const tb = document.querySelector('#full-table tbody');
+  L.forEach((r, k) => {
+    const gap = r[1] - r[0];
+    const tr = document.createElement('tr');
+    if (gap < 0) tr.className = 'hl';
+    tr.innerHTML = `<td class="n">${k}</td><td class="n">${r[0].toFixed(3)}</td><td class="n">${r[1].toFixed(3)}</td>` +
+      `<td class="n">${gap >= 0 ? '+' : ''}${(gap * 100).toFixed(1)}%p</td>` +
+      `<td class="n">${r[2].toFixed(3)}</td><td class="n">${r[3].toFixed(3)}</td>` +
+      `<td class="n">${r[4].toFixed(0)}</td><td class="n">${r[5].toFixed(0)}</td>` +
+      `<td class="n">${r[6].toFixed(3)}</td><td class="n">${r[7].toFixed(2)}</td>` +
+      `<td class="n">${r[8].toFixed(4)}</td><td class="n">${r[9].toFixed(3)}</td>`;
+    tb.appendChild(tr);
+  });
+})();
+</script>
