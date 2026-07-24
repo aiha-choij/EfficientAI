@@ -19,8 +19,6 @@ plain uniform r=1024 is the best C4 (7.229 @s=0.9, beats C1, gap to C3
 output-side-weighted objective design.
 
 ## Active Jobs
-- `20260725-000051-coact-llama2-p1-stats` — coactivation-block-structure P1
-  (co-activation stats, a6000-4, PENDING)
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -43,6 +41,10 @@ topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
 3. (later) LLaMA3-8B / other-family generalization once C4 form is settled.
 
 ## Latest
+- 2026-07-25: `coact-llama2-p1-stats` DONE (1.5 min) — union tax quantified
+  at s=0.9: 6.0–6.3× @g=16, 9.1–9.4× @g=64 (92–95% of saturation 9.96×) in
+  layers 0–24; layer 31 exception (3.9–6.6×). Naive union sharing dead at
+  g=64; P2 clustering (strong null ≥1.3× vs random) decides the axis.
 - 2026-07-24: `rsparse-llama2-repro` DONE — R-Sparse ICLR25 Llama-2-7B
   reproduced: full baseline exact (65.88), self-searched 50% recipe 64.59 vs
   paper 64.06; PPL@4096 searched +0.045 vs dense 5.1164. LaRoSA head-to-head
@@ -61,9 +63,6 @@ topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
   +0.048/+0.255/+2.636 at s=0.5/0.7/0.9 (H1 confirmed, −56% at 0.9). C2
   worse than C1 (H2 rejected). C4 r=512 below C1 everywhere (H3 partial-go,
   rank problem). C5 < C3. Spec §8: PARTIAL-GO. Next: C4 rank sweep proposal.
-- 2026-07-24: Phase 3 GATE PASSED on a6000-2 — dense 5.4738, C1 5.5216/5.7284/
-  8.1096 (anchors within 0.0013). Oracle path ≡ topk_intermediate. Phase 4
-  (C2-C5) submitted, one job per condition. sdpa-attr fix 36b39ee.
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.

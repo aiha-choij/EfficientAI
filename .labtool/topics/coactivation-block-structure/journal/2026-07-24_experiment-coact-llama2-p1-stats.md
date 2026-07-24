@@ -1,7 +1,7 @@
 # Experiment: coact-llama2-p1-stats (P1 — co-activation statistics)
 
-Status: PENDING
-Date: 2026-07-24 (submitted 2026-07-25 00:00 KST)
+Status: DONE
+Date: 2026-07-24 (submitted 2026-07-25 00:00 KST, closed 2026-07-25)
 
 ## Hypothesis tested
 Raw-material collection, not a directional hypothesis: gather same-token
@@ -91,3 +91,13 @@ Per-layer sanity (all within expected bounds):
   constants (tokens = 65536, per-window pair counts).
 
 ### Interpretation
+(User, 2026-07-25, approving the proposed reading)
+1. P1 succeeded — all five layers collected, every sanity bound holds, P2 is
+   unblocked.
+2. The spec §2 prediction ("union sharing overshoots the budget several-fold")
+   is now quantified: 6× already at g=16, and at g=64 a union mask is
+   effectively dense (~92% of all neurons touched). Naive union sharing is
+   worthless at g=64; the inflation the block structure must absorb is that
+   large — P2's outcome decides the fate of the whole permutation axis.
+3. Layer 31 is once more the exception (lowest tax), adding to the case for a
+   per-layer strategy (fixed set at the last layer).
