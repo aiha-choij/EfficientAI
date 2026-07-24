@@ -57,6 +57,18 @@ No-go if C3 − C2 < 5%p.
 - All sparsification simulated as compute-then-mask (oracle-equivalent).
 
 ## Key Findings
+- **C4 whitening round (2026-07-24): rank is the lever; whitening and
+  tau-allocation are both harmful.** Full 2x2 at matched budgets: plain
+  uniform r=1024 is the best C4 (5.737/5.915/7.229; beats C1 at s=0.9, gap
+  to C3 down to +0.23/+0.29/+0.59) at +6.2% compute. Whitening reduces its
+  own L2 objective by 13% on real inputs yet worsens PPL at every rank
+  (+1.00 at r512 s=0.9) — input-distribution L2 is misaligned with
+  downstream loss (low-variance directions matter). Energy allocation
+  starves early/mid layers (budget 256 → r_l=5, PPL 17.4).
+  When relevant: (a) scaling r is the safe C4 lever (r=2048 = +12.4% is the
+  next test); (b) any future compensation objective should weight the
+  OUTPUT side (downstream sensitivity), not the input distribution.
+  Journal: 2026-07-24_experiment-oracle-llama2-c4-whitening.md
 - **[MAIN] Phase 4 table (2026-07-24): H1 confirmed, H2 rejected, H3
   partial-go.** LLaMA2-7B, top-K matched s, wikitext-2 PPL (dense 5.4738):
   C3 (residual score + exact mean-gate compensation) cuts C1's degradation by
@@ -106,7 +118,13 @@ No-go if C3 − C2 < 5%p.
   not implementation bugs.
 
 ## Dead Ends
-(none yet)
+- 2026-07-24 — Whitened SVD for the C4 compensation factors (SVD of M@C,
+  C=cholesky(E[xx^T])) — achieved −13% E||(M_hat−M)x|| but worsened PPL at
+  every rank/budget; input-space L2 is the wrong objective for downstream
+  loss. Journal: 2026-07-24_experiment-oracle-llama2-c4-whitening.md
+- 2026-07-24 — Per-layer rank allocation by (whitened) spectral energy —
+  lost to uniform rank at every matched budget; the whitened energy metric
+  starves early/mid layers. Same journal.
 
 ## Open Questions
 - ~~Rank grid~~ → resolved: r = 512 (h/8) only (user, 2026-07-22).
@@ -119,22 +137,17 @@ No-go if C3 − C2 < 5%p.
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments
-1. **RUNNING — C4 whitening round** (spec-c4-whitening.md, user work order
-   2026-07-24): sigma calibration → whitened SVD factors (uniform r=512 +
-   budget-allocated r_bar {256,512,1024}) → Task-0 trunc-vs-tail diagnostics →
-   C4 sweeps. Success: C4-whitened beats C1 at s=0.7/0.9 and closes toward C3.
-   Scope note: doc mentions 8B/p-grid/normalized-acc; standing scope
-   (7B / top-K {0.5,0.7,0.9} / PPL) applied — code is model-agnostic for a
-   later 8B pass.
-2. (if whitening ≈ plain) spectrum is genuinely flat → discuss structured
-   compensation alternatives with user before more GPU spend.
+## Next Experiments (candidates — discuss before submitting)
+1. **plain uniform r=2048** (+12.4% compute): does C4 converge to C3? One
+   small job (factor build + 3 PPL runs). Success: s=0.9 gap to C3 < 0.2.
+2. **Output-side-weighted factorization**: weight the SVD objective by
+   downstream sensitivity instead of input covariance (design discussion
+   needed — whitening's failure says input-space L2 is the wrong metric).
 3. (later) generalize to LLaMA3-8B / other family once the deployable form
    is settled.
 
 ## Active Jobs
-- `050-20260724-052033-oracle-llama2-c4-whitening` (a6000-2) — whitened SVD +
-  rank allocation round. Journal: 2026-07-24_experiment-oracle-llama2-c4-whitening.md
+- (none)
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:

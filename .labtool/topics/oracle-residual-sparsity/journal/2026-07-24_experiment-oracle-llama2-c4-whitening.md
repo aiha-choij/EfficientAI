@@ -1,6 +1,6 @@
 # Experiment: oracle-llama2-c4-whitening
 
-Status: PENDING
+Status: DONE (2026-07-24)
 Date: 2026-07-24
 
 ## Hypothesis tested
@@ -84,10 +84,36 @@ Key contradictions:
 3. wht_alloc1024 is the best C4 yet (5.957/6.164/7.634; first C4 to beat C1
    at s=0.9) — but rank doubled, so whitening-vs-rank is confounded.
 
-Completion arms (job 050-20260724-064258, running): uniform wht_r1024 and
-uniform plain_r1024 to (a) finish Task 2.3 uniform-vs-alloc at r_bar=1024 and
-(b) isolate whitening from rank at 1024.
-[to be appended when the job finishes]
+Completion arms (job 050-20260724-064258, DONE) — full C4 variant table
+(dense 5.4738; C1/C3 for reference):
+
+| s   | C1     | C3     | plain512 | wht512 | plain1024 | wht1024 | alloc1024 | alloc512 | alloc256 |
+|-----|--------|--------|----------|--------|-----------|---------|-----------|----------|----------|
+| 0.5 | 5.5216 | 5.5051 | 6.2537   | 6.4859 | **5.7365**| 5.7668  | 5.9570    | 7.0903   | 9.2926   |
+| 0.7 | 5.7284 | 5.6283 | 6.5563   | 6.8483 | **5.9152**| 5.9638  | 6.1641    | 7.4886   | 10.0913  |
+| 0.9 | 8.1096 | 6.6381 | 8.7638   | 9.7606 | **7.2294**| 7.3974  | 7.6336    | 10.2638  | 17.4118  |
+
+2x2 decomposition at fixed budget:
+- rank 512→1024 (plain uniform): −0.52/−0.64/−1.53 PPL — the only lever that
+  works. plain_r1024 is the best C4: beats C1 at s=0.9 (7.23 < 8.11), gap to
+  C3 shrinks to +0.23/+0.29/+0.59.
+- whitening at fixed rank: +0.23/+0.29/+1.00 (r512), +0.03/+0.05/+0.17
+  (r1024) — consistently harmful despite reducing E||(M_hat−M)x|| by 13%.
+- tau-energy allocation at fixed budget: harmful at every budget
+  (alloc1024 > wht1024 uniform > plain1024; alloc512 >> plain512).
 
 ### Interpretation
-(pending)
+(provisional — presented to user with the completed table)
+
+Both spec hypotheses about the C4 collapse are now answered: the cause is
+(a) the flat (heavy-tailed) spectrum of M, NOT (b) plain SVD ignoring the
+input distribution. Evidence: whitening achieves its own objective (−13%
+E||(M_hat−M)x|| on real calibration inputs) yet makes PPL worse at every
+rank and budget — input-distribution L2 is misaligned with downstream loss,
+consistent with important low-variance (outlier-ish) directions being
+down-weighted by whitening. Allocation fails for the same reason: it trusts
+the whitened energy metric, starving early/mid layers (budget 256 → r_l=5).
+The lever that works is brute rank: plain uniform r=1024 (compute +6.2%,
+2r/3d) more than halves plain-r512's excess over C3 at s=0.9 and finally
+beats C1. Decision point: r=2048 (+12.4%) to test convergence to C3 vs
+accepting r=1024, vs output-side-weighted objectives as a smarter direction.

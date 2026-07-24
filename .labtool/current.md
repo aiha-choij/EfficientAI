@@ -8,10 +8,11 @@
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 
 ## This Session
-Focus: oracle-residual-sparsity — ALL PHASES DONE. Main table complete:
-H1 confirmed (C3 cuts s=0.9 degradation 56%, PPL 8.110→6.638), H2 rejected,
-H3 partial-go (C4 r=512 collapses; needs bigger r). Verdict: PARTIAL-GO.
-Next decision: C4 rank sweep (r=1024/2048) — proposed, not yet submitted.
+Focus: oracle-residual-sparsity — main table + C4 whitening round DONE.
+Whitening/allocation both harmful (Dead Ends); rank is the working lever:
+plain uniform r=1024 is the best C4 (7.229 @s=0.9, beats C1, gap to C3
++0.59) at +6.2% compute. Next decision: r=2048 convergence test vs
+output-side-weighted objective design.
 
 ## Active Jobs
 - (none)
@@ -38,6 +39,10 @@ compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md
 3. Phase 4: C2–C5 sweeps, one job per condition; main PPL-vs-sparsity table.
 
 ## Latest
+- 2026-07-24: C4 whitening round DONE — whitening worsens PPL at every rank
+  despite −13% L2 (Dead End); tau-allocation harmful (Dead End); plain
+  uniform r=1024 best C4: 5.737/5.915/7.229, beats C1 @s=0.9, gap to C3
+  +0.23/+0.29/+0.59 at +6.2% compute. Next: r=2048 or output-side weighting.
 - 2026-07-24: PHASE 4 DONE — main table: C3 ΔPPL +0.031/+0.155/+1.164 vs C1
   +0.048/+0.255/+2.636 at s=0.5/0.7/0.9 (H1 confirmed, −56% at 0.9). C2
   worse than C1 (H2 rejected). C4 r=512 below C1 everywhere (H3 partial-go,
@@ -51,20 +56,6 @@ compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md
   r above i in 30/32 layers, mean gap +3%p (peak +5%p mid-stack, inverted at
   layers 30-31). ḡ Pearson(c4,wt103) 0.48-0.995 (weak early). r=512 Frobenius
   energy 0.54-0.985. c4 streaming worked; primary stats = c4.
-- 2026-07-22: `oracle-llama2-phase0-calib` submitted (050-20260723-155254,
-  tag exp/2026-07-22_oracle-llama2-phase0-calib, pinned a100-40-2) — Phase 2:
-  two-corpus calibration + phase-0 i-vs-r report (H1 go/no-go) + M r=512.
-- 2026-07-22: Phase 1 DONE — `sparse_mode='oracle'` (C0–C5) implemented in
-  inference/oracle_mlp.py + modeling hooks; scripts/oracle/01–04 + sweep; all
-  4 spec unit tests pass on CPU (identities to ~1e-7). Scope narrowed by user:
-  LLaMA2-7B only, wikitext-2 PPL only, C4 r=512 only.
-- 2026-07-22: PIVOT — larosa-intermediate-sparsity closed (done; hypothesis
-  confirmed on LLaMA2-7B, 3-model ext moved to backlog). New topic
-  oracle-residual-sparsity: mean-gate residual decomposition + rank-r
-  compensation, oracle top-p. Spec preserved verbatim; no R-Sparse fork.
-- 2026-07-22: `larosa-llama2-topk-int-ppl` DONE — PPL 5.521/5.730/8.108 at
-  s=50/70/90 (dense 5.4736). Intermediate 70% beats input-mode 50%.
-
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read its gist.md first, then spec.md
   for full implementation detail (spec is authoritative for the design).
