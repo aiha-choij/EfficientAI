@@ -15,7 +15,10 @@ plain uniform r=1024 is the best C4 (7.229 @s=0.9, beats C1, gap to C3
 output-side-weighted objective design.
 
 ## Active Jobs
-- (none)
+- `20260724-171801-larosa-llama2-topk-overlap` @ a100-40-2 — cross-token
+  neuron-selection overlap analysis (topk_intermediate, s=0.5/0.7/0.9),
+  submitted from the older larosa-intermediate-sparsity session. Journal:
+  topics/larosa-intermediate-sparsity/journal/2026-07-24_experiment-larosa-llama2-topk-overlap.md
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 
