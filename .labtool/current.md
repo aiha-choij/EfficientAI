@@ -43,6 +43,11 @@ topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
 3. (later) LLaMA3-8B / other-family generalization once C4 form is settled.
 
 ## Latest
+- 2026-07-24: `rsparse-llama2-repro` DONE — R-Sparse ICLR25 Llama-2-7B
+  reproduced: full baseline exact (65.88), self-searched 50% recipe 64.59 vs
+  paper 64.06; PPL@4096 searched +0.045 vs dense 5.1164. LaRoSA head-to-head
+  needs matched protocol (seqlen + prefill caveats). Card:
+  topics/rsparse-repro/journal/2026-07-24_experiment-rsparse-llama2-repro.md
 - 2026-07-24: `larosa-llama2-topk-overlap` DONE — Top-K index sets are
   dominantly token-dependent: adjacent overlap 3.15× chance at s=0.9 but 68%
   disagreement in absolute terms; no always-on set; layer 31 the exception.
@@ -59,8 +64,6 @@ topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
 - 2026-07-24: Phase 3 GATE PASSED on a6000-2 — dense 5.4738, C1 5.5216/5.7284/
   8.1096 (anchors within 0.0013). Oracle path ≡ topk_intermediate. Phase 4
   (C2-C5) submitted, one job per condition. sdpa-attr fix 36b39ee.
-- 2026-07-23: Histograms DONE — |r| shifted toward 0 vs |i| in all 5 sample
-  layers (med ratio 0.640 at L7 → 0.924 at L31); report artifact updated.
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.
