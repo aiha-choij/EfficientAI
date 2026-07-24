@@ -106,4 +106,7 @@ while layer 0/16 stay near the mean. Distance decay is short-range: most of
 the adjacent-token excess is gone by distance ~16, after which pairs are
 near the random-pair level.
 
+Report artifact (metric definitions with formulas + charts, Korean):
+https://claude.ai/code/artifact/c73a7f23-2ac7-4b27-9857-6c21a60d184f
+
 ### Interpretation
