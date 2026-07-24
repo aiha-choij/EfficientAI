@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>Intermediate Top-K 뉴런 선택 겹침 분석 — LLaMA2-7B</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --s05: #2a78d6;   /* series 1: s=0.5 */
+    --s07: #eb6834;   /* series 2: s=0.7 */
+    --s09: #1baf7a;   /* series 3: s=0.9 */
+    --accent: #256abf;
+    --formula-bg: #f3f2ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane: #0d0d0d; --surface: #1a1a19;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+      --s05: #3987e5; --s07: #d95926; --s09: #199e70;
+      --accent: #5598e7; --formula-bg: #232322;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane: #0d0d0d; --surface: #1a1a19;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --s05: #3987e5; --s07: #d95926; --s09: #199e70;
+    --accent: #5598e7; --formula-bg: #232322;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --plane: #f9f9f7; --surface: #fcfcfb;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --s05: #2a78d6; --s07: #eb6834; --s09: #1baf7a;
+    --accent: #256abf; --formula-bg: #f3f2ee;
+  }
+
+  body {
+    background: var(--plane);
+    color: var(--ink);
+    font-family: -apple-system, system-ui, "Apple SD Gothic Neo", Pretendard, "Noto Sans KR", "Segoe UI", sans-serif;
+    line-height: 1.65;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  header.doc { margin-bottom: 40px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin-bottom: 10px;
+  }
+  h1 { font-size: 27px; line-height: 1.3; margin: 0 0 12px; text-wrap: balance; font-weight: 700; }
+  .meta { font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  h2 { font-size: 19px; margin: 52px 0 6px; font-weight: 700; text-wrap: balance; }
+  h2 .sec { color: var(--muted); font-weight: 600; font-size: 14px; margin-right: 8px; }
+  h3 { font-size: 15px; margin: 28px 0 8px; font-weight: 700; }
+  p { margin: 10px 0; color: var(--ink); }
+  .lede { color: var(--ink-2); margin: 0 0 8px; }
+  section > p, section li { max-width: 66ch; }
+
+  /* metric definition cards */
+  .metric {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 18px 20px 14px; margin: 16px 0;
+  }
+  .metric .name { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+  .metric .name .sym { color: var(--accent); }
+  .formula {
+    background: var(--formula-bg); border-radius: 6px; padding: 10px 14px;
+    font-family: "STIX Two Math", "Cambria Math", Georgia, "Times New Roman", serif;
+    font-size: 16.5px; overflow-x: auto; margin: 8px 0; white-space: nowrap;
+  }
+  .formula i { font-style: italic; }
+  .formula .op { color: var(--ink-2); }
+  sub, sup { font-size: 0.72em; }
+  .means { font-size: 13.5px; color: var(--ink-2); margin-top: 8px; }
+  .means b { color: var(--ink); }
+  code, .mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+  }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .tile .label { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
+  .tile .value { font-size: 26px; font-weight: 700; margin: 2px 0; }
+  .tile .note { font-size: 12.5px; color: var(--ink-2); }
+  .tile .value .unit { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+
+  /* tables */
+  .tablewrap { overflow-x: auto; margin: 16px 0; }
+  table {
+    border-collapse: collapse; width: 100%; font-size: 13.5px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  }
+  th, td { padding: 8px 12px; text-align: right; font-variant-numeric: tabular-nums; }
+  th { color: var(--ink-2); font-weight: 600; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  td:first-child, th:first-child { text-align: left; }
+  tbody tr + tr td { border-top: 1px solid var(--grid); }
+  td .x { color: var(--muted); font-size: 12px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; vertical-align: baseline; }
+
+  /* chart */
+  figure { margin: 20px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 18px 10px; }
+  figcaption { font-size: 12.5px; color: var(--ink-2); padding: 8px 2px 6px; }
+  .legend { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-2); padding: 0 2px 6px; flex-wrap: wrap; }
+  .legend .item::before { content: ""; display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: 3px; background: var(--c); }
+  .legend .dash::before { background: repeating-linear-gradient(90deg, var(--muted) 0 3px, transparent 3px 6px); width: 18px; }
+  svg text { font-family: inherit; }
+  #tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--ink); color: var(--plane); font-size: 12px;
+    padding: 6px 9px; border-radius: 6px; line-height: 1.45; white-space: nowrap;
+  }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--surface);
+    border-radius: 0 8px 8px 0; padding: 12px 18px; margin: 18px 0;
+    font-size: 14px;
+  }
+  ul { padding-left: 22px; } li { margin: 6px 0; }
+  .fine { font-size: 12.5px; color: var(--muted); margin-top: 40px; border-top: 1px solid var(--grid); padding-top: 14px; }
+  a { color: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) { .pt { transition: r 0.1s; } }
+</style>
+
+<main>
+<header class="doc">
+  <div class="eyebrow">Experiment Report · larosa-intermediate-sparsity</div>
+  <h1>Intermediate Top-K에서 토큰별로 선택되는 뉴런은 얼마나 겹치는가</h1>
+  <div class="meta">
+    <span><b>모델</b> LLaMA2-7B (d = 11008)</span>
+    <span><b>데이터</b> wikitext-2 test, 32 × 2048 tokens</span>
+    <span><b>잡</b> <span class="mono">20260724-173030</span> · a6000-4</span>
+    <span><b>일자</b> 2026-07-24</span>
+  </div>
+</header>
+
+<section>
+  <p class="lede">FFN의 intermediate activation <span class="mono">i = u ⊙ g</span>를
+  토큰별 magnitude Top-K로 sparsify할 때, <b>토큰마다 살아남는 뉴런 집합이 서로 얼마나
+  일치하는지</b>를 실제 sparsified inference에서 측정했다. 질문은 하나다 —
+  sparsity가 50% → 70% → 90%로 죄어질수록 "계속 살아남는 중요한 뉴런"으로 선택이
+  수렴하는가, 아니면 토큰마다 다른 뉴런을 중요하다고 고르는가.</p>
+</section>
+
+<section>
+  <h2><span class="sec">1</span>지표 정의</h2>
+  <p>토큰 <i>t</i>의 intermediate 벡터에서 Top-K 후 0이 아닌(살아남은) 뉴런 인덱스
+  집합을 <b><i>S<sub>t</sub></i></b>라 한다. 목표 유지 개수는
+  <span class="mono">K = ⌊(1−s)·d⌋</span> (s: 목표 sparsity, d = 11008).</p>
+
+  <div class="metric">
+    <div class="name"><span class="sym">K<sub>eff</sub></span> — 토큰당 실제 생존 뉴런 수</div>
+    <div class="formula"><i>K</i><sub>eff</sub> <span class="op">=</span> (1/<i>N</i>) Σ<sub><i>t</i></sub> |<i>S<sub>t</sub></i>| &nbsp;&nbsp;(<i>N</i> = 전체 토큰 수)</div>
+    <div class="means"><b>의미:</b> 마스킹이 목표대로 걸렸는지 확인하는 값. 목표 K와 거의 같아야 정상이며,
+    bf16에서 |i<sub>j</sub>|가 동률(tie)이면 몇 개 더 남을 수 있다.
+    실측: 5513/3312/1106 vs 목표 5504/3302/1100 — 오차 ≤ 0.5%.</div>
+  </div>
+
+  <div class="metric">
+    <div class="name"><span class="sym">C(δ)</span> — 거리 δ 토큰 쌍의 겹침 비율 (containment overlap)</div>
+    <div class="formula"><i>C</i>(δ) <span class="op">=</span> E<sub><i>t</i></sub>[ |<i>S<sub>t</sub></i> ∩ <i>S</i><sub><i>t</i>+δ</sub>| ] <span class="op">/</span> <i>K</i><sub>eff</sub></div>
+    <div class="means"><b>의미:</b> 토큰 <i>t</i>가 유지한 K개 뉴런 중, δ칸 뒤 토큰도 유지한 비율.
+    <b>1</b>이면 두 토큰이 완전히 같은 뉴런을 고른 것, <b>chance 수준</b>이면 서로 무관하게 고른 것.
+    "인접 토큰 겹침"은 C(1)이다.</div>
+  </div>
+
+  <div class="metric">
+    <div class="name"><span class="sym">C<sub>rand</sub></span> — 무작위 토큰 쌍의 겹침 비율</div>
+    <div class="formula"><i>C</i><sub>rand</sub> <span class="op">=</span> E<sub><i>t</i></sub>[ |<i>S<sub>t</sub></i> ∩ <i>S</i><sub>π(<i>t</i>)</sub>| ] <span class="op">/</span> <i>K</i><sub>eff</sub> &nbsp;&nbsp;(π: 시퀀스 내 무작위 순열)</div>
+    <div class="means"><b>의미:</b> 위치상 아무 관련 없는 두 토큰(같은 2048-토큰 문맥 안)의 겹침.
+    C(δ)가 C<sub>rand</sub>보다 큰 만큼이 <b>순수한 "이웃 효과"</b>이고, C<sub>rand</sub>가
+    chance보다 큰 만큼이 <b>문맥 전체가 공유하는 구조</b>다.</div>
+  </div>
+
+  <div class="metric">
+    <div class="name"><span class="sym">chance</span> — 무구조 기준선 (독립 무작위 선택 시 기대 겹침)</div>
+    <div class="formula">chance <span class="op">=</span> <i>K</i><sub>eff</sub> <span class="op">/</span> <i>d</i></div>
+    <div class="means"><b>유도:</b> 각 토큰이 d개 중 K개를 서로 독립적으로, 균일하게 고른다면
+    특정 뉴런 j가 상대 집합에 있을 확률이 K/d이므로
+    E|S<sub>t</sub> ∩ S<sub>t′</sub>| = K·(K/d), 이를 K로 나누면 K/d.
+    <b>의미:</b> 겹침의 바닥값. 공유 구조가 전혀 없어도 이만큼은 겹친다.
+    따라서 모든 겹침 값은 절대값이 아니라 <b>chance 대비 몇 배(×)인지</b>로 읽어야 한다.
+    s가 높을수록 K/d가 작아져(0.50 → 0.30 → 0.10) 같은 절대 겹침도 더 큰 구조를 뜻한다.</div>
+  </div>
+
+  <div class="metric">
+    <div class="name"><span class="sym">freq<sub>j</sub></span>, always-on, Gini — 뉴런별 선택 빈도의 구조</div>
+    <div class="formula">freq<sub><i>j</i></sub> <span class="op">=</span> (1/<i>N</i>) Σ<sub><i>t</i></sub> 𝟙[<i>j</i> ∈ <i>S<sub>t</sub></i>]</div>
+    <div class="means"><b>의미:</b> 뉴런 j가 전체 토큰 중 선택된 비율. <b>always-on</b>은
+    freq<sub>j</sub> &gt; 0.9인 뉴런의 비율(모든 토큰이 공유하는 고정 중요 집합의 크기),
+    <b>Gini</b>는 freq 분포의 불평등도(0 = 모든 뉴런이 균등하게 쓰임, 1 = 극소수에 집중).
+    <b>union</b>은 한 시퀀스(2048토큰)가 사용한 뉴런 합집합 |∪<sub>t</sub> S<sub>t</sub>| / d.</div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="sec">2</span>결과 — 겹침은 chance의 몇 배인가</h2>
+
+  <div class="tiles">
+    <div class="tile"><div class="label">s=0.9 인접 토큰 겹침</div>
+      <div class="value">3.15<span class="unit">× chance</span></div>
+      <div class="note">C(1) = 0.316 vs chance 0.100</div></div>
+    <div class="tile"><div class="label">s=0.9 무작위 쌍 겹침</div>
+      <div class="value">1.86<span class="unit">× chance</span></div>
+      <div class="note">C<sub>rand</sub> = 0.187 — 절대값은 19%뿐</div></div>
+    <div class="tile"><div class="label">always-on 뉴런 (s=0.9)</div>
+      <div class="value">0.04<span class="unit">%</span></div>
+      <div class="note">모든 토큰이 공유하는 고정 집합은 사실상 없음</div></div>
+    <div class="tile"><div class="label">시퀀스당 뉴런 사용률</div>
+      <div class="value">100<span class="unit">%</span></div>
+      <div class="note">2048토큰이 11008개 뉴런 전부 사용</div></div>
+  </div>
+
+  <figure>
+    <div class="legend">
+      <span class="item" style="--c: var(--s05)">s = 0.5</span>
+      <span class="item" style="--c: var(--s07)">s = 0.7</span>
+      <span class="item" style="--c: var(--s09)">s = 0.9</span>
+      <span class="item dash">chance (K<sub>eff</sub>/d)</span>
+    </div>
+    <svg id="chart" viewBox="0 0 700 320" width="100%" role="img"
+         aria-label="토큰 거리별 겹침 비율 C(δ): 세 sparsity 수준의 꺾은선과 각 chance 기준선">
+    </svg>
+    <figcaption>토큰 거리 δ에 따른 겹침 C(δ)와 무작위 쌍 C<sub>rand</sub> (32개 layer 평균).
+    점선은 각 s의 chance. 인접(δ=1)의 초과 겹침은 δ≈16 안에서 대부분 소멸하고,
+    그 뒤로는 무작위 쌍 수준으로 수렴한다.</figcaption>
+  </figure>
+  <div id="tip"></div>
+
+  <h3>수치 표 (chart 데이터)</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>s</th><th>K<sub>eff</sub></th><th>chance</th><th>C(1)</th><th>C(4)</th><th>C(16)</th><th>C(64)</th><th>C(256)</th><th>C<sub>rand</sub></th></tr></thead>
+    <tbody>
+      <tr><td><span class="swatch" style="background: var(--s05)"></span>0.5</td><td>5513</td><td>0.501</td>
+        <td>0.575 <span class="x">1.15×</span></td><td>0.539</td><td>0.531</td><td>0.527</td><td>0.525</td><td>0.524 <span class="x">1.05×</span></td></tr>
+      <tr><td><span class="swatch" style="background: var(--s07)"></span>0.7</td><td>3312</td><td>0.301</td>
+        <td>0.434 <span class="x">1.44×</span></td><td>0.374</td><td>0.359</td><td>0.352</td><td>0.348</td><td>0.347 <span class="x">1.15×</span></td></tr>
+      <tr><td><span class="swatch" style="background: var(--s09)"></span>0.9</td><td>1106</td><td>0.100</td>
+        <td>0.316 <span class="x">3.15×</span></td><td>0.232</td><td>0.208</td><td>0.197</td><td>0.190</td><td>0.187 <span class="x">1.86×</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>선택 빈도의 구조</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>s</th><th>always-on (freq&gt;0.9)</th><th>rare (freq&lt;0.01)</th><th>never</th><th>Gini</th><th>union / 시퀀스</th></tr></thead>
+    <tbody>
+      <tr><td>0.5</td><td>0.96%</td><td>0.00%</td><td>0.00%</td><td>0.092</td><td>1.000</td></tr>
+      <tr><td>0.7</td><td>0.57%</td><td>0.00%</td><td>0.00%</td><td>0.156</td><td>1.000</td></tr>
+      <tr><td>0.9</td><td>0.04%</td><td>0.34%</td><td>0.00%</td><td>0.307</td><td>1.000</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="means" style="max-width: 66ch">Gini가 0.09 → 0.31로 오르는 것은 s가 죄어질수록 빈도 분포가
+  기울어진다는 뜻이지만, 절대 수준은 여전히 낮다(참고: 극단적 집중이면 0.7+).
+  layer 31만 예외적으로 집중이 강하다 — s=0.9에서 Gini 0.705, s=0.5에서 always-on 10.1%.</p>
+</section>
+
+<section>
+  <h2><span class="sec">3</span>생존자 분석 — "중요한 뉴런"의 정체성은 s가 바뀌어도 유지되는가</h2>
+  <p>각 s에서 <b>가장 자주 선택된 상위 10% 뉴런 집합</b>(freq<sub>j</sub> 기준 top 10%)을 뽑아,
+  s 간에 그 집합이 얼마나 겹치는지 보았다. 서로 무관하면 겹침은 0.100(전체의 10%)이어야 한다.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>비교</th><th>top-10% 집합 겹침</th><th>chance</th><th>freq 벡터 상관 (Pearson)</th></tr></thead>
+    <tbody>
+      <tr><td>s=0.5 vs 0.7</td><td>0.907</td><td>0.100</td><td>0.980</td></tr>
+      <tr><td>s=0.7 vs 0.9</td><td>0.760</td><td>0.100</td><td>0.908</td></tr>
+      <tr><td>s=0.5 vs 0.9</td><td>0.678</td><td>0.100</td><td>0.820</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="max-width: 66ch">"자주 뽑히는 뉴런"이라는 개념 자체는 sparsity 수준이 바뀌어도 일관된다
+  (chance의 7–9배 겹침). 즉 <b>빈도 상위 풀은 실재</b>한다 — 다만 아래 해석처럼, 그 풀이
+  개별 토큰의 선택을 지배하지는 못한다.</p>
+</section>
+
+<section>
+  <h2><span class="sec">4</span>해석</h2>
+  <div class="callout"><b>답: 둘 다 맞지만, 지배적인 것은 토큰 의존성이다.</b>
+  s가 높아질수록 겹침은 chance 대비 뚜렷하게 커지고(1.15× → 3.15×) 자주 뽑히는 뉴런 풀도
+  s 간에 일관되지만, <b>절대 겹침은 낮다</b> — s=0.9에서 인접 토큰조차 선택의 68%가 서로 다르고,
+  무작위 쌍은 81%가 다르다. 모든 토큰이 공유하는 고정 중요 집합(always-on)은 사실상 없고,
+  한 시퀀스는 뉴런 전체를 사용한다. intermediate 뉴런의 중요도는 본질적으로
+  <b>문맥 의존적(contextual)</b>이다.</div>
+  <ul>
+    <li><b>이웃 효과는 초단거리다.</b> C(δ)의 초과분은 δ≈16 안에서 대부분 사라지고
+      C<sub>rand</sub>로 수렴한다. 인접 토큰끼리의 mask 재사용도 δ≤4 수준에서만 의미가 있다.</li>
+    <li><b>block-shared mask(RB-Sparse류)에 대한 경고.</b> 토큰 간 mask를 공유하면
+      s=0.9 기준 인접에서도 per-token 신호의 ~68%를 잃는다. 공유 mask 설계는
+      "공유 가능한 얇은 백본 + per-token 잔차" 형태가 아니면 성립하기 어렵다.</li>
+    <li><b>layer 31은 예외.</b> 출력 직전 layer에는 heavy-hitter가 실재한다
+      (Gini 0.705). layer별 차등 전략(마지막 layer만 고정 집합 + 나머지는 동적)의 여지.</li>
+    <li>이 결과는 contextual sparsity 문헌(Deja Vu 계열)의 관찰과 정합한다.</li>
+  </ul>
+</section>
+
+<section class="fine">
+  <p>재현: repo <span class="mono">aiha-choij/EfficientAI</span>, tag
+  <span class="mono">exp/2026-07-24_larosa-llama2-topk-overlap</span> ·
+  <span class="mono">scripts/analyze_topk_overlap.py --sparsities 0.5,0.7,0.9 --nsamples 32 --attn sdpa</span> ·
+  선택 집합은 실제 sparsified forward의 down_proj 입력 hook에서 수집(≠ dense 활성값 기준).
+  원자료: <span class="mono">a6000-4:~/workspace/analysis/llama2_topk_overlap.pt</span>.
+  한계: 단일 모델(LLaMA2-7B)·단일 데이터(wikitext-2)·32×2048 토큰; C<sub>rand</sub>는 시퀀스 내 쌍만 비교(문서 간 쌍 미포함).</p>
+</section>
+</main>
+
+<script>
+(function () {
+  var svg = document.getElementById('chart');
+  var tip = document.getElementById('tip');
+  var NS = 'http://www.w3.org/2000/svg';
+  var W = 700, H = 320, L = 52, R = 96, T = 14, B = 44;
+  var iw = W - L - R, ih = H - T - B;
+
+  // x positions: log2 for distances, then a gap, then "random"
+  var dists = [1, 4, 16, 64, 256];
+  var xlab = ['1', '4', '16', '64', '256', '무작위 쌍'];
+  function xpos(k) { // k = 0..5 (5 = random)
+    if (k < 5) return L + (Math.log2(dists[k]) / Math.log2(256)) * (iw * 0.82);
+    return L + iw;
+  }
+  var ymax = 0.65;
+  function ypos(v) { return T + ih * (1 - v / ymax); }
+
+  var css = getComputedStyle(document.documentElement);
+  function tok(n) { return css.getPropertyValue(n).trim(); }
+
+  var series = [
+    { name: 's = 0.5', c: 'var(--s05)', chance: 0.501, v: [0.575, 0.539, 0.531, 0.527, 0.525, 0.524] },
+    { name: 's = 0.7', c: 'var(--s07)', chance: 0.301, v: [0.434, 0.374, 0.359, 0.352, 0.348, 0.347] },
+    { name: 's = 0.9', c: 'var(--s09)', chance: 0.100, v: [0.316, 0.232, 0.208, 0.197, 0.190, 0.187] }
+  ];
+
+  function el(n, a, parent) {
+    var e = document.createElementNS(NS, n);
+    for (var k in a) e.setAttribute(k, a[k]);
+    (parent || svg).appendChild(e); return e;
+  }
+
+  // gridlines + y labels
+  for (var g = 0; g <= 6; g++) {
+    var v = g * 0.1, y = ypos(v);
+    el('line', { x1: L, x2: L + iw, y1: y, y2: y, stroke: 'var(--grid)', 'stroke-width': 1 });
+    el('text', { x: L - 8, y: y + 4, 'text-anchor': 'end', 'font-size': 11,
+                 fill: 'var(--muted)', 'font-variant-numeric': 'tabular-nums' }).textContent = v.toFixed(1);
+  }
+  // baseline
+  el('line', { x1: L, x2: L + iw, y1: ypos(0), y2: ypos(0), stroke: 'var(--baseline)', 'stroke-width': 1 });
+  // x labels
+  for (var k = 0; k < 6; k++) {
+    el('text', { x: xpos(k), y: H - B + 18, 'text-anchor': 'middle', 'font-size': 11,
+                 fill: 'var(--muted)' }).textContent = xlab[k];
+  }
+  el('text', { x: L + iw * 0.41, y: H - 6, 'text-anchor': 'middle', 'font-size': 11.5,
+               fill: 'var(--ink-2)' }).textContent = '토큰 거리 δ (log)';
+  // divider before "random"
+  el('line', { x1: xpos(4) + (xpos(5) - xpos(4)) / 2, x2: xpos(4) + (xpos(5) - xpos(4)) / 2,
+               y1: T, y2: T + ih, stroke: 'var(--grid)', 'stroke-width': 1, 'stroke-dasharray': '2 4' });
+
+  series.forEach(function (s) {
+    // chance dashed line
+    el('line', { x1: L, x2: L + iw, y1: ypos(s.chance), y2: ypos(s.chance),
+                 stroke: s.c, 'stroke-width': 1.5, 'stroke-dasharray': '4 5', opacity: 0.45 });
+    // path
+    var dstr = s.v.map(function (v, k) { return (k ? 'L' : 'M') + xpos(k) + ' ' + ypos(v); }).join(' ');
+    el('path', { d: dstr, fill: 'none', stroke: s.c, 'stroke-width': 2,
+                 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+    // direct label at line end
+    el('text', { x: L + iw + 10, y: ypos(s.v[5]) + 4, 'font-size': 12, 'font-weight': 600,
+                 fill: 'var(--ink)' }).textContent = s.name;
+    // points + hover targets
+    s.v.forEach(function (v, k) {
+      el('circle', { cx: xpos(k), cy: ypos(v), r: 3.5, fill: s.c,
+                     stroke: 'var(--surface)', 'stroke-width': 2, 'class': 'pt' });
+      var hit = el('circle', { cx: xpos(k), cy: ypos(v), r: 13, fill: 'transparent' });
+      hit.addEventListener('pointerenter', function (ev) {
+        var ratio = (v / s.chance).toFixed(2);
+        tip.innerHTML = '<b>' + s.name + '</b> · ' + (k < 5 ? 'δ = ' + dists[k] : '무작위 쌍') +
+          '<br>C = ' + v.toFixed(3) + ' (' + ratio + '× chance)';
+        tip.style.display = 'block';
+      });
+      hit.addEventListener('pointermove', function (ev) {
+        tip.style.left = (ev.clientX + 14) + 'px';
+        tip.style.top = (ev.clientY - 12) + 'px';
+      });
+      hit.addEventListener('pointerleave', function () { tip.style.display = 'none'; });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
