@@ -109,9 +109,22 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
    per-layer strategy (fixed L31 blocks); else pivot to Idea D.
 
 ## Active Jobs
-- `20260725-004032-coact-llama2-p2-blocks` (P2 clustering + evaluation,
-  a6000-4, PENDING) — card:
-  journal/2026-07-25_experiment-coact-llama2-p2-blocks.md
+- (none submitted — P3 BLOCKED ON VPN as of 2026-07-25 ~01:15 KST: both P3
+  scripts are committed and pushed (aa7ba4f, tag
+  exp/2026-07-25_coact-llama2-p3-blocks) but the gateway became unreachable
+  before sync/submit. To resume: gateway `git pull`, scp both
+  `larosa/scripts/p3_*.py` to a6000-4, then submit
+  (1) `qsub -n coact-llama2-p3-prep -H a6000-4 -g 1 -m 40 -d
+  /home/choij/workspace/repos/EfficientAI/larosa -- bash -c
+  "/home/choij/workspace/venv-larosa/bin/python
+  scripts/p3_collect_cluster_all.py --model_name /raid/LLM/llama2-7b
+  --sparsity 0.9 --attn sdpa --out
+  /home/choij/workspace/analysis/llama2_p3_partitions_s09.pt"`,
+  then after it finishes (2) `qsub -n coact-llama2-p3-ppl ...
+  scripts/p3_block_ppl.py --partitions
+  /home/choij/workspace/analysis/llama2_p3_partitions_s09.pt --model_name
+  /raid/LLM/llama2-7b --sparsity 0.9 --attn sdpa --out
+  /home/choij/workspace/analysis/llama2_p3_block_ppl_s09.pt`.)
 
 ## Boundaries / coordination
 - RB-Sparse (Dowon Kim) owns block-shared masks *on top of rotation*; this
