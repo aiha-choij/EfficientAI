@@ -44,10 +44,12 @@ Failure: metrics inconsistent with those bounds (script bug) or job error.
 ## Reproducibility
 - **Git tag**: `exp/2026-07-24_larosa-llama2-topk-overlap` (repo
   `aiha-choij/EfficientAI`, commit eb2caa1; analysis script added in cf90f5e)
-- **Job ID**: `20260724-171801-larosa-llama2-topk-overlap`
-- **Assigned host/GPU**: a100-40-2 (pinned via -H), GPU [pending dispatch]
+- **Job ID**: `20260724-172004-larosa-llama2-topk-overlap` (2nd submission; the
+  first, `...-171801` with `-m 30`, could never dispatch — all four A100s had
+  ~24GiB free — and was cancelled from the pending queue before running)
+- **Assigned host/GPU**: a100-40-2 (pinned via -H), GPU 1 (PCI index)
 - **Command**: `bash -c "mkdir -p /home/choij/workspace/analysis && /home/choij/miniconda3/envs/larosa/bin/python scripts/analyze_topk_overlap.py --model_name /raid/LLM/llama2-7b --sparsities 0.5,0.7,0.9 --nsamples 32 --out /home/choij/workspace/analysis/llama2_topk_overlap.pt"`
-  (cwd `/home/choij/workspace/repos/EfficientAI/larosa`; qsub `-g 1 -m 30`)
+  (cwd `/home/choij/workspace/repos/EfficientAI/larosa`; qsub `-g 1 -m 20`)
 - **Config path**: n/a — parameters as script args
 - **Key parameters**: sparse_mode=topk_intermediate; s ∈ {0.5, 0.7, 0.9} set by
   reassigning mlp.sparse_level_h2 between runs (single model load); 32 × 2048
