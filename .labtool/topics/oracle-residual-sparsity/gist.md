@@ -143,14 +143,24 @@ adaptive-rank-allocation line of work)
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments (candidates — discuss before submitting)
-1. **plain uniform r=2048** (+12.4% compute): does C4 converge to C3? One
-   small job (factor build + 3 PPL runs). Success: s=0.9 gap to C3 < 0.2.
-2. **Output-side-weighted factorization**: weight the SVD objective by
-   downstream sensitivity instead of input covariance (design discussion
-   needed — whitening's failure says input-space L2 is the wrong metric).
-3. (later) generalize to LLaMA3-8B / other family once the deployable form
-   is settled.
+## Next Experiments (proposals grounded in research-wiki PTQ/sparsity notes,
+presented to user 2026-07-24 — see report section "개선 방안 제안")
+1. **Quantized full-rank M (LQER/ASER template)** — keep rank, cut precision:
+   W4/W8 RTN or GPTQ on M, optional small-rank fp error reconstruction.
+   Decile evidence supports it: quant noise is direction-unstructured, unlike
+   rank truncation. Cost = same MACs as r=2048 (+12.4%) but int4 + 4-8x
+   memory cut. Gate: s=0.9 within C3 + 0.1.
+2. **Neuron-level sparse + low-rank split (LoSparse template)** — static hot
+   set by c_j = g_bar_j*||W_d[:,j]||*||W_u[j,:]||, always kept in the mask;
+   compensate only M_cold. Zero-cost offline gate first: remove top d/16
+   rank-1 terms and re-measure r90.
+3. **Loss-aligned A,B fitting (Low-Rank Correction template)** — fit factors
+   on calibration block-output error instead of closed-form SVD; cheap first
+   probe: anti-whitening alpha-sweep (input weight lambda^-alpha). EoRA's
+   input-eigenspace weighting is the contrast case (same axis whitening
+   already refuted here).
+4. Reference arm: plain uniform r=2048 (same MAC budget as quantized M).
+5. (later) generalize to LLaMA3-8B / other family once deployable form set.
 
 ## Active Jobs
 - (none)

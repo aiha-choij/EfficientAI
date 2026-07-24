@@ -444,8 +444,33 @@ s=0.9에서 <b>56%</b> 줄인다. mean-gate 분해는 정확도 축에서 s=0.9 
 <h3>C4 개선 라운드 — whitening × rank × 배분 분해 (2026-07-24)</h3>
 
 <p>C4 붕괴의 원인 후보 (a) M 스펙트럼이 flat vs (b) plain SVD가 입력 분포를 무시 — 를 가리기 위해
-whitened SVD(<code>M·C</code>에 SVD, C = cholesky(E[xxᵀ]+εI))와 층별 rank 배분(whitened 스펙트럼 에너지
-τ-기준, 예산 모드는 τ 이분탐색)을 구현해 2×2+배분으로 분해했다:</p>
+두 가지 분해 방식을 같은 rank 예산에서 맞붙였다. 두 방식은 <b>"무엇을 잘 근사할 것인가"라는 목적함수</b>가
+다르다:</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th></th><th>plain SVD</th><th>whitened SVD</th></tr></thead>
+  <tbody>
+    <tr><td><b>목적함수</b></td>
+      <td class="mono">min ‖M̂−M‖_F (행렬 자체)</td>
+      <td class="mono">min E_x‖(M̂−M)x‖₂² (실입력 위 출력)</td></tr>
+    <tr><td><b>구성</b></td>
+      <td class="mono">SVD(M) → B=U√S, A=√S·Vᵀ</td>
+      <td class="mono">SVD(M·C), C=chol(Σ+εI) → A에 C⁻¹ 흡수</td></tr>
+    <tr><td><b>방향 가중</b></td>
+      <td>모든 입력 방향 동등 (Eckart–Young 최적)</td>
+      <td>입력 분산 λ_k에 비례 — 자주 크게 오는 방향 우대</td></tr>
+    <tr><td><b>직관</b></td>
+      <td>"행렬을 잘 베낀다"</td>
+      <td>"자주 오는 입력에서 출력을 잘 맞춘다"</td></tr>
+    <tr><td><b>가정</b></td>
+      <td>모든 방향이 동등하게 중요</td>
+      <td><b>입력 분산 = 중요도</b> (이번 실험이 기각한 가정)</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>층별 rank 배분(τ-기준 에너지, 예산 모드는 τ 이분탐색)까지 더해 2×2+배분으로 분해한 결과:</p>
 
 <div class="tbl-scroll">
 <table>
@@ -563,12 +588,61 @@ E‖(M̂−M)x‖를 32층 전부에서 줄였다(−12%~−37%). 그런데 PPL�
   어느 정도 강건하다는 간접 증거. wikitext-ḡ로 C3를 재실행하면 정량 확인 가능(미실행).</p>
 </div>
 
+<h3>개선 방안 제안 — activation sparsity · PTQ 문헌 기반 (2026-07-24)</h3>
+
+<p class="lede">문제 구도: mean-gate 분해의 배포 비용은 <code>Mx</code>의 full 계산(h² MAC = FFN의 12.4%)이고,
+이를 줄이려는 rank-r 근사(C4)는 flat 스펙트럼 때문에 PPL을 잃는다. PTQ 문헌은 정확히 같은 구조의 문제
+— "큰 선형 항을 싸게 계산하되 오차를 통제"— 를 십 년째 다뤄왔고, 세 가지 이식 가능한 템플릿이 있다:</p>
+
+<div class="callout">
+  <div class="ct">제안 1 — rank 대신 정밀도를 잘라라: full-rank 저비트 M (+ 저rank 오차 재구성) · <span class="mono">유력</span></div>
+  <p><b>템플릿</b>: LQER(ICML'24) — <span class="mono">W ≈ Q + AB</span>: 가중치를 저비트로 양자화(Q)하고
+  양자화 오차만 저rank(AB)로 재구성해 near-lossless W4A8 달성. ASER도 같은 구조(+ 오차항 whitening SVD).</p>
+  <p><b>이식</b>: M을 rank로 자르지 말고 <b>full-rank 그대로 W4/W8 양자화</b>. 근거는 이번 십분위 분석 —
+  rank 절단은 특정 방향(저분산 포함)을 <b>구조적으로 제거</b>하지만, 양자화 노이즈는 방향에 대해
+  비구조적(≈등방)이라 "저분산 방향이 중요하다"는 발견과 충돌하지 않는다. 비용: h² MAC은 유지(+12.4%,
+  r=2048과 동일)하되 int4 연산·메모리 4–8×↓. 필요 시 잔여 양자화 오차를 r≈64 수준의 fp 저rank로
+  재구성(LQER식).</p>
+  <p><b>검증 실험(오라클 시뮬, 코드 소폭)</b>: M을 RTN/GPTQ-4bit로 양자화해 C4 재실행 ×3s.
+  성공 기준: s=0.9에서 C3 + 0.1 이내.</p>
+</div>
+
+<div class="callout">
+  <div class="ct">제안 2 — 뉴런 단위 sparse + low-rank 분해 (LoSparse 템플릿)</div>
+  <p><b>템플릿</b>: LoSparse(ICML'23) / SSLC — <span class="mono">W = UV(공유 부분공간) + S(뉴런별 잔차)</span>:
+  low-rank가 못 담는 "비일관(incoherent)" 성분을 구조적 sparse로 보존.</p>
+  <p><b>이식</b>: M은 뉴런별 rank-1 합 <span class="mono">M = Σ_j ḡ_j·W_d[:,j]·W_u[j,:]ᵀ</span>이다.
+  기여 노름 <span class="mono">c_j = ḡ_j·‖W_d[:,j]‖·‖W_u[j,:]‖</span> 상위 k개 뉴런을 <b>정적 hot set으로
+  마스크에 상시 포함</b>(비용 = sparsity를 k/d만큼 양보)하면, 보상 대상이 M_cold로 줄고 스펙트럼이 덜
+  flat해질 수 있다. 같은 랩의 overlap 연구("top-10% 고빈도 pool은 s에 걸쳐 일관, overlap 0.68–0.91")와
+  정합적.</p>
+  <p><b>검증 실험(오프라인, GPU 몇 분)</b>: c_j 상위 k=d/16 뉴런의 rank-1 항을 M에서 빼고 r90 재측정.
+  r90가 크게 떨어지면 sweep 가치 있음, 안 떨어지면 기각 — PPL 실험 전에 갈 수 있는 초저비용 게이트.</p>
+</div>
+
+<div class="callout">
+  <div class="ct">제안 3 — 손실 정렬 목적함수로 A·B 적합 (Low-Rank Correction 템플릿)</div>
+  <p><b>템플릿</b>: Low-Rank Correction(ICLR'25) — 폐형 SVD 대신 calibration 데이터에서 양자화 표현과
+  저rank 보정을 <b>공동 최적화</b>. EoRA는 입력 활성 고유공간 가중을 쓰는데, 이는 이번 실험이 기각한
+  "입력 분산 = 중요도" 가정과 같은 축이라 <b>대비 사례</b>로 인용.</p>
+  <p><b>이식</b>: A,B를 SVD로 두지 말고 calibration에서 <b>블록 출력(또는 로짓) 재구성 오차를 직접
+  최소화</b>하도록 적합. 초저비용 1차 검증판: 양측 가중 SVD에서 입력 가중을 λ^(−α)로 뒤집는
+  "anti-whitening" α-sweep — whitening이 해로웠다면 α&gt;0(저분산 우대)이 이득일 수 있는지 즉시 확인
+  가능.</p>
+</div>
+
+<p class="cond-note">보조 근거: MiLoRA(NAACL'25)·"Least but not Last"(2026)는 가중치 스펙트럼의
+minor/중간 특이성분이 기능적으로 중요함을 fine-tuning 맥락에서 보였다 — "작은 성분을 잘라도 된다"는
+가정이 LLM에서 일반적으로 위험하다는 교차 증거. R-Sparse(ICLR'25)의 저rank 보상이 성공한 것은 보상
+대상이 "저크기 입력 채널의 잔차"로 작았기 때문 — 우리의 M은 출력의 주 성분이라 같은 rank로는 부족했다는
+해석과 일관.</p>
+
 <h3>다음 단계 (제안 — 미투입)</h3>
 <ul>
-  <li><b>plain 균일 r=2048</b> (+12.4% 연산): C4가 C3로 수렴하는지 최종 확인 (성공 기준: s=0.9 격차 &lt; 0.2).
-  잡 하나면 됨.</li>
-  <li><b>출력측 가중 목적함수</b>: whitening의 실패가 "입력 공간 L2는 잘못된 지표"임을 보였으므로,
-  후속 레이어 민감도(출력측)로 가중한 분해가 다음 설계 후보 — 설계 논의 필요.</li>
+  <li><b>0순위 (초저비용 게이트)</b>: 제안 2의 오프라인 진단(hot-set 제거 후 r90) + 제안 3의
+  anti-whitening α-sweep factor 구성 — 각각 GPU 몇 분.</li>
+  <li><b>1순위</b>: 제안 1 — M 4/8-bit 양자화 C4 재실행 ×3s (잡 1개). 성공 시 배포형 확정.</li>
+  <li><b>참조선</b>: plain 균일 r=2048 (+12.4%): 같은 MAC 예산에서 양자화 M과 직접 비교.</li>
   <li><b>일반화</b>: 배포형이 성립하면 LLaMA3-8B / 타 family로 확장 (백로그).</li>
 </ul>
 
