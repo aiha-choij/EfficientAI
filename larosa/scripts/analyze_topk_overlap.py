@@ -163,13 +163,16 @@ if __name__ == "__main__":
     parser.add_argument('--nsamples', type=int, default=32)
     parser.add_argument('--ctx', type=int, default=2048)
     parser.add_argument('--out', type=str, default="topk_overlap_analysis.pt")
+    parser.add_argument('--attn', type=str, default='flash_attention_2',
+                        choices=['flash_attention_2', 'sdpa', 'eager'],
+                        help='attention backend (use sdpa on hosts without flash-attn)')
     args = parser.parse_args()
 
     s_list = [float(x) for x in args.sparsities.split(',')]
 
     config = transformers.AutoConfig.from_pretrained(args.model_name, trust_remote_code=True)
     config.use_cache = False
-    config._attn_implementation = "flash_attention_2"
+    config._attn_implementation = args.attn
     config.torch_dtype = 'bfloat16'
     config.sparse_mode = 'topk_intermediate'
     config.sparse_level = s_list[0]
