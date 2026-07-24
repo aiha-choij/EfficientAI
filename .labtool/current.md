@@ -7,8 +7,11 @@
 | coactivation-block-structure | 🟢 active | Neuron permutation via co-activation clustering to make group-shared Top-K masks block-structured (P1 stats → P2 clustering → P3 oracle PPL) |
 | larosa-intermediate-sparsity | ✅ done | Per-token Top-K on i=u⊙g confirmed on LLaMA2-7B (50% → +0.047 PPL); closed by pivot, 3-model ext in backlog |
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
+| rsparse-repro | 🟢 active | R-Sparse (ICLR25) Llama-2-7B 50% reproduced: 8-task avg 64.59 vs paper 64.06, full baseline exact; matched-protocol PPL vs LaRoSA still open |
 
 ## This Session
+Also: rsparse-repro topic added and reproduction completed same-day (gateway
+pipeline session) — see topic gist for tables and fairness caveats.
 Focus: oracle-residual-sparsity — main table + C4 whitening round DONE.
 Whitening/allocation both harmful (Dead Ends); rank is the working lever:
 plain uniform r=1024 is the best C4 (7.229 @s=0.9, beats C1, gap to C3

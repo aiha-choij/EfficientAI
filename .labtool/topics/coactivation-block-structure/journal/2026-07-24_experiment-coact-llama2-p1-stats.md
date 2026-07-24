@@ -60,5 +60,34 @@ inflation ≥ 1 and ≤ min(g, d/K_eff). Failure: counts outside bounds
   gateway→a6000-4 (md5 verified; a6000-4 cannot fetch GitHub)
 
 ### Results
+Source: meta + log of `20260725-000051-coact-llama2-p1-stats`
+(`~/workspace/runs/.../{meta,log}` on gateway); output artifact
+`a6000-4:/home/choij/workspace/analysis/llama2_coactivation_s09.pt` (6.8 GB,
+verified on disk). STATUS=ok, runtime 1 min 28 s (00:01:06 → 00:02:34 KST,
+2026-07-25), a6000-4 GPU 0. No draft.md (analysis job, prints its own summary).
+
+Per-layer sanity (all within expected bounds):
+
+| layer | K_eff | chance K_eff/d | union/K g=16 | g=32 | g=64 |
+|---|---|---|---|---|---|
+| 0  | 1105 | 0.100 | 6.14x | 7.87x | 9.13x |
+| 8  | 1108 | 0.101 | 6.34x | 8.17x | 9.37x |
+| 16 | 1107 | 0.101 | 6.01x | 7.88x | 9.22x |
+| 24 | 1106 | 0.100 | 6.34x | 8.21x | 9.43x |
+| 31 | 1105 | 0.100 | 3.92x | 5.19x | 6.62x |
+
+- union/K = E[|∪_{t∈group} S_t|] / K_eff (union inflation, the P0 group
+  tax); upper bound d/K_eff ≈ 9.96 — at g=64, layers 0–24 sit at 92–95%
+  of saturation (a 64-token group touches ~10.1–10.4k of 11008 neurons).
+- Mean off-diagonal same-token co-activation lift
+  (E[A_offdiag]/E[f_j·f_j′]) = 0.999–1.000 — this aggregate is ≈1 by
+  construction (Σ_jj′ A ≈ K² and Σ f_j f_j′ ≈ K̄²); pairwise structure
+  lives in the distribution and is extracted in P2 via PMI/Jaccard.
+- K_eff 1105–1108 vs nominal ⌊0.1·d⌋ = 1100 (+0.5%): selection is read as
+  (down_proj input ≠ 0), so exact zeros of i outside Top-K masking are
+  indistinguishable and ties inflate slightly — same convention as the
+  overlap card (its K_eff was 1106).
+- All five layers saved with A, A^16, A^64, freq counts + normalization
+  constants (tokens = 65536, per-window pair counts).
 
 ### Interpretation
