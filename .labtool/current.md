@@ -19,8 +19,6 @@ plain uniform r=1024 is the best C4 (7.229 @s=0.9, beats C1, gap to C3
 output-side-weighted objective design.
 
 ## Active Jobs
-- `20260725-004032-coact-llama2-p2-blocks` — coactivation-block-structure P2
-  (PPMI clustering vs random blocks, a6000-4, PENDING)
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -43,6 +41,11 @@ topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
 3. (later) LLaMA3-8B / other-family generalization once C4 form is settled.
 
 ## Latest
+- 2026-07-25: `coact-llama2-p2-blocks` DONE (3.4 min) — PPMI clustering
+  passes the ≥1.3× strong null on within-block mass (13/15) and dyn top-m
+  coverage (15/15, 1.5–4.2×; L31 ~4×), but block-union tiling saturates
+  (naive touched-blocks sharing dead) and absolute top-m coverage is only
+  0.20–0.36 in mid layers. User: proceed to P3 with low expectations.
 - 2026-07-25: `coact-llama2-p1-stats` DONE (1.5 min) — union tax quantified
   at s=0.9: 6.0–6.3× @g=16, 9.1–9.4× @g=64 (92–95% of saturation 9.96×) in
   layers 0–24; layer 31 exception (3.9–6.6×). Naive union sharing dead at
@@ -61,10 +64,6 @@ topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
   despite −13% L2 (Dead End); tau-allocation harmful (Dead End); plain
   uniform r=1024 best C4: 5.737/5.915/7.229, beats C1 @s=0.9, gap to C3
   +0.23/+0.29/+0.59 at +6.2% compute. Next: r=2048 or output-side weighting.
-- 2026-07-24: PHASE 4 DONE — main table: C3 ΔPPL +0.031/+0.155/+1.164 vs C1
-  +0.048/+0.255/+2.636 at s=0.5/0.7/0.9 (H1 confirmed, −56% at 0.9). C2
-  worse than C1 (H2 rejected). C4 r=512 below C1 everywhere (H3 partial-go,
-  rank problem). C5 < C3. Spec §8: PARTIAL-GO. Next: C4 rank sweep proposal.
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.

@@ -63,6 +63,20 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
   at g ≥ 64 naive union sharing is worthless; block-structured selection is
   mandatory for the group axis.
   Journal: journal/2026-07-24_experiment-coact-llama2-p1-stats.md
+- **PPMI clustering beats random blocks, but coverage stays low (2026-07-25)**:
+  spectral + balanced k-means on PPMI passes the pre-registered ≥1.3× strong
+  null on within-block mass at 13/15 (layer, B) settings (L0 1.9–2.2×,
+  L8–24 1.25–1.54×, L31 3.8–4.1×) and on dynamic per-token top-m block
+  coverage at 15/15 (1.5–4.2×). But (i) the block-union tiling metric
+  saturates at d/|union| — group unions touch all blocks under ANY balanced
+  partition, killing naive "activate touched blocks" sharing; and (ii)
+  absolute top-m coverage at the K budget is only 0.20–0.36 in mid layers
+  (0.52–0.57 at L31) vs random 0.12–0.17 — block masks alone still lose
+  65–80% of per-token signal at s=0.9.
+  When relevant: designing any block-granular mask (P3, predictor targets,
+  RB-Sparse) — budget must go through top-m block selection, expect large
+  PPL damage without residual compensation, and treat L31 separately.
+  Journal: journal/2026-07-25_experiment-coact-llama2-p2-blocks.md
 
 ## Dead Ends
 (none yet)
@@ -78,19 +92,21 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
   s=0.9) — finalize after first numbers, per house convention.
 
 ## Next Experiments
-1. **P2 — clustering + structure evaluation** (approved 2026-07-25, user
-   "P2 진행"): on a6000-4 (data local, avoids 6.8 GB transfer). PPMI from
-   A + f → spectral embedding (normalized Laplacian, top-64 eigvecs) →
-   balanced k-means, block sizes B ∈ {64, 128, 256}; baseline = 3 random
-   balanced partitions. Metrics (each as clustered/random ratio):
-   within-block mass on A and A^16/A^64 (from P1 file), static block
-   coverage @ budget (from f), plus one sparsified forward pass for the
-   dynamic metrics — block-level union (#blocks touched × B / |union|,
-   g ∈ {16, 64}) and per-token top-m block coverage. Success (strong
-   null): ≥ 1.3× vs random on within-block mass / block-union; below →
-   reject the permutation axis, move to Idea A / D. METIS skipped
-   (unavailable in venv); spectral + balanced k-means covers spec intent.
-2. (gated on P2 ≥ 1.3×) P3 — block-mask oracle PPL with gauge-fixed score.
+1. **P3 — block-mask oracle PPL** (approved 2026-07-25, user chose P3 over
+   axis rejection / P2 strengthening). Two jobs on a6000-4:
+   (prep) all-32-layer A collection (A only, no windows) + PPMI spectral
+   clustering for B ∈ {64, 256} + 1 random control partition per (layer, B);
+   (eval) PPL with group-shared budgeted block masks — per group of g
+   contiguous tokens, block score Σ_{t∈group} Σ_{j∈b} ‖W_d[:,j]‖·|i_tj|
+   (gauge-fixed, shared with oracle H2), top-m blocks (m = round(K/B)),
+   all tokens in the group masked to those blocks. Arms: dense, per-token
+   top-K (in-protocol anchor), clustered blocks, random blocks; sweep
+   s = 0.9, g ∈ {16, 64}, B ∈ {64, 256}. Success gate (provisional, spec):
+   clear PPL gain vs random control + gap vs per-token anchor small enough
+   to look compensable (e.g. ΔPPL ≤ +1.0 vs anchor); finalize after first
+   numbers. Expectation set low by P2 coverage (0.2–0.36 mid layers).
+2. (contingent on P3) blocks + residual compensation hybrid (Idea A) or
+   per-layer strategy (fixed L31 blocks); else pivot to Idea D.
 
 ## Active Jobs
 - `20260725-004032-coact-llama2-p2-blocks` (P2 clustering + evaluation,

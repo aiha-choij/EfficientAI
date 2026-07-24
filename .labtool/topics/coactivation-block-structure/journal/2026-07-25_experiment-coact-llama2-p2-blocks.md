@@ -1,6 +1,6 @@
 # Experiment: coact-llama2-p2-blocks (P2 — clustering + structure evaluation)
 
-Status: PENDING
+Status: DONE
 Date: 2026-07-25
 
 ## Hypothesis tested
@@ -103,3 +103,20 @@ at 13/15 (layer, B) settings (fails only L8 B=256 at 1.25×; L8 B=128 at
 is saturated/uninformative rather than passed or failed.
 
 ### Interpretation
+(User, 2026-07-25, approving the proposed reading and choosing "proceed to
+P3" over rejecting the axis or strengthening P2 first)
+1. The clustering signal is real: within-block mass passes the
+   pre-registered ≥1.3× bar at 13/15 settings and dynamic coverage at 15/15
+   (1.5–4.2×). Layers 0 and 31 are strongest (31 at ~4×, as predicted).
+2. The block-union metric is saturated, not tied: group unions touch
+   essentially all blocks under any balanced partition, so the naive
+   "activate the blocks the group touches" route is dead regardless of
+   partition quality. P3 is meaningful only as budgeted top-m block
+   selection.
+3. Absolute levels temper expectations: top-m blocks at the K budget cover
+   only 0.20–0.36 of per-token selections in mid layers (0.52–0.57 at L31),
+   i.e. 65–80% of per-token signal is still lost — substantial PPL
+   degradation is expected in P3, and the viable endgame is likely
+   blocks + residual compensation (Idea A hybrid) or per-layer strategies
+   (fixed blocks at L31), not block masks alone. P3 proceeds with these
+   expectations, cost being small.
