@@ -15,12 +15,12 @@ plain uniform r=1024 is the best C4 (7.229 @s=0.9, beats C1, gap to C3
 output-side-weighted objective design.
 
 ## Active Jobs
-- `20260724-173030-larosa-llama2-topk-overlap` @ a6000-4 — cross-token
-  neuron-selection overlap analysis (topk_intermediate, s=0.5/0.7/0.9),
-  submitted from the older larosa-intermediate-sparsity session. Journal:
-  topics/larosa-intermediate-sparsity/journal/2026-07-24_experiment-larosa-llama2-topk-overlap.md
+- (none)
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
+- NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
+  repo replicated from a6000-2, model /raid/LLM/llama2-7b, 3 idle 48GB GPUs
+  at last check).
 
 ## Direction
 Mean-gate residual decomposition on LLaMA2-7B (top-K s={0.5,0.7,0.9},
@@ -38,6 +38,11 @@ topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
 3. (later) LLaMA3-8B / other-family generalization once C4 form is settled.
 
 ## Latest
+- 2026-07-24: `larosa-llama2-topk-overlap` DONE — Top-K index sets are
+  dominantly token-dependent: adjacent overlap 3.15× chance at s=0.9 but 68%
+  disagreement in absolute terms; no always-on set; layer 31 the exception.
+  Warning for block-shared masks. Report:
+  https://claude.ai/code/artifact/c73a7f23-2ac7-4b27-9857-6c21a60d184f
 - 2026-07-24: C4 whitening round DONE — whitening worsens PPL at every rank
   despite −13% L2 (Dead End); tau-allocation harmful (Dead End); plain
   uniform r=1024 best C4: 5.737/5.915/7.229, beats C1 @s=0.9, gap to C3
@@ -51,10 +56,6 @@ topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
   (C2-C5) submitted, one job per condition. sdpa-attr fix 36b39ee.
 - 2026-07-23: Histograms DONE — |r| shifted toward 0 vs |i| in all 5 sample
   layers (med ratio 0.640 at L7 → 0.924 at L31); report artifact updated.
-- 2026-07-23: `oracle-llama2-phase0-calib` DONE — H1 GO at distribution level:
-  r above i in 30/32 layers, mean gap +3%p (peak +5%p mid-stack, inverted at
-  layers 30-31). ḡ Pearson(c4,wt103) 0.48-0.995 (weak early). r=512 Frobenius
-  energy 0.54-0.985. c4 streaming worked; primary stats = c4.
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.

@@ -47,6 +47,20 @@ mechanism is data-free at setup time.
   design — the intermediate point buys roughly 20-45pp extra sparsity over the
   input side at equal PPL on LLaMA2-7B.
   Journal: 2026-07-22_experiment-larosa-llama2-topk-int-ppl.md
+- **Cross-token selection overlap is dominated by token-dependence
+  (2026-07-24)**: in actual sparsified inference on LLaMA2-7B, Top-K index
+  sets overlap only 1.15×/1.44×/3.15× chance (K_eff/d) for adjacent tokens at
+  s=0.5/0.7/0.9 (random pairs 1.05×/1.15×/1.86×); the adjacent excess decays
+  within token distance ~16. No always-on neurons (≤1%), one 2048-token
+  sequence uses 100% of neurons, though the high-frequency pool is consistent
+  across s (top-10% set overlap 0.68–0.91) and layer 31 alone is strongly
+  concentrated (Gini 0.705). Importance is contextual.
+  When relevant: any mask-sharing design (RB-Sparse block-shared masks,
+  cross-token caching) — sharing loses ~68% of per-token signal even between
+  adjacent tokens at s=0.9; viable only as shared-backbone + per-token
+  residual, short-range (δ ≤ 4), or last-layer-only fixed sets.
+  Journal: 2026-07-24_experiment-larosa-llama2-topk-overlap.md; report:
+  https://claude.ai/code/artifact/c73a7f23-2ac7-4b27-9857-6c21a60d184f
 - **Eval log labels are swapped (upstream bug, utils/eval_ppl.py:136-140)**:
   `eval_ppl_wikitext_with_inference_sparsity` appends `layer.mlp.*` into the
   attn lists and vice versa, so the printed "attn h1/h2" are really MLP values

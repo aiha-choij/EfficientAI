@@ -1,6 +1,6 @@
 # Experiment: larosa-llama2-topk-overlap (analysis)
 
-Status: PENDING
+Status: DONE
 Date: 2026-07-24
 
 Note: the topic is closed (done); this is an analysis card added post-closure
@@ -110,3 +110,19 @@ Report artifact (metric definitions with formulas + charts, Korean):
 https://claude.ai/code/artifact/c73a7f23-2ac7-4b27-9857-6c21a60d184f
 
 ### Interpretation
+(User, 2026-07-24, approving the proposed reading) Both effects are real but
+token-dependence dominates. Relative overlap grows sharply with sparsity
+(adjacent tokens 1.15× → 3.15× chance from s=0.5 → 0.9) and the
+high-frequency neuron pool is consistent across s (top-10% set overlap
+0.68–0.91, freq corr 0.82–0.98) — so a "generally important" pool exists.
+But in absolute terms even adjacent tokens disagree on 68% of their
+selections at s=0.9 (random pairs: 81%), there is effectively no always-on
+set (0.04%), a single 2048-token sequence uses all 11008 neurons, and the
+adjacent-token excess decays within distance ~16. Intermediate-neuron
+importance is fundamentally contextual (consistent with the contextual
+sparsity literature). Warning for RB-Sparse-style block-shared masks:
+token-shared masks lose ~68% of the per-token signal even between adjacent
+tokens at s=0.9; sharing is only viable as a thin shared backbone +
+per-token residual, or at very short range (δ ≤ 4). Layer 31 is the
+exception (Gini 0.705, always-on 10% at s=0.5) — room for a per-layer
+strategy (fixed set at the last layer, dynamic elsewhere).
