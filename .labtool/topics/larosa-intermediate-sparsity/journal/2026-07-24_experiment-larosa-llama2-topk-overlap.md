@@ -74,5 +74,36 @@ Failure: metrics inconsistent with those bounds (script bug) or job error.
   submitted to its fully idle GPU 0.
 
 ### Results
+Source: log + meta of `20260724-173030-larosa-llama2-topk-overlap`
+(`~/workspace/runs/.../{log,meta}` on gateway; raw arrays in
+`a6000-4:/home/choij/workspace/analysis/llama2_topk_overlap.pt`).
+STATUS=ok, runtime 3 min (17:30:35 → 17:33:42 KST), a6000-4 GPU 0.
+32 × 2048 wikitext-2 test tokens; mean over 32 layers unless noted.
+
+Containment overlap |S_t ∩ S_t'| / K_eff (chance = K_eff/d):
+
+| s | K_eff | chance | adjacent (d=1) | d=4 | d=16 | d=64 | d=256 | random pair |
+|---|---|---|---|---|---|---|---|---|
+| 0.5 | 5513 | 0.501 | 0.575 (1.15x) | 0.539 | 0.531 | 0.527 | 0.525 | 0.524 (1.05x) |
+| 0.7 | 3312 | 0.301 | 0.434 (1.44x) | 0.374 | 0.359 | 0.352 | 0.348 | 0.347 (1.15x) |
+| 0.9 | 1106 | 0.100 | 0.316 (3.15x) | 0.232 | 0.208 | 0.197 | 0.190 | 0.187 (1.86x) |
+
+Selection-frequency structure:
+
+| s | always-on (>0.9) | rare (<0.01) | never | Gini | union/2048-tok seq |
+|---|---|---|---|---|---|
+| 0.5 | 0.96% | 0.00% | 0.00% | 0.092 | 1.000 |
+| 0.7 | 0.57% | 0.00% | 0.00% | 0.156 | 1.000 |
+| 0.9 | 0.04% | 0.34% | 0.00% | 0.307 | 1.000 |
+
+Cross-sparsity survivors (top 10% most-frequent neurons; chance 0.100):
+s=0.5 vs 0.7 overlap 0.907 (freq corr 0.980); 0.5 vs 0.9: 0.678 (0.820);
+0.7 vs 0.9: 0.760 (0.908).
+
+Layer pattern: overlap and concentration rise with depth; layer 31 is the
+outlier (s=0.9: d1 0.522, rand 0.451, Gini 0.705; s=0.5 always-on 10.07%)
+while layer 0/16 stay near the mean. Distance decay is short-range: most of
+the adjacent-token excess is gone by distance ~16, after which pairs are
+near the random-pair level.
 
 ### Interpretation
