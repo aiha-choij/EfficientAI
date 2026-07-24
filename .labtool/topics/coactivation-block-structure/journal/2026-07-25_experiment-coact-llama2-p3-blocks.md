@@ -84,5 +84,33 @@ per-token arm ≈ 8.11; random ≥ clustered expected.
   no dependency mechanism).
 
 ### Results
+Source: meta + log of `20260725-033520-coact-llama2-p3-prep` (STATUS=ok,
+32/32 layers clustered, k_eff 1104–1106) and
+`20260725-034614-coact-llama2-p3-ppl` (STATUS=ok); artifacts
+`a6000-4:/home/choij/workspace/analysis/llama2_p3_partitions_s09.pt`,
+`.../llama2_p3_block_ppl_s09.pt`.
+Protocol: 166 × 2048 non-overlapping wikitext-2 test tokens, identical for
+all arms. Sanity anchors reproduced exactly: dense 5.4738, per-token top-K
+s=0.9 → 8.1096 (matches the a6000-2 phase-3 gate values to 4 decimals).
+
+Block-mask oracle PPL @ s=0.9, all 32 layers masked:
+
+| B | g | budget m·B/d | clustered | random | anchor gap (clustered − 8.11) |
+|---|---|---|---|---|---|
+| 64  | 16 | 0.099 | 4539  | 9674  | +4531 |
+| 64  | 64 | 0.099 | 12032 | 11941 | +12024 |
+| 256 | 16 | 0.093 | 6950  | 14763 | +6942 |
+| 256 | 64 | 0.093 | 7776  | 23919 | +7768 |
+
+- Clustered beats random in 3/4 settings, often by 2–3× — the P2 structure
+  does transfer to function directionally (except B=64 g=64, a tie within
+  noise at this damage level).
+- But absolute PPL is catastrophic in every block arm (4.5k–24k vs anchor
+  8.11): the pre-registered success gate (ΔPPL ≤ ~+1.0 vs per-token anchor)
+  is missed by 3–4 orders of magnitude. Note B=256 runs at −7% budget
+  (1024 vs K=1101).
+- This matches the P2 coverage prediction quantitatively: 0.20–0.36
+  per-token coverage at every one of 32 layers compounds multiplicatively;
+  the model is effectively destroyed.
 
 ### Interpretation
