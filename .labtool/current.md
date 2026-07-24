@@ -19,6 +19,8 @@ plain uniform r=1024 is the best C4 (7.229 @s=0.9, beats C1, gap to C3
 output-side-weighted objective design.
 
 ## Active Jobs
+- `20260725-004032-coact-llama2-p2-blocks` — coactivation-block-structure P2
+  (PPMI clustering vs random blocks, a6000-4, PENDING)
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +

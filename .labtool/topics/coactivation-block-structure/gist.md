@@ -93,7 +93,9 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
 2. (gated on P2 ≥ 1.3×) P3 — block-mask oracle PPL with gauge-fixed score.
 
 ## Active Jobs
-- (none)
+- `20260725-004032-coact-llama2-p2-blocks` (P2 clustering + evaluation,
+  a6000-4, PENDING) — card:
+  journal/2026-07-25_experiment-coact-llama2-p2-blocks.md
 
 ## Boundaries / coordination
 - RB-Sparse (Dowon Kim) owns block-shared masks *on top of rotation*; this
