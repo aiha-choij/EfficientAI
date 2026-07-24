@@ -20,23 +20,19 @@ output-side-weighted objective design.
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 
 ## Direction
-New spec (2026-07-22): in the oracle setting, decompose the FFN via the
-calibration gate mean — y = compensation(Mx) + sparse residual r = u⊙(g−ḡ) —
-and test whether the residual's concentration (H1), weight-aware scoring (H2),
-and rank-r compensation with r ≤ h/8 (H3) push critical sparsity beyond plain
-|i| top-p at equal effective compute. Conditions C0–C6, models
-Llama-3.2-3B → Llama-3.1-8B → Gemma-3-4b-pt, judged by lm-eval zero-shot
-normalized accuracy ≥ 0.99 (critical sparsity), wikitext PPL secondary.
-Implementation is standalone in EfficientAI (no R-Sparse fork — user decision);
-attention and all linears stay dense, only the MLP forward is wrapped,
-compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md.
+Mean-gate residual decomposition on LLaMA2-7B (top-K s={0.5,0.7,0.9},
+wikitext-2 PPL): H1 confirmed — exact compensation (C3) cuts C1's degradation
+56% at s=0.9. The open front is the DEPLOYABLE compensation (C4): plain
+uniform rank is the only working lever (r=1024 → 7.229 @s=0.9, +6.2%
+compute); whitening and spectral-energy allocation are proven dead ends
+(input-space L2 misaligned with downstream loss). Specs:
+topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
 
 ## Next Experiments
-1. Phase 2: one GPU job on LLaMA2-7B — 01_calibrate (c4 + wikitext103 stats),
-   02_distribution_report (go signal = r-curve above i-curve), 03_build_M r=512.
-2. Phase 3: dense + C1 PPL sweep over p grid (oracle_ppl_sweep.sh); sanity
-   vs Top-K anchors (5.521/5.730/8.108 at s=50/70/90).
-3. Phase 4: C2–C5 sweeps, one job per condition; main PPL-vs-sparsity table.
+1. C4 plain uniform r=2048 (+12.4% compute): convergence test toward C3
+   (success: s=0.9 gap < 0.2). One small job.
+2. Output-side-weighted factorization objective — design discussion first.
+3. (later) LLaMA3-8B / other-family generalization once C4 form is settled.
 
 ## Latest
 - 2026-07-24: C4 whitening round DONE — whitening worsens PPL at every rank
@@ -57,19 +53,17 @@ compute-then-mask simulation. Full spec: topics/oracle-residual-sparsity/spec.md
   layers 30-31). ḡ Pearson(c4,wt103) 0.48-0.995 (weak early). r=512 Frobenius
   energy 0.54-0.985. c4 streaming worked; primary stats = c4.
 ## If you're starting a new session
-- Focus topic: oracle-residual-sparsity. Read its gist.md first, then spec.md
-  for full implementation detail (spec is authoritative for the design).
-- Immediate next action: Phase 1 — implement OracleSparseMLP in EfficientAI
-  (follow the sparse_mode plumbing pattern of commit 40edf40), pass the 4 unit
-  tests on a CPU tiny model before touching GPUs.
-- Blockers to clear before Phase 2: (1) HF gated access + HF_TOKEN on gateway
-  for Llama-3.2-3B / Llama-3.1-8B / gemma-3-4b-pt; (2) lm-eval-harness install
-  into conda env `larosa`; (3) decide rank grid (proposed h/32, h/16, h/8) and
-  8B version (3.1-8B download vs existing /raid/LLM/llama3-8b) — see gist
-  Open Questions.
-- Context: trusted dense PPL anchors from larosa-repro: 5.47 / 6.13 / 6.85
-  (LLaMA2-7B / LLaMA3-8B / Qwen2.5-7B), pipeline noise ~±0.1. Eval-log
-  sparsity labels are SWAPPED in the old pipeline (see closed topic's Key
-  Findings) — do not inherit that logging code without fixing it. Dispatcher
-  chokes on literal `~` in workdir — absolute paths in qsub. QCom infra
-  commits are local-only, not pushed.
+- Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
+  full C4-variant table); specs: spec.md + spec-c4-whitening.md.
+- Immediate next action: user decision between r=2048 arm and output-side
+  weighting design (gist Next Experiments).
+- Execution env: a6000-2 GPU0 (gateway A100s often occupied) — venv
+  ~/workspace/venv-larosa (torch 2.6.0+cu124, transformers 4.46.3, sdpa, NO
+  flash-attn), model /raid/LLM/llama2-7b, artifacts ~/workspace/oracle/
+  llama2-7b/{stats,factors,results} (mirrored to gateway). Backend/arch
+  effects ~1e-3 PPL (phase-3 gate).
+- Context: dense anchor 5.4738; C1 anchors 5.5216/5.7284/8.1096; eval-log
+  sparsity labels are SWAPPED (upstream bug) — JSONs carry correct values.
+  Dispatcher chokes on literal `~` in workdir — absolute paths in qsub.
+  `runs` ELAPSED includes queue wait — read timestamps from result files.
+  Report artifact: claude.ai/code/artifact/d379b88d-fb61-49ed-aa1e-e1f987ba016a
