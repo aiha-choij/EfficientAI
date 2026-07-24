@@ -51,8 +51,9 @@ per-token arm ≈ 8.11; random ≥ clustered expected.
 ## Reproducibility
 - **Git tag**: `exp/2026-07-25_coact-llama2-p3-blocks` (commit aa7ba4f;
   scripts p3_collect_cluster_all.py + p3_block_ppl.py)
-- **Job IDs**: prep `20260725-033520-coact-llama2-p3-prep`; eval
-  [submitted after prep completes — same card, see Notes]
+- **Job IDs**: prep `20260725-033520-coact-llama2-p3-prep` (STATUS=ok,
+  all 32 layers, k_eff 1104–1106); eval
+  `20260725-034614-coact-llama2-p3-ppl`
 - **Assigned host/GPU**: a6000-4 (pinned via -H), GPU [pending dispatch]
 - **Commands**:
   prep: `bash -c "/home/choij/workspace/venv-larosa/bin/python scripts/p3_collect_cluster_all.py --model_name /raid/LLM/llama2-7b --sparsity 0.9 --block_sizes 64,256 --embed_dim 64 --nsamples 32 --attn sdpa --out /home/choij/workspace/analysis/llama2_p3_partitions_s09.pt"`
