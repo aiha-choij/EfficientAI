@@ -56,8 +56,8 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
 ## Open Questions
 - Which normalization (PMI vs Jaccard) is the better clustering substrate?
   Decide after seeing P1 distributions.
-- Window statistic A^g: which g values to accumulate (16/32/64 all, or 64
-  only, since smaller windows are sub-sums)?
+- ~~Window statistic A^g: which g values to accumulate?~~ Decided
+  2026-07-24: {16, 64}, matching the P3 sweep grid; g=32 omitted.
 - P3 success criterion is provisional (e.g. ΔPPL ≤ +1.0 vs per-token at
   s=0.9) — finalize after first numbers, per house convention.
 
@@ -69,7 +69,8 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
 2. P2 clustering — CPU/laptop-scale, needs only P1 outputs.
 
 ## Active Jobs
-- (none)
+- `20260725-000051-coact-llama2-p1-stats` (P1 stats collection, a6000-4,
+  PENDING) — card: journal/2026-07-24_experiment-coact-llama2-p1-stats.md
 
 ## Boundaries / coordination
 - RB-Sparse (Dowon Kim) owns block-shared masks *on top of rotation*; this

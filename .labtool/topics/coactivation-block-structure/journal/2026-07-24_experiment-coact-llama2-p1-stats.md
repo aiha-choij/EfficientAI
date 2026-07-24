@@ -1,0 +1,64 @@
+# Experiment: coact-llama2-p1-stats (P1 — co-activation statistics)
+
+Status: PENDING
+Date: 2026-07-24 (submitted 2026-07-25 00:00 KST)
+
+## Hypothesis tested
+Raw-material collection, not a directional hypothesis: gather same-token
+co-activation A, window co-activation A^g (g ∈ {16, 64}), and selection
+frequency f on sample layers {0, 8, 16, 24, 31} at s = 0.9, so that P2 can
+test whether PMI/Jaccard clustering yields block structure beating the
+strong null (≥ ~1.3× over random-permutation blocks). Also measures the
+P0-lite group tax: union inflation |∪_{t∈group} S_t| / K_eff for
+contiguous groups g ∈ {16, 32, 64}.
+
+## What we're testing over alternatives
+- Actual sparsified forward (as in the overlap card), not dense activations.
+- s = 0.9 only — the regime where grouping is most needed (spec §3 P1).
+- Sample layers instead of all 32 (d×d fp32 is ~484 MB/matrix); layer 31
+  mandatory as the known outlier.
+- Windows {16, 64} only, matching the P3 sweep grid (g=32 omitted —
+  decision recorded in gist Open Questions).
+- Raw counts + normalization constants saved; PMI/Jaccard derived in P2.
+
+## Prior art check
+- `larosa-intermediate-sparsity/journal/2026-07-24_experiment-larosa-llama2-topk-overlap.md`:
+  same hook/env, 3-min runtime, STATUS=ok. Its 3 failed dispatch attempts
+  motivated the a6000-4 `-H` pin, `-m 40`, absolute paths — reused here.
+- Overlap anchors at s=0.9 for sanity: C(1)=0.316, random 0.187,
+  chance 0.100, K_eff=1106.
+- Dead Ends: none relevant (new topic).
+
+## Expected outcome
+Success: for each of the 5 layers, A / A^16 / A^64 / f saved with
+normalization constants; sanity bounds hold — K_eff ≈ 1101 (= ⌊0.1·11008⌋),
+chance ≈ 0.100, mean off-diagonal co-activation lift ≥ 1, union
+inflation ≥ 1 and ≤ min(g, d/K_eff). Failure: counts outside bounds
+(script bug), OOM, or job error. This card only collects; the go/no-go
+(strong null) is judged in P2.
+
+## Reproducibility
+- **Git tag**: `exp/2026-07-24_coact-llama2-p1-stats` (commit 67a1aff;
+  script added same commit)
+- **Job ID**: `20260725-000051-coact-llama2-p1-stats`
+- **Assigned host/GPU**: a6000-4 (pinned via -H), GPU [pending dispatch]
+- **Command**: `bash -c "mkdir -p /home/choij/workspace/analysis && /home/choij/workspace/venv-larosa/bin/python scripts/analyze_coactivation.py --model_name /raid/LLM/llama2-7b --sparsity 0.9 --layers 0,8,16,24,31 --windows 16,64 --group_sizes 16,32,64 --nsamples 32 --attn sdpa --out /home/choij/workspace/analysis/llama2_coactivation_s09.pt"`
+  (cwd `/home/choij/workspace/repos/EfficientAI/larosa`; qsub `-H a6000-4 -g 1 -m 40`)
+- **Config path**: n/a — parameters as script args
+- **Key parameters**: sparse_mode=topk_intermediate, s=0.9; layers
+  {0,8,16,24,31}; windows {16,64} (window |t−t′|<g incl. self-pair, within
+  sequence); group sizes {16,32,64} for union inflation; 32 × 2048
+  wikitext-2 test tokens; selection from down_proj input hook (≠ 0);
+  fp32 GPU matmul accumulation (counts ≤ ~8.3M < 2^24, exact); bf16 model;
+  attn=sdpa (no flash-attn on a6000-4; backend effect ~1e-3 per phase-3 gate)
+- **Key deps**: python 3.10, torch 2.6.0+cu124, transformers 4.46.3
+  (venv `~/workspace/venv-larosa`)
+- **Model**: `/raid/LLM/llama2-7b` (a6000-4 local copy); output artifact
+  `a6000-4:/home/choij/workspace/analysis/llama2_coactivation_s09.pt`
+  (~7.3 GB — run P2 on a6000-4 CPU or gateway to avoid the transfer)
+- **Sync**: local push 67a1aff → gateway pull → scp of the script
+  gateway→a6000-4 (md5 verified; a6000-4 cannot fetch GitHub)
+
+### Results
+
+### Interpretation
