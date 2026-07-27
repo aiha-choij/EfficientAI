@@ -10,13 +10,14 @@
 | rsparse-repro | 🟢 active | R-Sparse (ICLR25) Llama-2-7B 50% reproduced: 8-task avg 64.59 vs paper 64.06, full baseline exact; matched-protocol PPL vs LaRoSA still open |
 
 ## This Session
-Also: rsparse-repro topic added and reproduction completed same-day (gateway
-pipeline session) — see topic gist for tables and fairness caveats.
-Focus: oracle-residual-sparsity — main table + C4 whitening round DONE.
-Whitening/allocation both harmful (Dead Ends); rank is the working lever:
-plain uniform r=1024 is the best C4 (7.229 @s=0.9, beats C1, gap to C3
-+0.59) at +6.2% compute. Next decision: r=2048 convergence test vs
-output-side-weighted objective design.
+Focus: oracle-residual-sparsity — 2026-07-27 within-topic steer (user): C4
+compensation moves to the SLR line — R-Sparse's sparse/low-rank split
+grafted onto Mx (H4). Two variants at matched B_eff budget: S1 static hot
+rank-1 neuron terms + SVD(M_cold); S2 dynamic top-|x| input channels of the
+SVD residual. Diagnostics-first (E0 offline gates) → E1 PPL sweep vs the
+r=1024 anchor (7.229 @ s=0.9). Old proposals (quantized M, loss-aligned
+fitting) deprioritized, not abandoned. Implementation plan in gist Next
+Experiments; code lands in oracle_mlp.py + scripts/oracle/09_slr_diag.py.
 
 ## Active Jobs
 - `20260725-033520-coact-llama2-p3-prep` — coactivation-block-structure P3
@@ -30,19 +31,33 @@ output-side-weighted objective design.
 ## Direction
 Mean-gate residual decomposition on LLaMA2-7B (top-K s={0.5,0.7,0.9},
 wikitext-2 PPL): H1 confirmed — exact compensation (C3) cuts C1's degradation
-56% at s=0.9. The open front is the DEPLOYABLE compensation (C4): plain
-uniform rank is the only working lever (r=1024 → 7.229 @s=0.9, +6.2%
-compute); whitening and spectral-energy allocation are proven dead ends
-(input-space L2 misaligned with downstream loss). Specs:
-topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
+56% at s=0.9. The open front is the DEPLOYABLE compensation (C4), now on the
+SLR line (H4, 2026-07-27 steer): comp(x) ≈ Mx as sparse + low-rank at
+matched MAC budget — S1 static hot rank-1 neurons + SVD(M_cold), S2 dynamic
+top-|x| input channels of the SVD residual (R-Sparse template; M's heavy
+mid-stack singular tail is the motivation). Anchor to beat: plain r=1024
+(7.229 @ s=0.9, +6.2% compute). Whitening and spectral-energy allocation
+remain dead ends. Specs: topics/oracle-residual-sparsity/spec.md +
+spec-c4-whitening.md; steer card
+journal/2026-07-27_pivot-c4-slr-compensation.md.
 
-## Next Experiments (proposals awaiting user pick — details in gist)
-1. Offline gates (minutes): hot-set-removal r90 diagnostic (proposal 2) +
-   anti-whitening alpha-sweep factors (proposal 3).
-2. Quantized full-rank M, W4/W8 (proposal 1, LQER template) — C4 rerun x3s.
-3. Reference arm: plain uniform r=2048 (same MAC budget as quantized M).
+## Next Experiments (SLR line — details in gist)
+1. E0 offline SLR diagnostics (minutes, 1 GPU): S1 hot-set-removal spectra
+   (r90, energy@r) + S2 x-channel concentration and matched-budget approx
+   error (screening only). Needs a small x-capture pass + new
+   scripts/oracle/09_slr_diag.py.
+2. E1 SLR PPL sweep: c4 comp_mode {slr_neuron, slr_input}, B_eff=1024
+   splits, s={0.5,0.7,0.9}. Gate: beat r=1024 by ≥0.05 PPL @ s=0.9 →
+   B_eff=2048 round (subsumes old r=2048 arm).
+3. [deprioritized, kept] Quantized full-rank M W4/W8; loss-aligned A,B
+   fitting (deferred, unchanged).
 
 ## Latest
+- 2026-07-27: STEER (within-topic, oracle-residual-sparsity): C4
+  compensation → SLR hybrid (R-Sparse template on Mx). H4 added; E0
+  diagnostics + E1 PPL sweep planned; quantized-M/loss-aligned proposals
+  deprioritized (kept in gist). Card:
+  topics/oracle-residual-sparsity/journal/2026-07-27_pivot-c4-slr-compensation.md
 - 2026-07-25: `coact-llama2-p2-blocks` DONE (3.4 min) — PPMI clustering
   passes the ≥1.3× strong null on within-block mass (13/15) and dyn top-m
   coverage (15/15, 1.5–4.2×; L31 ~4×), but block-union tiling saturates

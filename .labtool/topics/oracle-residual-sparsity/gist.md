@@ -22,6 +22,12 @@ Oracle setting (mask from true activations; no predictor/kernel/training):
   higher sparsity for equal effective compute.
 - **H2**: weight-aware scoring |i_j|·col_norm[j] alone already beats plain |i_j|.
 - **H3**: some r ≤ h/8 exists where rank-r approximation of M does not eat H1's gain.
+- **H4 (2026-07-27 steer, R-Sparse template)**: at matched MAC budget, a
+  sparse + low-rank hybrid of comp(x) ≈ Mx beats plain uniform rank-r,
+  because M's heavy singular tail mid-stack is concentrated in few exact
+  contributions — static hot rank-1 neuron terms (S1) and/or dynamic
+  top-|x| input channels of the SVD residual (S2). Steer card:
+  journal/2026-07-27_pivot-c4-slr-compensation.md
 
 Ablation ladder (spec §2): C0 dense / C1 |i| top-p / C2 +col_norm /
 C3 residual score + exact tail compensation (diagnostic, not deployable) /
@@ -55,6 +61,12 @@ No-go if C3 − C2 < 5%p.
 - Old topic's 3-model Top-K PPL extension preserved as backlog in
   larosa-intermediate-sparsity gist (not orphaned).
 - All sparsification simulated as compute-then-mask (oracle-equivalent).
+- **SLR budget accounting (2026-07-27 steer)**: compare all C4 variants at
+  equivalent-rank budget B_eff — low-rank r costs 2h·r MACs/token, one hot
+  neuron (S1) costs 2h (≡ rank 1), one kept input channel (S2) costs h
+  (≡ rank 1/2). r=1024 ≙ +6.2% compute, r=2048 ≙ +12.4%. Diagnostics-first:
+  offline gates prune arms; input-L2 error is SCREENING ONLY (whitening
+  lesson) — PPL is the referee.
 
 ## Key Findings
 - **C4 whitening round (2026-07-24): rank is the lever; whitening and
@@ -126,6 +138,15 @@ Questions "deferred" items; user decision 2026-07-24, revisit with the
 adaptive-rank-allocation line of work)
 
 ## Open Questions
+- **SLR risks (2026-07-27)**: (1) S2's premise — that x's outlier channels
+  align with M's heavy singular tail — is unverified (E0b is the cheap
+  test); (2) E0's approx-error metric is input-L2, which the whitening round
+  proved can invert vs downstream loss — use it only to prune arms, never to
+  claim a win; (3) oracle sim ignores dynamic top-k selection/gather kernel
+  cost for S2 (consistent with topic convention; must be stated in claims);
+  (4) S1-hot-in-mask variant (true gate, 3h/neuron) intentionally NOT tried
+  — topk-overlap found no always-on set; exact-hot lives in compensation
+  only, where ḡ is already the static approximation.
 - **DEFERRED (user, 2026-07-24 — revisit with adaptive rank allocation
   research)**: (1) whitened SVD compensation — worsened PPL at every rank
   despite −13% input-L2, but the objective-mismatch mechanism deserves its
@@ -143,24 +164,33 @@ adaptive-rank-allocation line of work)
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments (proposals grounded in research-wiki PTQ/sparsity notes,
-presented to user 2026-07-24 — see report section "개선 방안 제안")
-1. **Quantized full-rank M (LQER/ASER template)** — keep rank, cut precision:
-   W4/W8 RTN or GPTQ on M, optional small-rank fp error reconstruction.
-   Decile evidence supports it: quant noise is direction-unstructured, unlike
-   rank truncation. Cost = same MACs as r=2048 (+12.4%) but int4 + 4-8x
-   memory cut. Gate: s=0.9 within C3 + 0.1.
-2. **Neuron-level sparse + low-rank split (LoSparse template)** — static hot
-   set by c_j = g_bar_j*||W_d[:,j]||*||W_u[j,:]||, always kept in the mask;
-   compensate only M_cold. Zero-cost offline gate first: remove top d/16
-   rank-1 terms and re-measure r90.
-3. **Loss-aligned A,B fitting (Low-Rank Correction template)** — fit factors
-   on calibration block-output error instead of closed-form SVD; cheap first
-   probe: anti-whitening alpha-sweep (input weight lambda^-alpha). EoRA's
-   input-eigenspace weighting is the contrast case (same axis whitening
-   already refuted here).
-4. Reference arm: plain uniform r=2048 (same MAC budget as quantized M).
-5. (later) generalize to LLaMA3-8B / other family once deployable form set.
+## Next Experiments (2026-07-27 steer: SLR compensation line — R-Sparse
+template grafted onto Mx; see steer card for rationale)
+1. **E0 — offline SLR diagnostics** (one short single-GPU job, minutes):
+   (a) S1 gate: for n_h ∈ {344, 688, 1376} (d/32, d/16, d/8) hot neurons by
+   c_j = ḡ_j‖W_d[:,j]‖‖W_u[j,:]‖, per-layer spectra of M_cold — r90 and
+   energy@{256,512,1024} vs plain M (signal: mid-stack energy@1024 rises
+   meaningfully, e.g. 0.6 → 0.8);
+   (b) S2 gate: capture ~64k calibration token x's, measure per-layer |x|
+   channel concentration (top-1% energy share) and matched-budget relative
+   error ‖Mx − comp‖/‖Mx‖ for plain-LR r=1024 vs SLR splits
+   (r, k) and (r, n_h) at B_eff = 1024. Screening only — see budget note.
+2. **E1 — SLR PPL sweep** (winner variants from E0): condition c4 with
+   comp_mode ∈ {slr_neuron, slr_input}, B_eff = 1024 splits
+   {(768,256), (512,512), (256,768), (0,1024)}, s ∈ {0.5, 0.7, 0.9},
+   wikitext-2 PPL, same pipeline. Anchors: dense 5.4738; C1 8.1096,
+   C3 6.638, C4-r1024 7.229 (all @ s=0.9). Gate: any split beats plain
+   r=1024 by ≥ 0.05 PPL @ s=0.9 at equal budget → escalate to B_eff = 2048
+   round (which subsumes the old r=2048 reference arm); miss → record as
+   dead end alongside whitening (input-side approximation family).
+3. (E1-follow) per-layer split allocation (rho search, R-Sparse Algorithm 1
+   style) only if uniform splits pass the E1 gate.
+4. **[deprioritized, kept] Quantized full-rank M (LQER/ASER template)** —
+   W4/W8 RTN/GPTQ on M; orthogonal to SLR, can compose with the E1 winner.
+   Gate: s=0.9 within C3 + 0.1.
+5. **[deferred, unchanged] Loss-aligned A,B fitting (Low-Rank Correction
+   template)** — anti-whitening alpha-sweep as cheap probe.
+6. (later) generalize to LLaMA3-8B / other family once deployable form set.
 
 ## Active Jobs
 - (none)
