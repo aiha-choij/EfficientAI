@@ -193,7 +193,9 @@ template grafted onto Mx; see steer card for rationale)
 6. (later) generalize to LLaMA3-8B / other family once deployable form set.
 
 ## Active Jobs
-- (none)
+- `050-20260728-084743-oracle-llama2-e0-slr-diag` (PENDING, a6000-2) — E0
+  offline SLR gates; card
+  journal/2026-07-27_experiment-oracle-llama2-e0-slr-diag.md
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:

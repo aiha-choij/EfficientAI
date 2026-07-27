@@ -20,8 +20,9 @@ fitting) deprioritized, not abandoned. Implementation plan in gist Next
 Experiments; code lands in oracle_mlp.py + scripts/oracle/09_slr_diag.py.
 
 ## Active Jobs
-- `20260725-033520-coact-llama2-p3-prep` — coactivation-block-structure P3
-  prep (all-layer clustering, a6000-4, PENDING); eval job follows.
+- `050-20260728-084743-oracle-llama2-e0-slr-diag` — oracle-residual-sparsity
+  E0 SLR diagnostics (a6000-2 pinned, 1 GPU ≥30GiB, PENDING). Card:
+  topics/oracle-residual-sparsity/journal/2026-07-27_experiment-oracle-llama2-e0-slr-diag.md
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -53,6 +54,11 @@ journal/2026-07-27_pivot-c4-slr-compensation.md.
    fitting (deferred, unchanged).
 
 ## Latest
+- 2026-07-27: `oracle-llama2-e0-slr-diag` SUBMITTED
+  (050-20260728-084743, a6000-2) — E0 offline SLR gates: hot-set-removal
+  spectra + x-channel concentration + matched-budget rel-err @ B_eff=1024.
+  SLR code (slr_neuron/slr_input c4 modes) landed at tag
+  exp/2026-07-27_oracle-llama2-e0-slr-diag; unit tests + tiny smoke pass.
 - 2026-07-27: STEER (within-topic, oracle-residual-sparsity): C4
   compensation → SLR hybrid (R-Sparse template on Mx). H4 added; E0
   diagnostics + E1 PPL sweep planned; quantized-M/loss-aligned proposals
@@ -72,15 +78,6 @@ journal/2026-07-27_pivot-c4-slr-compensation.md.
   paper 64.06; PPL@4096 searched +0.045 vs dense 5.1164. LaRoSA head-to-head
   needs matched protocol (seqlen + prefill caveats). Card:
   topics/rsparse-repro/journal/2026-07-24_experiment-rsparse-llama2-repro.md
-- 2026-07-24: `larosa-llama2-topk-overlap` DONE — Top-K index sets are
-  dominantly token-dependent: adjacent overlap 3.15× chance at s=0.9 but 68%
-  disagreement in absolute terms; no always-on set; layer 31 the exception.
-  Warning for block-shared masks. Report:
-  https://claude.ai/code/artifact/c73a7f23-2ac7-4b27-9857-6c21a60d184f
-- 2026-07-24: C4 whitening round DONE — whitening worsens PPL at every rank
-  despite −13% L2 (Dead End); tau-allocation harmful (Dead End); plain
-  uniform r=1024 best C4: 5.737/5.915/7.229, beats C1 @s=0.9, gap to C3
-  +0.23/+0.29/+0.59 at +6.2% compute. Next: r=2048 or output-side weighting.
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.
