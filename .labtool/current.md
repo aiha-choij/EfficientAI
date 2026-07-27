@@ -36,11 +36,11 @@ compute); whitening and spectral-energy allocation are proven dead ends
 (input-space L2 misaligned with downstream loss). Specs:
 topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md.
 
-## Next Experiments
-1. C4 plain uniform r=2048 (+12.4% compute): convergence test toward C3
-   (success: s=0.9 gap < 0.2). One small job.
-2. Output-side-weighted factorization objective — design discussion first.
-3. (later) LLaMA3-8B / other-family generalization once C4 form is settled.
+## Next Experiments (proposals awaiting user pick — details in gist)
+1. Offline gates (minutes): hot-set-removal r90 diagnostic (proposal 2) +
+   anti-whitening alpha-sweep factors (proposal 3).
+2. Quantized full-rank M, W4/W8 (proposal 1, LQER template) — C4 rerun x3s.
+3. Reference arm: plain uniform r=2048 (same MAC budget as quantized M).
 
 ## Latest
 - 2026-07-25: `coact-llama2-p2-blocks` DONE (3.4 min) — PPMI clustering
