@@ -190,6 +190,73 @@ def test_6_whitened_factors(model):
           f"budget alloc mean {mean_r:.1f} <= {H // 4}")
 
 
+def test_7_slr(model, ids):
+    import tempfile
+    s = 0.7
+    oracle_mlp.set_condition(model, "c3", select="topk", s=s)
+    y_c3 = logits(model, ids)
+
+    # (a) full-budget exactness: every slr arm with a complete budget must
+    # reproduce the exact compensation, i.e. match C3
+    for desc, kwargs in [
+        ("slr_neuron hot=all r=0", dict(rank=0, hot_n=D, mode="slr_neuron")),
+        ("slr_neuron hot=D/4 r=full", dict(rank=H, hot_n=D // 4, mode="slr_neuron")),
+        ("slr_input k=all r=H/8", dict(rank=H // 8, mode="slr_input", sparse_k=H)),
+        ("slr_input k=all r=H/8 wnorm", dict(rank=H // 8, mode="slr_input",
+                                             sparse_k=H, x_score="wnorm")),
+    ]:
+        oracle_mlp.attach_slr_factors_inplace(model, **kwargs)
+        oracle_mlp.set_condition(model, "c4", select="topk", s=s)
+        y = logits(model, ids)
+        diff = (y - y_c3).abs().max().item()
+        assert diff < 1e-3, f"{desc} vs C3: max diff {diff}"
+        print(f"PASS slr full-budget == C3 ({desc}): max logit diff {diff:.2e}")
+
+    # (b) degenerate slr == plain lr at the same rank
+    r = H // 8
+    oracle_mlp.attach_factors_inplace(model, rank=r)
+    oracle_mlp.set_condition(model, "c4", select="topk", s=s)
+    y_lr = logits(model, ids)
+    for desc, kwargs in [
+        ("slr_neuron hot=0", dict(rank=r, hot_n=0, mode="slr_neuron")),
+        ("slr_input k=0", dict(rank=r, mode="slr_input", sparse_k=0)),
+    ]:
+        oracle_mlp.attach_slr_factors_inplace(model, **kwargs)
+        y = logits(model, ids)
+        diff = (y - y_lr).abs().max().item()
+        assert diff < 1e-3, f"{desc} vs lr: max diff {diff}"
+        print(f"PASS slr degenerate == lr ({desc}): max logit diff {diff:.2e}")
+
+    # (c) save/load round trip preserves factors, runtime pieces, and logits
+    oracle_mlp.attach_slr_factors_inplace(model, rank=r, hot_n=D // 8,
+                                          mode="slr_neuron")
+    y_mem = logits(model, ids)
+    with tempfile.TemporaryDirectory() as td:
+        oracle_mlp.save_factors(model, r, td, comp_mode="slr_neuron", hot_n=D // 8)
+        oracle_mlp.load_factors(model, td)
+        y_disk = logits(model, ids)
+    assert torch.equal(y_mem, y_disk), \
+        f"slr_neuron save/load: max diff {(y_mem - y_disk).abs().max().item()}"
+    oracle_mlp.attach_slr_factors_inplace(model, rank=r, mode="slr_input",
+                                          sparse_k=H // 4, x_score="wnorm")
+    y_mem = logits(model, ids)
+    with tempfile.TemporaryDirectory() as td:
+        oracle_mlp.save_factors(model, r, td, comp_mode="slr_input",
+                                sparse_k=H // 4, x_score="wnorm")
+        oracle_mlp.load_factors(model, td)
+        y_disk = logits(model, ids)
+    assert torch.equal(y_mem, y_disk), \
+        f"slr_input save/load: max diff {(y_mem - y_disk).abs().max().item()}"
+    print("PASS slr save/load round trip (both modes, bitwise)")
+
+    # (d) top_count_mask semantics: exactly k kept for distinct scores
+    score = torch.rand(64, D)
+    for k in (0, 1, D // 4, D):
+        m = oracle_mlp.top_count_mask(score, k)
+        assert m.sum(-1).float().mean().item() == float(min(k, D)), k
+    print("PASS top_count_mask semantics")
+
+
 if __name__ == "__main__":
     test_top_p_mask_semantics()
     model = build_model()
@@ -200,4 +267,5 @@ if __name__ == "__main__":
     test_4_mask_vs_slice(model)
     test_5_topk_select(model, ids)
     test_6_whitened_factors(model)
+    test_7_slr(model, ids)
     print("ALL ORACLE UNIT TESTS PASSED")

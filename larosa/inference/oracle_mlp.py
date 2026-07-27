@@ -63,6 +63,18 @@ def top_k_mask(score, s):
     return score.float() >= kth
 
 
+def top_count_mask(score, k):
+    """Per-token mask keeping the k largest entries of the last dim (>= kth
+    value keeps ties, same semantics as top_k_mask). k=0 -> all-False."""
+    d = score.shape[-1]
+    if k >= d:
+        return torch.ones_like(score, dtype=torch.bool)
+    if k <= 0:
+        return torch.zeros_like(score, dtype=torch.bool)
+    kth = torch.topk(score.float(), k, dim=-1).values[..., -1:]
+    return score.float() >= kth
+
+
 def top_p_mask(score, p, chunk=8192):
     """Per-token top-p mask over the last dim.
 
@@ -136,9 +148,24 @@ def oracle_mlp_forward(mlp, x):
         gu = g_bar.to(u.dtype) * u
         return mlp.down_proj(m * i + (1.0 - m) * gu)
     # c4: keep the exact kept-neuron residual, replace the tail with the
-    # rank-r linear branch comp_lr(x) = (x A^T) B^T ~= M x, M = W_d diag(g_bar) W_u
+    # compensation branch comp(x) ~= M x, M = W_d diag(g_bar) W_up.
+    #   lr         : comp = B(Ax), rank-r SVD of M (original C4)
+    #   slr_neuron : comp = B(Ax) + exact hot rank-1 neuron terms,
+    #                A,B from SVD of M_cold (H4/S1)
+    #   slr_input  : comp = B(Ax) + R (m_x * x), R = M - BA, m_x = top-k
+    #                input channels by |x| or |x|*||R[:,c]|| (H4/S2)
     gu = mlp.oracle_g_bar.to(u.dtype) * u
     comp = (x @ mlp.oracle_A.T) @ mlp.oracle_B.T
+    mode = getattr(mlp, "oracle_comp_mode", "lr")
+    if mode == "slr_neuron":
+        hot = mlp.oracle_hot_mask.to(gu.dtype)
+        return mlp.down_proj(m * i + (hot - m) * gu) + comp
+    if mode == "slr_input":
+        score = x.abs().float()
+        if getattr(mlp, "oracle_x_score", "abs") == "wnorm":
+            score = score * mlp.oracle_R_colnorm
+        m_x = top_count_mask(score, mlp.oracle_sparse_k).to(x.dtype)
+        comp = comp + (m_x * x) @ mlp.oracle_R.T
     return mlp.down_proj(m * i) + comp - mlp.down_proj(m * gu)
 
 
@@ -271,6 +298,51 @@ def build_M_factors(mlp, rank, sigma=None):
     return A, B, S
 
 
+def hot_scores(mlp):
+    """Static per-neuron importance of the rank-1 terms of M:
+    c_j = g_bar_j * ||W_d[:,j]||_2 * ||W_u[j,:]||_2 (fp32, on device)."""
+    w_down = mlp.down_proj.weight.float()
+    w_up = mlp.up_proj.weight.float()
+    g_bar = mlp.oracle_g_bar.to(w_down.device).float()
+    return g_bar.abs() * w_down.norm(dim=0) * w_up.norm(dim=1)
+
+
+def compute_M_cold(mlp, hot_idx):
+    """M with the hot neurons' rank-1 terms removed (g_bar zeroed on hot)."""
+    w_down = mlp.down_proj.weight.float()
+    w_up = mlp.up_proj.weight.float()
+    g_masked = mlp.oracle_g_bar.to(w_down.device).float().clone()
+    g_masked[hot_idx] = 0.0
+    return (w_down * g_masked.unsqueeze(0)) @ w_up
+
+
+def build_slr_factors(mlp, rank, hot_n=0, mode="slr_neuron"):
+    """Sparse + low-rank compensation factors (H4, R-Sparse template).
+
+    slr_neuron: hot set H = top-hot_n neurons by hot_scores; A,B = rank-`rank`
+      SVD of M_cold = M minus the hot rank-1 terms. The exact hot terms are
+      applied at runtime through the existing gu path (2h MACs/neuron).
+    slr_input: A,B = rank-`rank` SVD of the full M; the dense residual
+      R = M - BA is applied to the top-k |x| input channels at runtime
+      (h MACs/channel). R is rebuilt at load time, never stored.
+    Returns (A [r,h], B [h,r], S, hot_idx) — hot_idx None for slr_input.
+    rank=0 yields empty A/B (pure-sparse arm)."""
+    assert mode in ("slr_neuron", "slr_input"), mode
+    if mode == "slr_neuron":
+        hot_idx = torch.topk(hot_scores(mlp), hot_n).indices.sort().values if hot_n else \
+            torch.empty(0, dtype=torch.long, device=mlp.down_proj.weight.device)
+        target = compute_M_cold(mlp, hot_idx)
+    else:
+        hot_idx = None
+        target = compute_M(mlp)
+    U, S, Vh = torch.linalg.svd(target, full_matrices=False)
+    r = min(rank, S.shape[0])
+    sq = S[:r].sqrt()
+    B = U[:, :r] * sq.unsqueeze(0)
+    A = sq.unsqueeze(1) * Vh[:r, :]
+    return A, B, S, hot_idx
+
+
 def ranks_from_tau(spectra, tau):
     """Per-layer rank = smallest r whose cumulative squared-singular-value
     energy reaches tau. spectra: {layer_idx: 1-D tensor S}."""
@@ -295,16 +367,30 @@ def ranks_for_budget(spectra, r_bar, iters=60):
     return ranks_from_tau(spectra, lo)
 
 
-def save_factors(model, rank, out_dir, stats_dir=None, whiten=False, ranks=None):
-    """ranks: optional {layer_idx: r_l} overriding the uniform rank."""
+def save_factors(model, rank, out_dir, stats_dir=None, whiten=False, ranks=None,
+                 comp_mode="lr", hot_n=0, sparse_k=0, x_score="abs"):
+    """ranks: optional {layer_idx: r_l} overriding the uniform rank.
+    comp_mode 'slr_neuron'/'slr_input' saves H4 hybrid factors instead of the
+    plain SVD; sparse_k and x_score are runtime knobs recorded in the meta
+    (slr_input only). whiten is incompatible with the slr modes."""
+    assert comp_mode in ("lr", "slr_neuron", "slr_input"), comp_mode
+    assert not (whiten and comp_mode != "lr"), "whiten only supports comp_mode='lr'"
     os.makedirs(out_dir, exist_ok=True)
-    meta = {"whiten": whiten, "ranks": {}, "uniform_rank": rank}
+    meta = {"whiten": whiten, "ranks": {}, "uniform_rank": rank,
+            "comp_mode": comp_mode, "hot_n": hot_n, "sparse_k": sparse_k,
+            "x_score": x_score}
     for layer_idx, mlp in iter_mlps(model):
-        sigma = load_sigma(stats_dir, layer_idx, mlp.down_proj.weight.device) if whiten else None
         r_l = ranks[layer_idx] if ranks else rank
-        A, B, S = build_M_factors(mlp, r_l, sigma=sigma)
-        torch.save({"A": A.cpu(), "B": B.cpu(), "S": S.cpu(), "rank": r_l},
-                   os.path.join(out_dir, f"layer_{layer_idx}.pt"))
+        if comp_mode == "lr":
+            sigma = load_sigma(stats_dir, layer_idx, mlp.down_proj.weight.device) if whiten else None
+            A, B, S = build_M_factors(mlp, r_l, sigma=sigma)
+            hot_idx = None
+        else:
+            A, B, S, hot_idx = build_slr_factors(mlp, r_l, hot_n=hot_n, mode=comp_mode)
+        payload = {"A": A.cpu(), "B": B.cpu(), "S": S.cpu(), "rank": r_l}
+        if hot_idx is not None:
+            payload["hot_idx"] = hot_idx.cpu()
+        torch.save(payload, os.path.join(out_dir, f"layer_{layer_idx}.pt"))
         meta["ranks"][str(layer_idx)] = r_l
     meta["mean_rank"] = sum(meta["ranks"].values()) / len(meta["ranks"])
     with open(os.path.join(out_dir, "factors_meta.json"), "w") as f:
@@ -312,13 +398,44 @@ def save_factors(model, rank, out_dir, stats_dir=None, whiten=False, ranks=None)
     return meta
 
 
+def _attach_slr_runtime(mlp, comp_mode, hot_idx=None, sparse_k=0, x_score="abs"):
+    """Attach the per-layer runtime pieces the c4 slr branches need. For
+    slr_input, R = M - BA is rebuilt from the weights (never stored on disk)."""
+    dev = mlp.down_proj.weight.device
+    dtype = mlp.down_proj.weight.dtype
+    mlp.oracle_comp_mode = comp_mode
+    if comp_mode == "slr_neuron":
+        hot_mask = torch.zeros(mlp.intermediate_size, dtype=torch.bool, device=dev)
+        if hot_idx is not None and hot_idx.numel():
+            hot_mask[hot_idx.to(dev)] = True
+        mlp.oracle_hot_mask = hot_mask
+    elif comp_mode == "slr_input":
+        R = compute_M(mlp) - mlp.oracle_B.float() @ mlp.oracle_A.float()
+        mlp.oracle_R_colnorm = R.norm(dim=0)
+        mlp.oracle_R = R.to(dtype)
+        mlp.oracle_sparse_k = sparse_k
+        mlp.oracle_x_score = x_score
+
+
 def load_factors(model, factors_dir):
+    meta_path = os.path.join(factors_dir, "factors_meta.json")
+    meta = {}
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            meta = json.load(f)
+    comp_mode = meta.get("comp_mode", "lr")
     for layer_idx, mlp in iter_mlps(model):
         dev = mlp.down_proj.weight.device
         dtype = mlp.down_proj.weight.dtype
         d = torch.load(os.path.join(factors_dir, f"layer_{layer_idx}.pt"), map_location=dev)
         mlp.oracle_A = d["A"].to(dtype)
         mlp.oracle_B = d["B"].to(dtype)
+        if comp_mode == "lr":
+            mlp.oracle_comp_mode = "lr"  # clear any stale slr attachment
+        else:
+            _attach_slr_runtime(mlp, comp_mode, hot_idx=d.get("hot_idx"),
+                                sparse_k=meta.get("sparse_k", 0),
+                                x_score=meta.get("x_score", "abs"))
 
 
 def attach_factors_inplace(model, rank):
@@ -328,6 +445,19 @@ def attach_factors_inplace(model, rank):
         dtype = mlp.down_proj.weight.dtype
         mlp.oracle_A = A.to(dtype)
         mlp.oracle_B = B.to(dtype)
+        mlp.oracle_comp_mode = "lr"
+
+
+def attach_slr_factors_inplace(model, rank, hot_n=0, mode="slr_neuron",
+                               sparse_k=0, x_score="abs"):
+    """Build and attach slr factors + runtime pieces directly (tests)."""
+    for _, mlp in iter_mlps(model):
+        A, B, _, hot_idx = build_slr_factors(mlp, rank, hot_n=hot_n, mode=mode)
+        dtype = mlp.down_proj.weight.dtype
+        mlp.oracle_A = A.to(dtype)
+        mlp.oracle_B = B.to(dtype)
+        _attach_slr_runtime(mlp, mode, hot_idx=hot_idx,
+                            sparse_k=sparse_k, x_score=x_score)
 
 
 # ---------------------------------------------------------------------------

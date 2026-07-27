@@ -36,6 +36,17 @@ if __name__ == "__main__":
     ap.add_argument("--stats_dir", type=str, required=True)
     ap.add_argument("--rank", type=int, default=512, help="uniform rank (ignored with --alloc)")
     ap.add_argument("--whiten", action="store_true")
+    ap.add_argument("--comp_mode", type=str, default="lr",
+                    choices=["lr", "slr_neuron", "slr_input"],
+                    help="H4 sparse+low-rank hybrids: slr_neuron (static hot "
+                         "rank-1 terms + SVD of M_cold) or slr_input (SVD of M "
+                         "+ top-k |x| channels through R = M - BA at runtime)")
+    ap.add_argument("--hot_n", type=int, default=0,
+                    help="slr_neuron: number of exact hot neurons")
+    ap.add_argument("--sparse_k", type=int, default=0,
+                    help="slr_input: input channels kept per token at runtime")
+    ap.add_argument("--x_score", type=str, default="abs", choices=["abs", "wnorm"],
+                    help="slr_input channel score: |x| or |x|*||R[:,c]||")
     ap.add_argument("--alloc", type=str, default=None,
                     help="'tau:0.95' or 'budget:512' for per-layer rank allocation")
     ap.add_argument("--out_dir", type=str, required=True)
@@ -90,6 +101,12 @@ if __name__ == "__main__":
         # pass 2: factors at the chosen ranks
         meta = oracle_mlp.save_factors(model, args.rank, args.out_dir,
                                        stats_dir=args.stats_dir,
-                                       whiten=args.whiten, ranks=ranks)
+                                       whiten=args.whiten, ranks=ranks,
+                                       comp_mode=args.comp_mode,
+                                       hot_n=args.hot_n,
+                                       sparse_k=args.sparse_k,
+                                       x_score=args.x_score)
     print(f"saved factors to {args.out_dir} "
-          f"(whiten={args.whiten}, mean rank {meta['mean_rank']:.1f})")
+          f"(comp_mode={args.comp_mode}, whiten={args.whiten}, "
+          f"mean rank {meta['mean_rank']:.1f}, hot_n={args.hot_n}, "
+          f"sparse_k={args.sparse_k})")
