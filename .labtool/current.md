@@ -10,20 +10,15 @@
 | rsparse-repro | 🟢 active | R-Sparse (ICLR25) Llama-2-7B 50% reproduced: 8-task avg 64.59 vs paper 64.06, full baseline exact; matched-protocol PPL vs LaRoSA still open |
 
 ## This Session
-Focus: oracle-residual-sparsity — steer to SLR line (H4), implementation
-(slr_neuron/slr_input c4 modes, tag exp/2026-07-27_oracle-llama2-e0-slr-diag),
-and E0 diagnostics DONE same day: S1 refuted (hot removal RAISES r90,
-1270→1470 — dead end), S2 passes decisively (all arms beat lr_r1024;
-best pure-sparse −40% mid-stack rel-err; abs score suffices). User approved
-E1 = S2-only 9 runs {r512:k1024, r256:k1536, r0:k2048} × s{0.5,0.7,0.9}.
-Input-L2 screening caveat stands — E1 PPL is the referee.
+Focus: oracle-residual-sparsity — E1 S2 PPL sweep DONE: GATE PASSED with
+margin. Best arm s2 r256:k1536 = 5.5961/5.7526/6.9417 vs lr_r1024
+5.7365/5.9152/7.2294; gap to C3 halved (+0.591 → +0.304 @ s=0.9) at equal
+budget. PPL optimum is the MIXED split (rank share ~25%), not E0's
+pure-sparse pick — validate allocation on PPL only. Escalating per
+pre-approved plan: E2 = B_eff=2048 round (lr_r2048 + 3 s2 splits × 3s).
 
 ## Active Jobs
-- `050-20260728-155727-oracle-llama2-e1-s2-ppl` — oracle-residual-sparsity
-  E1 S2 PPL sweep (a6000-2 pinned, 1 GPU ≥30GiB, PENDING, est. 2.5-4 h).
-  User pre-approved follow-through: gate pass → B_eff=2048 + rho search;
-  gate miss → input-side family dead, fall back to quantized-M. Card:
-  topics/oracle-residual-sparsity/journal/2026-07-27_experiment-oracle-llama2-e1-s2-ppl.md
+- (none — E2 submission in progress)
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -34,30 +29,29 @@ Input-L2 screening caveat stands — E1 PPL is the referee.
 Mean-gate residual decomposition on LLaMA2-7B (top-K s={0.5,0.7,0.9},
 wikitext-2 PPL): H1 confirmed — exact compensation (C3) cuts C1's degradation
 56% at s=0.9. The open front is the DEPLOYABLE compensation (C4), now on the
-SLR line (H4, 2026-07-27 steer): comp(x) ≈ Mx as sparse + low-rank at
-matched MAC budget. E0 verdict: S2 (dynamic top-|x| input channels of the
-SVD residual) is the surviving variant — all arms beat lr_r1024 on
-screening, monotone toward pure-sparse (−40% mid-stack rel-err); S1
-(neuron hot set) is a DEAD END (hot removal raises r90 — hot terms ≈ M's
-top subspace). Anchor to beat in PPL: plain r=1024 (7.229 @ s=0.9, +6.2%
-compute). Whitening and spectral-energy allocation remain dead ends. Specs:
+SLR line (H4): CONFIRMED on PPL by E1 — s2 slr_input (top-|x| channels
+through R = M − BA) is the best deployable C4: r256:k1536 = 6.9417 @ s=0.9
+(lr_r1024 7.2294; exact C3 6.6381) at +6.2% compute. Optimum is a mixed
+split (rank share ~25%); offline-L2 screening picks arms but NOT the fine
+ordering. S1 (neuron hot set) dead; whitening/allocation remain dead ends.
+Next front: does the edge persist at B_eff=2048, and per-layer allocation. Specs:
 topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md; steer card
 journal/2026-07-27_pivot-c4-slr-compensation.md.
 
-## Next Experiments (from E0 result — details in gist)
-1. E1 S2 PPL sweep (user-approved): c4 comp_mode=slr_input, abs score,
-   B_eff=1024 arms {r512:k1024, r256:k1536, r0:k2048} × s={0.5,0.7,0.9} =
-   9 runs. Gate: beat lr_r1024 by ≥0.05 PPL @ s=0.9 → B_eff=2048 round +
-   per-layer rho search; miss → input-side family dead, fall back to
-   quantized-M.
-2. [deprioritized, kept] Quantized full-rank M W4/W8; loss-aligned A,B
+## Next Experiments (from E1 result — details in gist)
+1. E2 B_eff=2048 round: lr_r2048 + s2 {r1024:k2048, r512:k3072, r256:k3584}
+   × s{0.5,0.7,0.9} = 12 runs. Success: best s2 beats lr_r2048 AND improves
+   on 6.9417 @ s=0.9; stretch ≤ 6.79 (C3 + 0.15).
+2. E3 per-layer (r_l, k_l) allocation — design after E2; PPL-validate.
+3. [deprioritized, kept] Quantized full-rank M W4/W8; loss-aligned A,B
    fitting (deferred, unchanged).
 
 ## Latest
-- 2026-07-27: `oracle-llama2-e1-s2-ppl` SUBMITTED (050-20260728-155727,
-  a6000-2) — 9 PPL runs: slr_input abs, arms {r512:k1024, r256:k1536,
-  r0:k2048} × s{0.5,0.7,0.9}. Gate: any arm ≤ 7.179 @ s=0.9 (lr_r1024
-  − 0.05) → B_eff=2048 + rho search; miss → input-side family dead.
+- 2026-07-28: `oracle-llama2-e1-s2-ppl` DONE — GATE PASSED: all 3 s2 arms
+  beat lr_r1024 at every s; best r256:k1536 5.5961/5.7526/6.9417 (−0.288
+  @ s=0.9 vs anchor), gap to C3 halved. Mixed split beats pure sparse (E0
+  fine-ordering did not transfer). Escalating to E2 B_eff=2048. Card:
+  topics/oracle-residual-sparsity/journal/2026-07-27_experiment-oracle-llama2-e1-s2-ppl.md
 - 2026-07-27: `oracle-llama2-e0-slr-diag` DONE (17 min) — S1 refuted (hot
   removal raises r90 1270→1470; all arms lose to lr_r1024 → Dead End); S2
   passes (all arms beat lr_r1024, best s2_r0_k2048 mid-stack rel-err 0.198
@@ -73,18 +67,12 @@ journal/2026-07-27_pivot-c4-slr-compensation.md.
   coverage (15/15, 1.5–4.2×; L31 ~4×), but block-union tiling saturates
   (naive touched-blocks sharing dead) and absolute top-m coverage is only
   0.20–0.36 in mid layers. User: proceed to P3 with low expectations.
-- 2026-07-25: `coact-llama2-p1-stats` DONE (1.5 min) — union tax quantified
-  at s=0.9: 6.0–6.3× @g=16, 9.1–9.4× @g=64 (92–95% of saturation 9.96×) in
-  layers 0–24; layer 31 exception (3.9–6.6×). Naive union sharing dead at
-  g=64; P2 clustering (strong null ≥1.3× vs random) decides the axis.
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.
-- Immediate next action: E1 S2 PPL sweep is RUNNING
-  (050-20260728-155727, a6000-2) — on finish, record via labtool-result and
-  apply the pre-agreed gate (≤7.179 @ s=0.9 → B_eff=2048 + rho search;
-  miss → input-side family dead, quantized-M next). User pre-approved the
-  follow-through 2026-07-27.
+- Immediate next action: E2 B_eff=2048 round (submitted or submitting —
+  check Active Jobs); on finish, labtool-result then design E3 per-layer
+  allocation. User pre-approved follow-through 2026-07-27.
 - Execution env: a6000-2 GPU0 (gateway A100s often occupied) — venv
   ~/workspace/venv-larosa (torch 2.6.0+cu124, transformers 4.46.3, sdpa, NO
   flash-attn), model /raid/LLM/llama2-7b, artifacts ~/workspace/oracle/

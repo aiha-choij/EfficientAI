@@ -1,6 +1,6 @@
 # Experiment: oracle-llama2-e1-s2-ppl
 
-Status: PENDING
+Status: DONE (2026-07-28)
 Date: 2026-07-27
 
 ## Hypothesis tested
@@ -61,5 +61,45 @@ deltas ≥0.01 PPL are signal (phase-3 gate).
 - Estimated cost/time: 1 GPU, ~2.5-4 h (3 factor builds + 9 PPL evals)
 
 ### Results
+(artifacts: 9 result JSONs c4_slr_r*_topk_s*.json under a6000-2
+~/workspace/oracle/llama2-7b/results/, all git_commit 4efbb4e, achieved
+sparsity 0.5000/0.7000/0.9001 as targeted; job log tail "E1 S2 sweep
+complete"; anchors from phase-4 / whitening cards)
+
+wikitext-2 PPL (dense 5.4738):
+
+| arm (B_eff=1024)   | s=0.5  | s=0.7  | s=0.9  |
+|--------------------|--------|--------|--------|
+| C1 (no comp)       | 5.5216 | 5.7284 | 8.1096 |
+| C3 (exact, upper)  | 5.5051 | 5.6283 | 6.6381 |
+| c4 lr_r1024 anchor | 5.7365 | 5.9152 | 7.2294 |
+| s2 r512:k1024      | 5.6200 | 5.7844 | 6.9962 |
+| s2 r256:k1536      | **5.5961** | **5.7526** | **6.9417** |
+| s2 r0:k2048        | 5.6261 | 5.7805 | 6.9526 |
+
+- GATE PASSED by all three arms: best r256:k1536 @ s=0.9 = 6.9417, beats
+  lr_r1024 by 0.288 (gate required ≥ 0.05, i.e. ≤ 7.179).
+- Gap to C3 @ s=0.9 shrinks 7.2294−6.6381=+0.591 (lr) → +0.304 (s2) —
+  roughly halved at identical MAC budget (+6.2% compute).
+- PPL optimum is the MIXED split r256:k1536, not pure sparse: E0's monotone
+  sparse-heavy ordering does NOT fully transfer (E0 predicted r0:k2048
+  best; PPL says r256:k1536 < r0:k2048 < r512:k1024). Mild, benign
+  instance of the input-L2 caveat — cross-family transfer held (all arms
+  beat LR), within-family fine ordering did not.
+- At s=0.5, s2 arms (5.596–5.626) still trail plain C1 (5.5216) — the
+  compensation trade only pays at high sparsity, consistent with the C3
+  pattern.
 
 ### Interpretation
+(user pre-approval 2026-07-27 "E1와 후속 다 진행해줘" — pre-agreed gate
+applied; flagged for user review: the mixed-split optimum nuance below)
+
+- H4/S2 CONFIRMED on the PPL axis: sparse+low-rank hybrid compensation
+  beats plain rank at matched budget everywhere, decisively at s=0.9. The
+  whitening-style cross-family inversion did NOT materialize.
+- Follow-through per pre-agreed rule: proceed to B_eff=2048 round (E2)
+  with the LR reference arm r2048 and mixed-leaning splits bracketing the
+  observed optimum (rank share 12.5–50%), then per-layer split allocation.
+- Nuance to carry: screening picked the pure-sparse end, PPL picked a
+  mixed split — future allocation work must be validated on PPL, not on
+  the offline metric alone.

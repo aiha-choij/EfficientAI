@@ -69,6 +69,19 @@ No-go if C3 − C2 < 5%p.
   lesson) — PPL is the referee.
 
 ## Key Findings
+- **[MAIN] E1 S2 PPL sweep (2026-07-28): H4/S2 confirmed — best deployable
+  C4 to date.** LLaMA2-7B, B_eff=1024 (+6.2% compute), wikitext-2 PPL:
+  all three slr_input arms beat plain lr_r1024 at every s; best arm
+  r256:k1536 = 5.5961/5.7526/6.9417 vs lr_r1024 5.7365/5.9152/7.2294 —
+  gate passed with margin (−0.288 @ s=0.9 vs required −0.05); gap to exact
+  C3 roughly HALVED (+0.591 → +0.304 @ s=0.9). PPL optimum is the MIXED
+  split (rank share ~25%), not the pure-sparse end E0's screening picked
+  (r0:k2048 second, r512:k1024 third) — cross-family transfer held, fine
+  ordering didn't. At s=0.5 all comp arms still trail plain C1.
+  When relevant: (a) E2 splits should bracket rank share 12.5–50%;
+  (b) validate any allocation scheme on PPL, never on offline L2 alone;
+  (c) s2 r256:k1536 is the new reference deployable arm.
+  Journal: 2026-07-27_experiment-oracle-llama2-e1-s2-ppl.md
 - **E0 SLR diagnostics (2026-07-27): S2 (input-channel sparse) passes
   screening decisively; S1 (neuron hot set) refuted.** Matched-budget
   B_eff=1024 rel-err E‖Mx−comp‖/E‖Mx‖ on 16k calibration tokens: every S2
@@ -188,29 +201,25 @@ No-go if C3 − C2 < 5%p.
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments (2026-07-27, from E0 result — S2-only; S1 dead)
-1. **E1 — S2 PPL sweep (user-approved 9 runs)**: condition c4
-   comp_mode=slr_input, abs score, B_eff=1024 arms {r512:k1024, r256:k1536,
-   r0:k2048} × s ∈ {0.5, 0.7, 0.9}, wikitext-2 PPL, same pipeline. Anchors:
-   dense 5.4738; C1 8.1096, C3 6.638, C4-lr-r1024 7.229 (@ s=0.9). Why:
-   all three passed E0 screening (mid-stack rel-err 0.25/0.22/0.20 vs
-   lr 0.33). Success: any arm beats lr_r1024 by ≥ 0.05 PPL @ s=0.9 →
-   escalate to B_eff=2048 round (subsumes old r=2048 arm) + per-layer rho
-   search. Failure: all arms ≥ lr_r1024 → input-side approximation family
-   joins whitening as dead end; fall back to quantized-M line.
-2. (E1-follow) per-layer split allocation (rho search, R-Sparse Algorithm 1
-   style) only if a uniform split passes the E1 gate.
+## Next Experiments (2026-07-28, from E1 result — gate passed, escalate)
+1. **E2 — B_eff=2048 round (12 runs)**: arms lr_r2048 (LR reference,
+   subsumes the old r=2048 proposal) + s2 {r1024:k2048, r512:k3072,
+   r256:k3584} (rank share 50/25/12.5%, bracketing E1's mixed optimum),
+   abs score, s ∈ {0.5, 0.7, 0.9}. Why: E1 passed the gate with margin;
+   the question is whether SLR's edge persists at +12.4% compute and where
+   the rank-share optimum moves. Success: best s2 arm beats lr_r2048 AND
+   improves on E1's 6.9417 @ s=0.9; stretch: reach C3 + 0.15 (≤ 6.79).
+2. **E3 — per-layer split allocation**: allocate (r_l, k_l) under a global
+   B_eff using E0/E2 per-layer screening, then PPL-validate (E1 lesson:
+   never trust offline L2 for the final pick). Design after E2.
 3. **[deprioritized, kept] Quantized full-rank M (LQER/ASER template)** —
-   W4/W8 RTN/GPTQ on M; orthogonal to SLR, can compose with the E1 winner.
-   Gate: s=0.9 within C3 + 0.1.
+   can compose with the winning s2 arm. Gate: s=0.9 within C3 + 0.1.
 4. **[deferred, unchanged] Loss-aligned A,B fitting (Low-Rank Correction
    template)** — anti-whitening alpha-sweep as cheap probe.
 5. (later) generalize to LLaMA3-8B / other family once deployable form set.
 
 ## Active Jobs
-- `050-20260728-155727-oracle-llama2-e1-s2-ppl` (PENDING, a6000-2) — E1 S2
-  PPL sweep, 9 runs; card
-  journal/2026-07-27_experiment-oracle-llama2-e1-s2-ppl.md
+- (none)
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:
