@@ -90,7 +90,10 @@ No-go if C3 − C2 < 5%p.
   C3 roughly HALVED (+0.591 → +0.304 @ s=0.9). PPL optimum is the MIXED
   split (rank share ~25%), not the pure-sparse end E0's screening picked
   (r0:k2048 second, r512:k1024 third) — cross-family transfer held, fine
-  ordering didn't. At s=0.5 all comp arms still trail plain C1.
+  ordering didn't. At s=0.5 AND s=0.7 all approximated comp arms still
+  trail plain C1 (best SLR 5.7526 vs C1 5.7284 at s=0.7; noted in critique
+  2026-07-28 — the SLR advantage is confined to s=0.9 on the measured grid,
+  crossover between 0.7 and 0.9 unlocated).
   When relevant: (a) E2 splits should bracket rank share 12.5–50%;
   (b) validate any allocation scheme on PPL, never on offline L2 alone;
   (c) s2 r256:k1536 is the new reference deployable arm.

@@ -493,7 +493,7 @@ MGR-SLR   error = −Σ<sub>c ∉ S(x)</sub> R[:,c]·x_c      <span class="cmt">
       <li><strong>s = 0.5</strong> — the easy regime. The baseline is already within 0.05
         perplexity of dense, leaving almost nothing for compensation to win.</li>
       <li><strong>s = 0.7</strong> — the transition. Degradation becomes visible (+0.25) but
-        still moderate.</li>
+        still moderate; plain TIS still edges out every approximated compensation here.</li>
       <li><strong>s = 0.9</strong> — the hard regime, and the decision point. The baseline
         degrades by +2.64 and the methods separate sharply.</li>
     </ul>
@@ -534,17 +534,21 @@ MGR-SLR   error = −Σ<sub>c ∉ S(x)</sub> R[:,c]·x_c      <span class="cmt">
         <strong>x-axis:</strong> intermediate sparsity <span class="v">s</span> — the fraction of
         FFN neurons zeroed per token (50%, 70%, 90%).
         <strong>y-axis:</strong> WikiText-2 perplexity, lower is better; the dashed rule marks
-        the unmodified dense model at 5.474. The methods are indistinguishable at s=0.5 and fan
-        out at s=0.9, which is why the rest of the analysis focuses there.
+        the unmodified dense model at 5.474. At s=0.5 and s=0.7 the curves sit close together —
+        and plain TIS is actually ahead of both approximations there — before fanning out
+        sharply at s=0.9, which is why the rest of the analysis focuses on the high-sparsity
+        point.
       </figcaption>
     </figure>
 
     <p>
-      Two readings stand out. First, <strong>compensation only earns its keep at high
-      sparsity</strong>: at <code>s=0.5</code> the cheap approximations are actually worse than
-      plain TIS, because the error they introduce exceeds the bias they remove. Second, at
-      <code>s=0.9</code> MGR-SLR sits closer to the exact ceiling than MGR-LR does, at
-      identical cost.
+      Two readings stand out. First, <strong>approximated compensation only earns its keep at
+      high sparsity</strong>: at <code>s=0.5</code> <em>and</em> <code>s=0.7</code> the cheap
+      approximations are worse than plain TIS (MGR-SLR 5.596 vs TIS 5.522 at s=0.5; 5.753 vs
+      5.728 at s=0.7) — the error they introduce exceeds the bias they remove, and the
+      crossover point lies somewhere between s=0.7 and s=0.9, not yet located. Only the exact
+      form (MGR-Exact) beats TIS at every level. Second, at <code>s=0.9</code> MGR-SLR sits
+      closer to the exact ceiling than MGR-LR does, at identical cost.
     </p>
 
     <figure>
@@ -731,6 +735,10 @@ MGR-SLR   error = −Σ<sub>c ∉ S(x)</sub> R[:,c]·x_c      <span class="cmt">
       <li><strong>The memory trade is unresolved.</strong> MGR-SLR reduces arithmetic while
         keeping a full <code>h²</code> matrix resident, which is the wrong direction for
         memory-capacity-bound deployments.</li>
+      <li><strong>Narrow operating range at this budget.</strong> The approximated forms beat
+        plain TIS only at s=0.9 on the measured grid; at s=0.5 and s=0.7 TIS is ahead. The
+        crossover has not been located, and no measurement yet compares MGR-SLR against simply
+        running TIS at a lower sparsity for the same total compute.</li>
     </ul>
     <h3>Immediate next steps</h3>
     <ul>
