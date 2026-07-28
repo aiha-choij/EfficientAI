@@ -168,3 +168,41 @@ def fig4():
 
 
 fig1(); fig2(); fig3(); fig4()
+
+
+# ---------------------------------------------------------------- Fig 0
+def fig0():
+    # Token-pair selection overlap vs sparsity (mean over 32 layers).
+    # Source: job 20260724-173030-larosa-llama2-topk-overlap
+    # (journal card in topic larosa-intermediate-sparsity).
+    s = [0.5, 0.7, 0.9]
+    series = {
+        "adjacent tokens (distance 1)":   ([0.575, 0.434, 0.316], "#185FA5", "o"),
+        "distance 16 (same 16-token group)": ([0.531, 0.359, 0.208], "#378ADD", "s"),
+        "distance 64 (same 64-token group)": ([0.527, 0.352, 0.197], "#85B7EB", "^"),
+        "random token pair":              ([0.524, 0.347, 0.187], "#888780", "D"),
+    }
+    chance = [0.501, 0.301, 0.100]
+    fig, ax = plt.subplots(figsize=(8.2, 5.0))
+    for name, (ys, c, mk) in series.items():
+        ax.plot(s, ys, marker=mk, color=c, lw=2, ms=6, label=name)
+    ax.plot(s, chance, ls="--", color="#A32D2D", lw=1.6,
+            label="chance = K/d (expected overlap of two independent random selections)")
+    for xi, yi in zip(s, chance):
+        ax.annotate(f"{yi:.2f}", (xi, yi), textcoords="offset points",
+                    xytext=(0, -16), ha="center", fontsize=8.5, color="#A32D2D")
+    for xi, yi in zip(s, series["adjacent tokens (distance 1)"][0]):
+        ax.annotate(f"{yi:.2f}", (xi, yi), textcoords="offset points",
+                    xytext=(0, 8), ha="center", fontsize=8.5, color="#185FA5")
+    ax.set_xticks(s, [f"s = {v}" for v in s])
+    ax.set_ylim(0, 0.72)
+    ax.set_xlim(0.46, 0.94)
+    ax.set_ylabel("Overlap  =  (neurons selected by both tokens) / K")
+    ax.set_xlabel("Sparsity level s  (fraction of neurons zeroed per token)")
+    ax.set_title("Figure 0.  How much do two tokens agree on their neurons? (LLaMA-2-7B, mean over 32 layers)",
+                 fontsize=11, loc="left", pad=12)
+    ax.legend(frameon=False, fontsize=8.5, loc="upper right")
+    finish(fig, ax, f"{OUT}/fig0_pairwise_overlap.png")
+
+
+fig0()
