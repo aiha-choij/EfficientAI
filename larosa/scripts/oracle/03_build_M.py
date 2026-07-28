@@ -66,9 +66,11 @@ if __name__ == "__main__":
     oracle_mlp.load_stats(model, args.stats_dir)
 
     with torch.no_grad():
-        # pass 1: spectra (needed up front for allocation and diagnostics)
+        # pass 1: spectra — only when actually consumed (allocation or
+        # --spectra_out); skipping saves 32 SVDs per invocation
         spectra, stable = {}, {}
-        for layer_idx, mlp in oracle_mlp.iter_mlps(model):
+        for layer_idx, mlp in (oracle_mlp.iter_mlps(model)
+                               if (args.alloc or args.spectra_out) else ()):
             sigma = (oracle_mlp.load_sigma(args.stats_dir, layer_idx,
                                            mlp.down_proj.weight.device)
                      if args.whiten else None)
