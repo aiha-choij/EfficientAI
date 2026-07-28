@@ -217,8 +217,17 @@ No-go if C3 − C2 < 5%p.
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments (2026-07-28, from E2 — upward axis exhausted, go down)
-1. **E3 — cheap-end sweep, B_eff ∈ {512, 256}** (awaiting user go): s2
+## Next Experiments (2026-07-28, post-critique: loss-aligned front first)
+0. **E-W0 — grad sensitivity + metric validation (RUNNING)**: w =
+   sqrt(E[(dL/dy)^2]) by calibration backprop; gate = weighted offline
+   metric fixes the whitening inversion across 11 known-PPL variants;
+   bundled TIS frontier c1 @ s={0.75,0.8,0.85} (critique Critical 1&2).
+   Pass -> E-W1 weighted SVD factors (diag(w)·M; main bet, ±1.0 PPL
+   sensitivity precedent) and E-W2 weighted selection score (side bet;
+   H2-rejection precedent tempers it). Card:
+   journal/2026-07-28_experiment-oracle-llama2-ew0-gradstats.md
+1. **E3 — cheap-end sweep, B_eff ∈ {512, 256}** (after E-W0/W1; run with
+   w-weighted factors if validated): s2
    splits at rank share ~12.5-25% (the E1/E2 optimum region) plus the
    lr_r512 / lr_r256 references, s ∈ {0.5, 0.7, 0.9}. Why: E2 showed the
    +12.4% budget is saturated AND equals the cost of exact Mx, so the only

@@ -18,7 +18,11 @@ pure-sparse pick — validate allocation on PPL only. Escalating per
 pre-approved plan: E2 = B_eff=2048 round (lr_r2048 + 3 s2 splits × 3s).
 
 ## Active Jobs
-- (none)
+- `050-20260729-062542-oracle-llama2-ew0-gradstats` — E-W0: loss-aligned
+  sensitivity stats (c4 + wt103), offline-metric validation vs 11 known-PPL
+  variants (gate: fix the whitening inversion), TIS frontier c1 @
+  s={0.75,0.8,0.85}. a6000-2, ~1-1.5 h. Pass -> E-W1 weighted SVD. Card:
+  topics/oracle-residual-sparsity/journal/2026-07-28_experiment-oracle-llama2-ew0-gradstats.md
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -38,15 +42,23 @@ Next front: does the edge persist at B_eff=2048, and per-layer allocation. Specs
 topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md; steer card
 journal/2026-07-27_pivot-c4-slr-compensation.md.
 
-## Next Experiments (from E2 result — details in gist)
-1. E3 cheap-end sweep, B_eff ∈ {512, 256} (awaiting user go). Success: an
-   SLR arm at B_eff=512 (+3.1%) beats lr_r1024 (7.2294 @ s=0.9) — half the
-   compute, better quality than the previous best LR.
-2. E4 per-layer (r_l, k_l) allocation at the best budget from E3.
-3. [deprioritized, kept] Quantized full-rank M W4/W8; loss-aligned A,B
-   fitting (deferred, unchanged).
+## Next Experiments (post-critique — details in gist)
+1. E-W0 (running): metric-validation gate for the loss-aligned direction;
+   includes TIS frontier s={0.75,0.8,0.85}.
+2. E-W1 weighted SVD factors (diag(w)·M) if gate passes — main bet;
+   E-W2 weighted selection score — side bet (H2 precedent).
+3. E3 cheap-end sweep B_eff {512,256} with the winning factor form;
+   E4 per-layer allocation after.
 
 ## Latest
+- 2026-07-28: critique session — 3 critical findings recorded: (1) SLR trails
+  TIS at s=0.7 too (advantage confined to s=0.9; report+gist corrected);
+  (2) iso-compute TIS-vs-SLR never measured (frontier runs added to E-W0);
+  (3) remaining SLR-approx headroom is only 0.30 PPL vs 1.16 in the
+  mean-gate model itself -> loss-aligned direction prioritized.
+- 2026-07-28: `oracle-llama2-ew0-gradstats` SUBMITTED (050-20260729-062542,
+  a6000-2, tag exp/2026-07-28_oracle-llama2-ew0-gradstats) — grad
+  sensitivity w, metric validation vs 11 known-PPL variants, TIS frontier.
 - 2026-07-28: REPORT published — baseline→MGR→LR→SLR with plots and compute
   accounting: results/reports/mgr-slr-report-2026-07-28.html
   (claude.ai/code/artifact/48a40f99-6da8-4d34-ac09-729a506604f9)
@@ -61,16 +73,6 @@ journal/2026-07-27_pivot-c4-slr-compensation.md.
   @ s=0.9 vs anchor), gap to C3 halved. Mixed split beats pure sparse (E0
   fine-ordering did not transfer). Escalating to E2 B_eff=2048. Card:
   topics/oracle-residual-sparsity/journal/2026-07-27_experiment-oracle-llama2-e1-s2-ppl.md
-- 2026-07-27: `oracle-llama2-e0-slr-diag` DONE (17 min) — S1 refuted (hot
-  removal raises r90 1270→1470; all arms lose to lr_r1024 → Dead End); S2
-  passes (all arms beat lr_r1024, best s2_r0_k2048 mid-stack rel-err 0.198
-  vs 0.330, −40%; abs ≈ wnorm). User: S1 dead, E1 = S2-only 9 runs. Card:
-  topics/oracle-residual-sparsity/journal/2026-07-27_experiment-oracle-llama2-e0-slr-diag.md
-- 2026-07-25: `coact-llama2-p2-blocks` DONE (3.4 min) — PPMI clustering
-  passes the ≥1.3× strong null on within-block mass (13/15) and dyn top-m
-  coverage (15/15, 1.5–4.2×; L31 ~4×), but block-union tiling saturates
-  (naive touched-blocks sharing dead) and absolute top-m coverage is only
-  0.20–0.36 in mid layers. User: proceed to P3 with low expectations.
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.
