@@ -80,8 +80,11 @@ journal/2026-07-27_pivot-c4-slr-compensation.md.
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.
-- Immediate next action: user decision between r=2048 arm and output-side
-  weighting design (gist Next Experiments).
+- Immediate next action: E1 S2 PPL sweep is RUNNING
+  (050-20260728-155727, a6000-2) — on finish, record via labtool-result and
+  apply the pre-agreed gate (≤7.179 @ s=0.9 → B_eff=2048 + rho search;
+  miss → input-side family dead, quantized-M next). User pre-approved the
+  follow-through 2026-07-27.
 - Execution env: a6000-2 GPU0 (gateway A100s often occupied) — venv
   ~/workspace/venv-larosa (torch 2.6.0+cu124, transformers 4.46.3, sdpa, NO
   flash-attn), model /raid/LLM/llama2-7b, artifacts ~/workspace/oracle/
