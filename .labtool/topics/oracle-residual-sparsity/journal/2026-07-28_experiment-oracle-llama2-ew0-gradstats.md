@@ -1,6 +1,6 @@
 # Experiment: oracle-llama2-ew0-gradstats
 
-Status: PENDING
+Status: DONE (2026-07-28)
 Date: 2026-07-28
 
 ## Hypothesis tested
@@ -80,5 +80,62 @@ locates the TIS-vs-SLR crossover and starts the iso-compute frontier.
   MPS pitfall fixed by cpu-first accumulation).
 
 ### Results
+(artifacts: results/metric_check.json + c1_topk_s0.{75,8,85}.json on
+a6000-2, job 050-20260729-062542 완료 38 min, all git_commit ab6bcc2;
+dominance table derived from these + prior-card PPLs and the topic's MAC
+formulas)
+
+Metric validation — GATE FAILED:
+- Positive control PASSED: plain metric reproduces the known whitening
+  inversion (wht512 err 1.978 < plain512 2.247 despite worse PPL; same at
+  r1024) — the harness is sound, the negative is real.
+- Weighted metric did NOT fix either inversion (wht512>plain512 False,
+  wht1024>plain1024 False) and its Spearman vs PPL is IDENTICAL to plain
+  (+0.945 vs +0.945) — diagonal output weighting is order-preserving w.r.t.
+  plain L2 on these variants; whitening's error redistribution lives in
+  rotated (covariance-eigen) directions a per-channel diagonal cannot see.
+- w stability across corpora is fine (log-corr c4↔wt103 mean 0.810, min
+  0.648 @ L5) — the grad stats themselves are reusable if a full-covariance
+  (Fisher) variant is ever tried.
+
+TIS frontier fill-in (c1, achieved sparsity exact):
+| s | 0.7 | 0.75 | 0.8 | 0.85 | 0.9 |
+|---|-----|------|-----|------|-----|
+| PPL | 5.7284 | 5.8827 | 6.1546 | 6.7088 | 8.1096 |
+
+Iso-compute dominance check (per-token FFN MACs, both accountings):
+- oracle accounting (2hd + hK + comp): SLR-B1024@s0.9 = 103.1M / 6.9417 is
+  dominated by TIS@0.75 (101.4M / 5.8827), TIS@0.8, TIS@0.85; C3-exact and
+  SLR-B2048 (111.5M / 6.638, 6.634) dominated by TIS@0.75 and TIS@0.8.
+- predictor accounting (hd + 2hK + comp): SLR-B1024@s0.9 (62.5M / 6.9417)
+  dominated by TIS@0.85 (58.6M / 6.7088); C3-exact and SLR-B2048 (70.9M)
+  dominated by TIS@0.75 (67.6M / 5.8827) and TIS@0.8.
+- => EVERY compensated arm at s=0.9 — including the exact ceiling C3 — is
+  strictly dominated (cheaper AND better PPL exists) by plain TIS at a
+  lower sparsity, under BOTH accountings. Slope check: near s=0.9,
+  spending MACs on more neurons buys ~0.62 PPL/M-MAC vs ~0.14 for the SLR
+  compensation branch (~4.5x).
+- Unexplored refuge (not measured): the extreme corner — s ≥ 0.95 with
+  small comp budget (B_eff ≤ 512), where TIS's own curve blows up and the
+  hK headroom shrinks below comp cost; and the systems argument (dense
+  GEMM comp vs sparse gather neurons), outside oracle scope.
 
 ### Interpretation
+(user, 2026-07-28 — chose "라인 마무리 (steer)" over extreme-corner test
+and Fisher-metric retry)
+
+- The diagonal loss-aligned metric is a clean negative (Dead End); the
+  Fisher/full-covariance variant is left untried by choice.
+- The frontier dominance is accepted as the line's headline result:
+  mean-gate compensation at s=0.9 — including its exact ceiling C3 — does
+  not sit on the MAC-PPL frontier against plain TIS at lower sparsity,
+  under either accounting. E-W1/E-W2 are therefore moot and are not run.
+- The topic is wrapped (paused): the honest claim that survives is
+  fixed-sparsity, within-family — "IF the FFN core is pinned at s=0.9,
+  SLR compensation is the best known deployable form (6.94 vs 7.23 at
+  +6.2%)" — not a frontier win. Reopen criteria recorded in the wrap-up
+  card: (a) extreme-corner frontier (s ≥ 0.95, B_eff ≤ 512), (b) a
+  kernel-level dense-GEMM-vs-gather evaluation, (c) an application where
+  sparsity is externally pinned.
+- Report updated with a postscript carrying the frontier table and the
+  dominance statement (same artifact URL).

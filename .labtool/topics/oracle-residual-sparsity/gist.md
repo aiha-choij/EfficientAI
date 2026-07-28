@@ -1,7 +1,9 @@
 # oracle-residual-sparsity — Mean-gate residual decomposition + rank-r compensation (oracle)
 
 ## Status
-active
+paused (wrapped 2026-07-28 — frontier dominance accepted; see
+journal/2026-07-28_pivot-wrapup-compensation-line.md for the surviving
+claim and reopen criteria)
 
 ## Authoritative spec
 `spec.md` in this topic (preserved verbatim, 2026-07-22). This gist is the
@@ -69,6 +71,24 @@ No-go if C3 − C2 < 5%p.
   lesson) — PPL is the referee.
 
 ## Key Findings
+- **[MAIN] E-W0 frontier test (2026-07-28): the compensation line is
+  dominated at matched compute — line wrapped.** TIS fill-in: c1 PPL
+  5.8827 / 6.1546 / 6.7088 at s=0.75 / 0.8 / 0.85. Under BOTH accountings
+  (oracle 2hd+hK, predictor hd+2hK), every compensated arm at s=0.9 —
+  SLR-B1024 (6.9417), SLR-B2048 (6.6344), and the exact ceiling C3
+  (6.6381) — is strictly dominated by a cheaper-and-better TIS point
+  (TIS@0.85 = 6.7088 beats SLR-B1024; TIS@0.75 = 5.8827 beats C3). Near
+  s=0.9, MACs spent on more neurons buy ~0.62 PPL/M vs ~0.14 for the comp
+  branch (~4.5x). Also: the diagonal loss-aligned metric FAILED its gate —
+  identical Spearman to plain L2 (+0.945), cannot fix the whitening
+  inversion (per-channel diagonal cannot see covariance-rotated error);
+  positive control passed, so the negative is real.
+  When relevant: (a) the surviving claim is fixed-sparsity only ("if s is
+  pinned at 0.9, SLR is the best deployable form"); (b) NEVER present a
+  compensated arm as a frontier win without the TIS-at-lower-s comparison;
+  (c) reopen criteria: extreme corner (s>=0.95, B<=512), kernel-level
+  wall-clock, or an externally-pinned-sparsity application.
+  Journal: 2026-07-28_experiment-oracle-llama2-ew0-gradstats.md
 - **E2 B_eff=2048 round (2026-07-28): SLR saturates onto the exact rule;
   the budget axis is exhausted upward.** All three s2 arms reach C3 within
   −0.004…+0.029 PPL @ s=0.9 (best r256:k3584 = 6.6344 vs C3 6.6381 — a tie
@@ -177,6 +197,18 @@ No-go if C3 − C2 < 5%p.
   not implementation bugs.
 
 ## Dead Ends
+- 2026-07-28 — **Compensation as a frontier method (the line's premise)**:
+  at the measured grid every compensated arm at s=0.9, including exact C3,
+  is strictly dominated on the MAC-PPL frontier by plain TIS at lower s
+  (both accountings). The line survives only as a fixed-sparsity claim.
+  Wrapped by user decision; refuges (s>=0.95 corner, kernel wall-clock)
+  unmeasured. Journal: 2026-07-28_experiment-oracle-llama2-ew0-gradstats.md
+- 2026-07-28 — **Diagonal output-gradient metric weighting**: w =
+  sqrt(E[(dL/dy)^2]) per channel cannot fix the whitening inversion —
+  Spearman identical to plain L2 across 11 known-PPL variants; whitening's
+  error redistribution lives in covariance-rotated directions invisible to
+  a per-channel diagonal. Full-covariance (Fisher) variant untried by
+  choice. Journal: 2026-07-28_experiment-oracle-llama2-ew0-gradstats.md
 - 2026-07-27 — **S1 / slr_neuron (static hot-neuron sparse + low-rank
   split, LoSparse-style)**: tried trading rank for exact hot rank-1 terms
   of M (c_j = ḡ_j‖W_d[:,j]‖‖W_u[j,:]‖). Failed because the premise
@@ -217,32 +249,11 @@ No-go if C3 − C2 < 5%p.
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments (2026-07-28, post-critique: loss-aligned front first)
-0. **E-W0 — grad sensitivity + metric validation (RUNNING)**: w =
-   sqrt(E[(dL/dy)^2]) by calibration backprop; gate = weighted offline
-   metric fixes the whitening inversion across 11 known-PPL variants;
-   bundled TIS frontier c1 @ s={0.75,0.8,0.85} (critique Critical 1&2).
-   Pass -> E-W1 weighted SVD factors (diag(w)·M; main bet, ±1.0 PPL
-   sensitivity precedent) and E-W2 weighted selection score (side bet;
-   H2-rejection precedent tempers it). Card:
-   journal/2026-07-28_experiment-oracle-llama2-ew0-gradstats.md
-1. **E3 — cheap-end sweep, B_eff ∈ {512, 256}** (after E-W0/W1; run with
-   w-weighted factors if validated): s2
-   splits at rank share ~12.5-25% (the E1/E2 optimum region) plus the
-   lr_r512 / lr_r256 references, s ∈ {0.5, 0.7, 0.9}. Why: E2 showed the
-   +12.4% budget is saturated AND equals the cost of exact Mx, so the only
-   remaining deployable question is how far the SLR edge extends downward.
-   Success: an SLR arm at B_eff=512 (+3.1%) beats lr_r1024 (7.2294 @ s=0.9)
-   — i.e. half the compute for better quality than the previous best LR.
-   Failure: SLR degrades as fast as LR below 1024 → the method's value is
-   confined to a narrow budget band; report as such.
-2. **E4 — per-layer (r_l, k_l) allocation** at the best budget from E3.
-   PPL-validate (E1/E0 lesson: offline L2 picks candidates, not winners).
-3. **[deprioritized, kept] Quantized full-rank M (LQER/ASER template)** —
-   can compose with the winning s2 arm. Gate: s=0.9 within C3 + 0.1.
-4. **[deferred, unchanged] Loss-aligned A,B fitting (Low-Rank Correction
-   template)** — anti-whitening alpha-sweep as cheap probe.
-5. (later) generalize to LLaMA3-8B / other family once deployable form set.
+## Next Experiments
+(topic paused 2026-07-28 — none. Reopen criteria in the wrap-up card:
+extreme-corner frontier s∈{0.92,0.95,0.97} × comp{none,B256,B512};
+kernel-level dense-GEMM-vs-gather wall-clock; externally-pinned-sparsity
+application.)
 
 ## Active Jobs
 - `050-20260729-022242-oracle-llama2-e2-s2-b2048` (PENDING, a6000-2) — E2

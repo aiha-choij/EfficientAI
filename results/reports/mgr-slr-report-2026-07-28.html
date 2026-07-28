@@ -282,7 +282,10 @@
       sparsity and ruinous at high sparsity. This report develops a compensation term that
       restores what the dropped neurons contributed, and shows that approximating it as
       <em>sparse plus low-rank</em> — rather than low-rank alone — closes 79% of the quality
-      gap at the same arithmetic cost on LLaMA-2-7B.
+      gap at the same arithmetic cost on LLaMA-2-7B. A frontier control added in the
+      postscript bounds the claim: at matched <em>total</em> compute, simply running the
+      baseline at lower sparsity beats every compensated form measured here, so the method's
+      value is confined to settings where the sparsity level is externally pinned.
     </p>
     <div class="metastrip">
       <span><b>Model</b> LLaMA-2-7B (h=4096, d=11008)</span>
@@ -737,8 +740,8 @@ MGR-SLR   error = −Σ<sub>c ∉ S(x)</sub> R[:,c]·x_c      <span class="cmt">
         memory-capacity-bound deployments.</li>
       <li><strong>Narrow operating range at this budget.</strong> The approximated forms beat
         plain TIS only at s=0.9 on the measured grid; at s=0.5 and s=0.7 TIS is ahead. The
-        crossover has not been located, and no measurement yet compares MGR-SLR against simply
-        running TIS at a lower sparsity for the same total compute.</li>
+        iso-compute comparison against TIS at lower sparsity has since been measured — see the
+        postscript, which it did not survive.</li>
     </ul>
     <h3>Immediate next steps</h3>
     <ul>
@@ -749,12 +752,55 @@ MGR-SLR   error = −Σ<sub>c ∉ S(x)</sub> R[:,c]·x_c      <span class="cmt">
         rather than on an offline proxy.</li>
       <li>Confirm on a zero-shot task suite before making any accuracy claim.</li>
     </ul>
+  </section>
+
+  <!-- ============ POSTSCRIPT ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Postscript · added 2026-07-28</div>
+      <h2>The frontier test — and where the claim ends</h2>
+    </div>
+    <p>
+      Every comparison above holds the sparsity level <code>s</code> fixed and asks how to
+      spend a compensation budget. The deployment question is harsher: <em>at equal total
+      compute, does compensated high sparsity beat plain TIS at a lower sparsity?</em> A
+      control run filled in the missing TIS points:
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>TIS at s =</th><th>0.70</th><th>0.75</th><th>0.80</th><th>0.85</th><th>0.90</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>WikiText-2 perplexity</td><td>5.7284</td><td>5.8827</td><td>6.1546</td><td>6.7088</td><td>8.1096</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Counting total per-token FFN multiply–accumulates (core plus compensation, under either
+      the oracle accounting or a predictor-style accounting), <strong>every compensated
+      configuration at s=0.9 is strictly dominated by a TIS point that is both cheaper and
+      better</strong>: TIS at s=0.85 (6.709) beats MGR-SLR at budget 1024 (6.942); TIS at
+      s=0.75 (5.883) beats even the exact ceiling MGR-Exact (6.638). Near s=0.9, compute spent
+      on keeping more neurons buys roughly 4.5× more perplexity per MAC than compute spent on
+      the compensation branch.
+    </p>
+    <p>
+      The claim that survives is therefore <strong>conditional</strong>: <em>if</em> the FFN
+      core must run at s=0.9 — a memory-bandwidth or latency contract that pins the neuron
+      count — then MGR-SLR is the best known deployable compensation at +6.2% compute. As an
+      unconstrained compute-versus-quality trade, lowering the sparsity dominates, and this
+      line of work is closed on that grid. Unmeasured escape routes, recorded for a possible
+      reopening: the extreme corner (s ≥ 0.95 with small budgets, where the TIS curve itself
+      collapses), and wall-clock rather than MAC accounting (a dense low-rank GEMM may beat a
+      sparse gather of equal MACs on real hardware).
+    </p>
     <hr class="div">
     <p style="font-size:0.83rem;color:var(--muted);max-width:var(--measure)">
       Every number in this report is read from per-run result files produced by the evaluation
-      pipeline at commits <code>4efbb4e</code> (budget 1024) and <code>9b36cd4</code> (budget
-      2048), run on a single RTX A6000. Configurations are stored under the topic
-      <code>oracle-residual-sparsity</code>.
+      pipeline at commits <code>4efbb4e</code> (budget 1024), <code>9b36cd4</code> (budget
+      2048), and <code>ab6bcc2</code> (postscript frontier runs), on a single RTX A6000.
+      Configurations are stored under the topic <code>oracle-residual-sparsity</code>.
     </p>
   </section>
 
