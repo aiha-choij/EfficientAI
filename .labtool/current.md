@@ -19,7 +19,11 @@ E1 = S2-only 9 runs {r512:k1024, r256:k1536, r0:k2048} × s{0.5,0.7,0.9}.
 Input-L2 screening caveat stands — E1 PPL is the referee.
 
 ## Active Jobs
-- (none)
+- `050-20260728-155727-oracle-llama2-e1-s2-ppl` — oracle-residual-sparsity
+  E1 S2 PPL sweep (a6000-2 pinned, 1 GPU ≥30GiB, PENDING, est. 2.5-4 h).
+  User pre-approved follow-through: gate pass → B_eff=2048 + rho search;
+  gate miss → input-side family dead, fall back to quantized-M. Card:
+  topics/oracle-residual-sparsity/journal/2026-07-27_experiment-oracle-llama2-e1-s2-ppl.md
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -50,6 +54,10 @@ journal/2026-07-27_pivot-c4-slr-compensation.md.
    fitting (deferred, unchanged).
 
 ## Latest
+- 2026-07-27: `oracle-llama2-e1-s2-ppl` SUBMITTED (050-20260728-155727,
+  a6000-2) — 9 PPL runs: slr_input abs, arms {r512:k1024, r256:k1536,
+  r0:k2048} × s{0.5,0.7,0.9}. Gate: any arm ≤ 7.179 @ s=0.9 (lr_r1024
+  − 0.05) → B_eff=2048 + rho search; miss → input-side family dead.
 - 2026-07-27: `oracle-llama2-e0-slr-diag` DONE (17 min) — S1 refuted (hot
   removal raises r90 1270→1470; all arms lose to lr_r1024 → Dead End); S2
   passes (all arms beat lr_r1024, best s2_r0_k2048 mid-stack rel-err 0.198
@@ -69,11 +77,6 @@ journal/2026-07-27_pivot-c4-slr-compensation.md.
   at s=0.9: 6.0–6.3× @g=16, 9.1–9.4× @g=64 (92–95% of saturation 9.96×) in
   layers 0–24; layer 31 exception (3.9–6.6×). Naive union sharing dead at
   g=64; P2 clustering (strong null ≥1.3× vs random) decides the axis.
-- 2026-07-24: `rsparse-llama2-repro` DONE — R-Sparse ICLR25 Llama-2-7B
-  reproduced: full baseline exact (65.88), self-searched 50% recipe 64.59 vs
-  paper 64.06; PPL@4096 searched +0.045 vs dense 5.1164. LaRoSA head-to-head
-  needs matched protocol (seqlen + prefill caveats). Card:
-  topics/rsparse-repro/journal/2026-07-24_experiment-rsparse-llama2-repro.md
 ## If you're starting a new session
 - Focus topic: oracle-residual-sparsity. Read gist.md (Key Findings has the
   full C4-variant table); specs: spec.md + spec-c4-whitening.md.

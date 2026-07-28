@@ -208,7 +208,9 @@ No-go if C3 − C2 < 5%p.
 5. (later) generalize to LLaMA3-8B / other family once deployable form set.
 
 ## Active Jobs
-- (none)
+- `050-20260728-155727-oracle-llama2-e1-s2-ppl` (PENDING, a6000-2) — E1 S2
+  PPL sweep, 9 runs; card
+  journal/2026-07-27_experiment-oracle-llama2-e1-s2-ppl.md
 
 ## Pointers
 - Spec: `spec.md` (this topic). Pivot record:
