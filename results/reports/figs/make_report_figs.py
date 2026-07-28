@@ -15,7 +15,7 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
 plt.rcParams.update({
-    "font.family": "Apple SD Gothic Neo",
+    "font.family": "Helvetica Neue",
     "axes.unicode_minus": False,
     "figure.dpi": 170,
     "savefig.dpi": 170,
@@ -30,10 +30,9 @@ plt.rcParams.update({
     "axes.axisbelow": True,
 })
 
-OUT = "/Users/choijungwook/Workspace/EfficientAI/results/reports/figs"
-os.makedirs(OUT, exist_ok=True)
+OUT = os.path.dirname(os.path.abspath(__file__))
 LAYERS = [0, 8, 16, 24, 31]
-XL = [f"layer {l}" for l in LAYERS]
+XL = [f"Layer {l}" for l in LAYERS]
 
 
 def finish(fig, ax, path):
@@ -44,8 +43,8 @@ def finish(fig, ax, path):
     print("wrote", path)
 
 
-def dashed(color, label):
-    return Line2D([0], [0], color=color, ls="--", lw=1.4, label=label)
+def dashed(color, label, ls="--"):
+    return Line2D([0], [0], color=color, ls=ls, lw=1.4, label=label)
 
 
 # ---------------------------------------------------------------- Fig 1
@@ -60,23 +59,24 @@ def fig1():
     handles = []
     for k, g in enumerate([16, 32, 64]):
         pos = [i + (k - 1) * w for i in x]
-        b = ax.bar(pos, data[g], w * 0.92, label=f"g={g} 토큰", color=colors[g])
+        b = ax.bar(pos, data[g], w * 0.92, label=f"group size g = {g} tokens",
+                   color=colors[g])
         ax.bar_label(b, fmt="%.2f", fontsize=8, padding=2)
         handles.append(b)
     ax.axhline(9.96, color="#A32D2D", ls="--", lw=1.4)
     ax.axhline(1.0, color="#3B6D11", ls="--", lw=1.4)
     ax.set_xticks(list(x), XL)
     ax.set_ylim(0, 14.6)
-    ax.set_ylabel("union tax  =  E[ |∪ S_t| ] / K_eff     (배)")
-    ax.set_xlabel("층 (layer index) — 0은 입력에 가까운 층, 31은 마지막 층")
-    ax.set_title("그림 1. Union tax — 토큰 그룹이 mask를 공유할 때의 예산 팽창 (LLaMA2-7B, s=0.9)",
+    ax.set_ylabel("Union inflation  U(g)  =  E[ neurons used by a group ] / K_eff")
+    ax.set_xlabel("Transformer layer (0 = closest to input, 31 = last layer)")
+    ax.set_title("Figure 1.  Union inflation of group-shared masks (LLaMA-2-7B, s = 0.9)",
                  fontsize=11.5, loc="left", pad=12)
     leg = list(handles) + [
-        dashed("#A32D2D", "포화 상한 9.96× = d/K_eff (합집합이 전체 뉴런을 덮음 → dense와 동일)"),
-        dashed("#3B6D11", "하한 1.0× (모든 토큰이 같은 뉴런 선택 → 공유가 공짜)")]
+        dashed("#A32D2D", "saturation bound d / K_eff = 9.96 (union covers all neurons, i.e. equivalent to dense)"),
+        dashed("#3B6D11", "lower bound 1.0 (all tokens select identical neurons, i.e. sharing is free)")]
     ax.legend(handles=leg, frameon=False, ncol=2, fontsize=8.5,
               loc="upper left", handlelength=1.6, columnspacing=1.4)
-    finish(fig, ax, f"{OUT}/fig1_union_tax.png")
+    finish(fig, ax, f"{OUT}/fig1_union_inflation.png")
 
 
 # ---------------------------------------------------------------- Fig 2
@@ -87,16 +87,17 @@ def fig2():
     x = range(len(LAYERS))
     w = 0.36
     b1 = ax.bar([i - w / 2 for i in x], clus, w * 0.92,
-                label="PPMI 클러스터 블록", color="#2a78d6")
+                label="PPMI-clustered blocks", color="#2a78d6")
     b2 = ax.bar([i + w / 2 for i in x], rand, w * 0.92,
-                label="무작위 균형 블록 (통제군)", color="#888780")
+                label="random balanced blocks (control)", color="#888780")
     ax.bar_label(b1, fmt="%.3f", fontsize=8.5, padding=2)
     ax.bar_label(b2, fmt="%.3f", fontsize=8.5, padding=2)
-    ax.set_xticks(list(x), [f"{n}\n({c / r:.2f}×)" for n, c, r in zip(XL, clus, rand)])
+    ax.set_xticks(list(x),
+                  [f"{n}\n({c / r:.2f}×)" for n, c, r in zip(XL, clus, rand)])
     ax.set_ylim(0, 0.80)
-    ax.set_ylabel("coverage  =  상위 m개 블록에 든 선택 뉴런 수 / K_t     (0 – 1)")
-    ax.set_xlabel("층        (괄호 안 = 클러스터 ÷ 무작위 배율)")
-    ax.set_title("그림 2. P2 — 예산 안의 블록이 토큰의 실제 선택을 얼마나 덮는가 (B=64, s=0.9)",
+    ax.set_ylabel("Coverage  =  (selected neurons inside top-m blocks) / K_t")
+    ax.set_xlabel("Transformer layer   (parenthesis: clustered ÷ random ratio)")
+    ax.set_title("Figure 2.  P2 — per-token coverage of the within-budget blocks (B = 64, s = 0.9)",
                  fontsize=11.5, loc="left", pad=12)
     ax.legend(frameon=False, ncol=2, fontsize=9, loc="upper left")
     finish(fig, ax, f"{OUT}/fig2_p2_coverage.png")
@@ -114,21 +115,21 @@ def fig3():
     handles = []
     for k, B in enumerate([64, 128, 256]):
         pos = [i + (k - 1) * w for i in x]
-        b = ax.bar(pos, ratios[B], w * 0.92, label=f"B={B}", color=colors[B])
+        b = ax.bar(pos, ratios[B], w * 0.92, label=f"block size B = {B}",
+                   color=colors[B])
         ax.bar_label(b, fmt="%.2f", fontsize=8, padding=2)
         handles.append(b)
     ax.axhline(1.3, color="#A32D2D", ls="--", lw=1.4)
     ax.axhline(1.0, color="#6b6a66", ls=":", lw=1.2)
     ax.set_xticks(list(x), XL)
     ax.set_ylim(0, 6.6)
-    ax.set_ylabel("배율  =  클러스터 블록의 within-block mass ÷ 무작위 블록의 값")
-    ax.set_xlabel("층")
-    ax.set_title("그림 3. P2 — 블록 내부에 모인 동시활성 질량 (무작위 대비 배율)",
+    ax.set_ylabel("Within-block mass, clustered ÷ random  (ratio)")
+    ax.set_xlabel("Transformer layer")
+    ax.set_title("Figure 3.  P2 — co-activation mass captured inside blocks, relative to random partitions",
                  fontsize=11.5, loc="left", pad=12)
     leg = list(handles) + [
-        dashed("#A32D2D", "사전 등록 문턱 1.3× (미달이면 치환 축 즉시 기각)"),
-        Line2D([0], [0], color="#6b6a66", ls=":", lw=1.2,
-               label="1.0× = 무작위와 동일 (구조 없음)")]
+        dashed("#A32D2D", "pre-registered rejection threshold 1.3×"),
+        dashed("#6b6a66", "1.0× = identical to random (no structure)", ls=":")]
     ax.legend(handles=leg, frameon=False, ncol=3, fontsize=8.5,
               loc="upper left", handlelength=1.6, columnspacing=1.4)
     finish(fig, ax, f"{OUT}/fig3_p2_mass_ratio.png")
@@ -143,9 +144,9 @@ def fig4():
     x = range(len(labels))
     w = 0.36
     b1 = ax.bar([i - w / 2 for i in x], clus, w * 0.92,
-                label="PPMI 클러스터 블록", color="#2a78d6")
+                label="PPMI-clustered blocks", color="#2a78d6")
     b2 = ax.bar([i + w / 2 for i in x], rand, w * 0.92,
-                label="무작위 블록 (통제군)", color="#888780")
+                label="random blocks (control)", color="#888780")
     ax.bar_label(b1, fontsize=8.5, padding=2, labels=[f"{v:,.0f}" for v in clus])
     ax.bar_label(b2, fontsize=8.5, padding=2, labels=[f"{v:,.0f}" for v in rand])
     ax.set_yscale("log")
@@ -154,13 +155,13 @@ def fig4():
     ax.axhline(8.1096, color="#BA7517", ls="--", lw=1.4)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
     ax.set_xticks(list(x), labels)
-    ax.set_ylabel("wikitext-2 PPL   (낮을수록 좋음, 로그 스케일)")
-    ax.set_xlabel("설정 — 블록 크기 B × 그룹 크기 g")
-    ax.set_title("그림 4. P3 — 블록 mask oracle PPL (s=0.9, 32개 층 전부 적용)",
+    ax.set_ylabel("WikiText-2 perplexity  (lower is better, log scale)")
+    ax.set_xlabel("Configuration — block size B × group size g")
+    ax.set_title("Figure 4.  P3 — oracle perplexity of group-shared block masks (s = 0.9, all 32 layers)",
                  fontsize=11.5, loc="left", pad=12)
     leg = [b1, b2,
-           dashed("#3B6D11", "dense 5.4738"),
-           dashed("#BA7517", "per-token top-K 앵커 8.1096 (같은 예산, 토큰별 자유 선택)")]
+           dashed("#3B6D11", "dense baseline 5.4738"),
+           dashed("#BA7517", "per-token Top-K anchor 8.1096 (same budget, free per-token selection)")]
     ax.legend(handles=leg, frameon=False, ncol=2, fontsize=8.5,
               loc="upper left", handlelength=1.6, columnspacing=1.4)
     finish(fig, ax, f"{OUT}/fig4_p3_ppl.png")

@@ -1,0 +1,1011 @@
+<title>Sparse Low-Rank Compensation for FFN Activation Sparsity</title>
+
+<style>
+  :root {
+    color-scheme: light;
+    --paper:      #f6f7f9;
+    --surface:    #ffffff;
+    --ink:        #12151a;
+    --ink-2:      #4a5260;
+    --muted:      #6b7280;
+    --hair:       #e2e5ea;
+    --hair-soft:  #eef0f4;
+
+    --s-slr:      #2a78d6;
+    --s-lr:       #eb6834;
+    --s-exact:    #1baf7a;
+    --s-base:     #6b7280;
+    --ramp-lo:    #5598e7;
+    --ramp-hi:    #184f95;
+
+    --accent-wash: rgba(42,120,214,0.08);
+
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --measure: 66ch;
+    --wide: 1080px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --paper:     #0e1013;
+      --surface:   #16191e;
+      --ink:       #f2f4f7;
+      --ink-2:     #aab2bf;
+      --muted:     #8f97a5;
+      --hair:      #242830;
+      --hair-soft: #1c2027;
+      --s-slr:     #3987e5;
+      --s-lr:      #d95926;
+      --s-exact:   #199e70;
+      --s-base:    #8f97a5;
+      --ramp-lo:   #9ec5f4;
+      --ramp-hi:   #3987e5;
+      --accent-wash: rgba(57,135,229,0.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper:     #0e1013;
+    --surface:   #16191e;
+    --ink:       #f2f4f7;
+    --ink-2:     #aab2bf;
+    --muted:     #8f97a5;
+    --hair:      #242830;
+    --hair-soft: #1c2027;
+    --s-slr:     #3987e5;
+    --s-lr:      #d95926;
+    --s-exact:   #199e70;
+    --s-base:    #8f97a5;
+    --ramp-lo:   #9ec5f4;
+    --ramp-hi:   #3987e5;
+    --accent-wash: rgba(57,135,229,0.12);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 72px) clamp(18px, 4vw, 40px) 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 44px;
+  }
+  .col { max-width: var(--measure); display: flex; flex-direction: column; gap: 16px; }
+
+  /* ---------- header ---------- */
+  header.masthead { display: flex; flex-direction: column; gap: 18px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(2rem, 4.4vw, 2.9rem);
+    line-height: 1.12;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    max-width: 20ch;
+  }
+  .standfirst {
+    font-family: var(--serif);
+    font-size: 1.16rem;
+    line-height: 1.6;
+    color: var(--ink-2);
+    max-width: 62ch;
+  }
+  .metastrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 28px;
+    padding: 14px 0;
+    border-top: 1px solid var(--hair);
+    border-bottom: 1px solid var(--hair);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .metastrip b { color: var(--ink-2); font-weight: 500; }
+
+  /* ---------- sections ---------- */
+  section { display: flex; flex-direction: column; gap: 18px; }
+  .sechead { display: flex; flex-direction: column; gap: 6px; max-width: var(--measure); }
+  .secnum {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.13em;
+    color: var(--s-slr);
+    text-transform: uppercase;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-size: clamp(1.45rem, 2.6vw, 1.85rem);
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 1.02rem;
+    font-weight: 650;
+    letter-spacing: -0.005em;
+    margin-top: 6px;
+  }
+  p { max-width: var(--measure); }
+  ul { max-width: var(--measure); padding-left: 1.15em; display: flex; flex-direction: column; gap: 8px; }
+  li::marker { color: var(--muted); }
+  code, .v {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--hair-soft);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  strong { font-weight: 650; }
+  a { color: var(--s-slr); }
+
+  /* ---------- equation block ---------- */
+  .eq {
+    font-family: var(--mono);
+    font-size: 0.92rem;
+    line-height: 2.1;
+    background: var(--surface);
+    border: 1px solid var(--hair);
+    border-left: 3px solid var(--s-slr);
+    border-radius: 4px;
+    padding: 16px 20px;
+    max-width: var(--measure);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .eq .cmt { color: var(--muted); }
+  .eq .hl { color: var(--s-slr); }
+
+  /* ---------- callout ---------- */
+  .note {
+    background: var(--accent-wash);
+    border-radius: 4px;
+    padding: 16px 20px;
+    max-width: var(--measure);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .note .label {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--s-slr);
+  }
+  .note p { margin: 0; font-size: 0.95rem; }
+
+  /* ---------- figures ---------- */
+  figure {
+    background: var(--surface);
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    padding: 22px 22px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+  }
+  .figtitle { font-size: 0.98rem; font-weight: 650; letter-spacing: -0.005em; }
+  .figsub { font-size: 0.86rem; color: var(--ink-2); max-width: 78ch; }
+  figcaption { font-size: 0.83rem; color: var(--muted); max-width: 82ch; border-top: 1px solid var(--hair-soft); padding-top: 10px; }
+  .chartwrap { position: relative; width: 100%; overflow-x: auto; }
+  svg.chart { display: block; width: 100%; height: auto; min-width: 520px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 0.84rem; }
+  .legend .item { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); }
+  .legend .swatch { width: 15px; height: 3px; border-radius: 2px; flex: none; }
+  .legend .swatch.dash { background: none; border-top: 2px dashed currentColor; height: 0; }
+
+  .tip {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, -140%);
+    background: var(--ink);
+    color: var(--surface);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    padding: 7px 10px;
+    border-radius: 4px;
+    white-space: pre;
+    z-index: 5;
+    transition: opacity .12s ease;
+  }
+  @media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--hair); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; min-width: 640px; }
+  th, td { padding: 9px 14px; text-align: right; border-bottom: 1px solid var(--hair-soft); }
+  th:first-child, td:first-child { text-align: left; }
+  thead th {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    border-bottom: 1px solid var(--hair);
+    white-space: nowrap;
+  }
+  tbody td { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 0.84rem; }
+  tbody td:first-child { font-family: var(--sans); font-size: 0.87rem; }
+  tbody tr:last-child td { border-bottom: none; }
+  tr.rule-group td { border-top: 1px solid var(--hair); }
+  tr.best td { background: var(--accent-wash); }
+  tr.best td:first-child { font-weight: 650; }
+  .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--hair);
+    color: var(--muted);
+    margin-left: 8px;
+    white-space: nowrap;
+  }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: baseline; flex: none; }
+
+  hr.div { border: none; border-top: 1px solid var(--hair); margin: 4px 0; }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">EfficientAI · oracle-residual-sparsity · 2026-07-28</div>
+    <h1>Sparse Low-Rank Compensation for FFN Activation Sparsity</h1>
+    <p class="standfirst">
+      Zeroing most of a feed-forward layer's intermediate neurons is nearly free at moderate
+      sparsity and ruinous at high sparsity. This report develops a compensation term that
+      restores what the dropped neurons contributed, and shows that approximating it as
+      <em>sparse plus low-rank</em> — rather than low-rank alone — closes 79% of the quality
+      gap at the same arithmetic cost on LLaMA-2-7B.
+    </p>
+    <div class="metastrip">
+      <span><b>Model</b> LLaMA-2-7B (h=4096, d=11008)</span>
+      <span><b>Metric</b> WikiText-2 perplexity, seqlen 2048</span>
+      <span><b>Setting</b> oracle masks, no retraining</span>
+      <span><b>Hardware</b> 1× RTX A6000</span>
+    </div>
+  </header>
+
+  <!-- ============ NOTATION ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Notation</div>
+      <h2>The layer we are modifying</h2>
+    </div>
+    <p>
+      Every method below changes one thing only: how a gated feed-forward layer combines its
+      intermediate activations. Attention and all linear projections stay dense.
+    </p>
+    <div class="eq">
+FFN(x) = W_d · i ,   i = u ⊙ g ,   u = W_u x ,   g = σ(W_g x)
+<span class="cmt">
+x ∈ ℝ^h   hidden state entering the FFN          (h = 4096)
+i ∈ ℝ^d   intermediate activation, one per neuron (d = 11008)
+σ         the model's own activation (SiLU here)
+⊙         elementwise product</span></div>
+    <p>
+      Neuron <code>j</code> contributes <code>W_d[:,j] · i_j</code> to the output. Activation
+      sparsity means: compute only a subset of these <code>d</code> contributions per token.
+    </p>
+  </section>
+
+  <!-- ============ 1. TIS ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Method 1 · baseline</div>
+      <h2>TIS — Top-K Intermediate Sparsity</h2>
+    </div>
+    <p>
+      The standard baseline (the LaRoSA-style setup we reproduced earlier). For each token and
+      each layer independently, score every neuron by the magnitude of its intermediate
+      activation, keep the <code>K</code> largest, and drop the rest to zero.
+    </p>
+    <div class="eq">
+score_j = |i_j| ,   m = top-K mask ,   K = ⌊(1 − s)·d⌋
+<span class="hl">y = W_d · (m ⊙ i)</span>
+<span class="cmt">
+s   target sparsity — the fraction of neurons zeroed
+m   binary mask, recomputed per token, per layer</span></div>
+    <p>
+      <strong>What it gets right.</strong> The selection is per-token and exact, so at moderate
+      sparsity the kept neurons carry almost all of the signal: at <code>s=0.5</code> perplexity
+      rises only from 5.474 to 5.522.
+    </p>
+    <p>
+      <strong>Where it breaks.</strong> Dropping a neuron sets its contribution to zero, but the
+      true value is not zero — it is merely small. Those errors accumulate across 11008 neurons
+      and 32 layers. At <code>s=0.9</code> perplexity jumps to 8.110, a degradation of +2.64.
+      Everything that follows is an attempt to pay back that accumulated bias cheaply.
+    </p>
+  </section>
+
+  <!-- ============ 2. MGR ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Method 2 · the framework</div>
+      <h2>MGR — Mean-Gated Residual sparsity</h2>
+    </div>
+    <p>
+      Instead of replacing a dropped neuron with zero, replace it with its <em>expected</em>
+      value. Split the gate into a calibration mean plus a per-token deviation:
+    </p>
+    <div class="eq">
+g_j = ḡ_j + (g_j − ḡ_j)     <span class="cmt">ḡ_j = E[g_j] over a calibration corpus</span>
+i_j = u_j·ḡ_j  +  u_j·(g_j − ḡ_j)
+      └── predictable ──┘   └──── residual r_j ────┘</div>
+    <p>
+      The residual <code>r_j = u_j(g_j − ḡ_j)</code> is what genuinely varies per token, and it
+      is measurably more concentrated than <code>i_j</code> — so we select on it. The predictable
+      part is kept for <em>every</em> neuron, including dropped ones. Writing that out:
+    </p>
+    <div class="eq">
+y = W_d(m ⊙ i)  +  W_d((1−m) ⊙ (ḡ ⊙ u))
+  = W_d(m ⊙ i)  +  <span class="hl">M x</span>  −  W_d(m ⊙ (ḡ ⊙ u))
+<span class="cmt">
+where   M = W_d · diag(ḡ) · W_u   ∈ ℝ^(4096 × 4096)</span></div>
+    <p>
+      This is the key structural fact of the whole report. The mean-gate correction for
+      <em>all</em> dropped neurons collapses into a <strong>single fixed matrix–vector product
+      <code>Mx</code></strong>, independent of the mask, precomputable offline. The third term
+      is a cheap subtraction over kept neurons only.
+    </p>
+    <p>
+      <strong>Result.</strong> Computing <code>Mx</code> exactly — call it
+      <strong>MGR-Exact</strong> — cuts the baseline's degradation at <code>s=0.9</code> from
+      +2.64 to +1.16, an improvement of 8.110 → 6.638 perplexity. That is the ceiling every
+      approximation below is chasing.
+    </p>
+    <div class="note">
+      <div class="label">Why an approximation is needed at all</div>
+      <p>
+        <code>Mx</code> costs <code>h²</code> = 16.8 M multiply–accumulates per token per layer,
+        or 12.4% of the dense FFN. That is real money at inference time, so the deployable
+        question is: how well can we approximate <code>Mx</code> for a fraction of that?
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ 3. MGR-LR ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Method 3 · approximation A</div>
+      <h2>MGR-LR — Low-Rank compensation</h2>
+    </div>
+    <p>
+      The textbook move: factor <code>M</code> by truncated SVD and keep the top
+      <code>r</code> singular directions.
+    </p>
+    <div class="eq">
+M ≈ B A ,   A ∈ ℝ^(r×h) ,   B ∈ ℝ^(h×r)     <span class="cmt">rank-r SVD of M</span>
+<span class="hl">comp(x) = B(A x)</span>                          <span class="cmt">cost 2hr MACs/token</span></div>
+    <p>
+      Cost scales linearly in <code>r</code>: <code>r=1024</code> costs 6.2% of the dense FFN,
+      half of exact. The factors are shared by every token — one fixed subspace for the whole
+      corpus.
+    </p>
+    <p>
+      <strong>Where it struggles.</strong> <code>M</code> is not strongly low-rank in the middle
+      of the network. It takes rank ≈ 1270 on average (up to 1500 in layers 4–17) to capture 90%
+      of its Frobenius energy, so a rank-512 truncation discards almost half the matrix. The
+      error is the same for every token:
+    </p>
+    <div class="eq">
+error(x) = (BA − M)x = −R x = −Σ<sub>c=1..h</sub> R[:,c]·x_c
+<span class="cmt">R = M − BA, the discarded residual — every channel contributes</span></div>
+    <p>
+      Empirically <code>r=512</code> is <em>worse than doing nothing</em> (8.764 vs the
+      baseline's 8.110 at <code>s=0.9</code>) — the approximation error exceeds the signal it
+      was meant to restore. <code>r=1024</code> finally helps (7.229), and <code>r=2048</code>
+      nearly reaches exact (6.710) but by then costs exactly as much as <code>Mx</code> itself.
+    </p>
+  </section>
+
+  <!-- ============ 4. MGR-SLR ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Method 4 · approximation B</div>
+      <h2>MGR-SLR — Sparse Low-Rank compensation</h2>
+    </div>
+    <p>
+      Keep the low-rank term, then spend the remaining budget differently: instead of buying
+      more singular directions, apply the <em>exact</em> residual <code>R</code> to the input
+      channels that matter most <strong>for this particular token</strong>. This grafts the
+      R-Sparse (ICLR 2025) sparse/low-rank split onto the compensation branch.
+    </p>
+    <div class="eq">
+R = M − BA                                <span class="cmt">residual, computed offline</span>
+S(x) = indices of the k largest |x_c|     <span class="cmt">chosen per token</span>
+<span class="hl">comp(x) = B(A x) + R · (m_x ⊙ x)</span>          <span class="cmt">cost 2hr + kh MACs/token</span></div>
+    <p>
+      The consequence for the error is exact and easy to state: selected channels are
+      <em>perfectly</em> compensated, and only the unselected ones contribute error.
+    </p>
+    <div class="eq">
+MGR-LR    error = −Σ<sub>all c</sub> R[:,c]·x_c
+MGR-SLR   error = −Σ<sub>c ∉ S(x)</sub> R[:,c]·x_c      <span class="cmt">largest-|x| terms removed</span></div>
+    <h3>Comparing budgets fairly</h3>
+    <p>
+      The two knobs cost different amounts, so we convert both to an
+      <strong>equivalent-rank budget</strong> <code>B_eff</code>: one unit of rank costs
+      <code>2h</code> MACs, one kept channel costs <code>h</code>, hence
+    </p>
+    <div class="eq">B_eff = r + k/2      <span class="cmt">e.g. (r=256, k=1536) ≡ (r=1024) ≡ 6.2% of dense FFN</span></div>
+    <p>
+      Every configuration compared below sits at exactly one of two budgets,
+      <code>B_eff = 1024</code> (+6.2% compute) or <code>B_eff = 2048</code> (+12.4%), so
+      differences in perplexity are differences in <em>how</em> the budget was spent, never how
+      much.
+    </p>
+    <div class="note">
+      <div class="label">Why a mixture wins — the mechanism</div>
+      <p>
+        The two terms fail in complementary ways. Pure low-rank spreads a thin error across all
+        4096 channels. Pure sparse handles its <code>k</code> chosen channels perfectly but
+        leaves the remaining channels facing the <em>full, undamped</em> matrix — and those are
+        exactly the small-magnitude channels that an earlier whitening study found to carry
+        loss-relevant signal. A mixed split lets the low-rank term damp everything globally
+        first, then spends the rest zeroing out the largest per-token spikes.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ EXPERIMENTAL SETUP ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Setup</div>
+      <h2>How the experiments were run</h2>
+    </div>
+    <h3>The sparsity grid: s = 0.5, 0.7, 0.9</h3>
+    <p>
+      <code>s</code> is the fraction of intermediate neurons zeroed per token, per layer, held
+      <em>exactly</em> by a top-K rule with <code>K = ⌊(1−s)·d⌋</code>. Measured sparsity came
+      out at 0.500 / 0.700 / 0.900 in every run, so all methods are compared at identical
+      per-token compute in the FFN core; the only difference between them is the compensation
+      branch. The three levels probe three regimes:
+    </p>
+    <ul>
+      <li><strong>s = 0.5</strong> — the easy regime. The baseline is already within 0.05
+        perplexity of dense, leaving almost nothing for compensation to win.</li>
+      <li><strong>s = 0.7</strong> — the transition. Degradation becomes visible (+0.25) but
+        still moderate.</li>
+      <li><strong>s = 0.9</strong> — the hard regime, and the decision point. The baseline
+        degrades by +2.64 and the methods separate sharply.</li>
+    </ul>
+    <h3>Protocol</h3>
+    <ul>
+      <li><strong>Model &amp; data.</strong> LLaMA-2-7B in bfloat16; WikiText-2 test perplexity
+        at sequence length 2048, using the identical evaluation pipeline as our earlier
+        reproduction work so numbers are directly comparable.</li>
+      <li><strong>Calibration.</strong> <code>ḡ</code> and the factors are estimated once,
+        offline, from a C4 calibration set. No retraining, no fine-tuning of any weight.</li>
+      <li><strong>Oracle masks.</strong> Masks are derived from the true activations of the
+        current token (compute-then-mask). No predictor and no fused kernel is involved — this
+        isolates the algorithmic question from the systems question, and applies identically to
+        all four methods.</li>
+      <li><strong>Noise floor.</strong> Re-running the same configuration across GPUs and
+        attention backends moves perplexity by ≈0.001, so differences above ≈0.01 are signal.</li>
+    </ul>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Results</div>
+      <h2>What the measurements show</h2>
+    </div>
+
+    <figure>
+      <div class="figtitle">Figure 1 · Perplexity across the sparsity grid</div>
+      <div class="figsub">
+        All compensated methods at the same budget (<span class="v">B_eff = 1024</span>, +6.2%
+        compute). Lower is better.
+      </div>
+      <div class="legend" id="leg1"></div>
+      <div class="chartwrap"><svg class="chart" id="c1" viewBox="0 0 760 420" role="img"
+        aria-label="Line chart of WikiText-2 perplexity versus sparsity for four methods"></svg>
+        <div class="tip" id="t1"></div></div>
+      <figcaption>
+        <strong>x-axis:</strong> intermediate sparsity <span class="v">s</span> — the fraction of
+        FFN neurons zeroed per token (50%, 70%, 90%).
+        <strong>y-axis:</strong> WikiText-2 perplexity, lower is better; the dashed rule marks
+        the unmodified dense model at 5.474. The methods are indistinguishable at s=0.5 and fan
+        out at s=0.9, which is why the rest of the analysis focuses there.
+      </figcaption>
+    </figure>
+
+    <p>
+      Two readings stand out. First, <strong>compensation only earns its keep at high
+      sparsity</strong>: at <code>s=0.5</code> the cheap approximations are actually worse than
+      plain TIS, because the error they introduce exceeds the bias they remove. Second, at
+      <code>s=0.9</code> MGR-SLR sits closer to the exact ceiling than MGR-LR does, at
+      identical cost.
+    </p>
+
+    <figure>
+      <div class="figtitle">Figure 2 · Compute spent versus quality bought, at s = 0.9</div>
+      <div class="figsub">
+        The deployment question: for a given compensation budget, which method delivers the
+        lowest perplexity?
+      </div>
+      <div class="legend" id="leg2"></div>
+      <div class="chartwrap"><svg class="chart" id="c2" viewBox="0 0 760 430" role="img"
+        aria-label="Scatter chart of perplexity at 90 percent sparsity versus compensation compute overhead"></svg>
+        <div class="tip" id="t2"></div></div>
+      <figcaption>
+        <strong>x-axis:</strong> compensation overhead as a percentage of the dense FFN's
+        multiply–accumulates per token (the FFN core cost is identical across all points).
+        <strong>y-axis:</strong> WikiText-2 perplexity at s=0.9, lower is better. The blue
+        (sparse low-rank) curve lies below the orange (low-rank) curve at every budget. The
+        vertical marker at 12.4% is where an approximation costs exactly as much as computing
+        <span class="v">Mx</span> exactly — past it, approximating is pointless.
+      </figcaption>
+    </figure>
+
+    <figure>
+      <div class="figtitle">Figure 3 · How to split a fixed budget between rank and channels</div>
+      <div class="figsub">
+        Same total cost along each curve; only the allocation changes.
+      </div>
+      <div class="legend" id="leg3"></div>
+      <div class="chartwrap"><svg class="chart" id="c3" viewBox="0 0 760 420" role="img"
+        aria-label="Line chart of perplexity versus the share of budget allocated to rank"></svg>
+        <div class="tip" id="t3"></div></div>
+      <figcaption>
+        <strong>x-axis:</strong> share of the compensation budget spent on the low-rank term —
+        0% is pure sparse (rank 0), 100% is pure low-rank and is exactly MGR-LR.
+        <strong>y-axis:</strong> WikiText-2 perplexity at s=0.9, lower is better. At the
+        deployable budget (1024) the optimum is an interior mixture near 25% rank, beating both
+        extremes; at 2048 every allocation has converged onto the exact-compensation rule.
+      </figcaption>
+    </figure>
+
+    <h3>Full results</h3>
+    <p>
+      The rightmost column expresses each configuration as the fraction of the available
+      headroom it recovered: 0% is the TIS baseline, 100% is exact compensation. Negative means
+      the method made things worse than not compensating at all.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Configuration</th><th>B_eff</th><th>Overhead</th>
+            <th>s = 0.5</th><th>s = 0.7</th><th>s = 0.9</th><th>Gap closed @ s=0.9</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="dot" style="background:var(--ink-2)"></span>Dense (no sparsity)</td><td>—</td><td>—</td><td>5.4738</td><td>5.4738</td><td>5.4738</td><td>—</td></tr>
+          <tr class="rule-group"><td><span class="dot" style="background:var(--s-base)"></span>TIS baseline</td><td>0</td><td>0%</td><td>5.5216</td><td>5.7284</td><td>8.1096</td><td>0%</td></tr>
+          <tr class="rule-group"><td><span class="dot" style="background:var(--s-lr)"></span>MGR-LR, r = 512</td><td>512</td><td>3.1%</td><td>6.2537</td><td>6.5563</td><td>8.7638</td><td>−44%</td></tr>
+          <tr><td><span class="dot" style="background:var(--s-lr)"></span>MGR-LR, r = 1024</td><td>1024</td><td>6.2%</td><td>5.7365</td><td>5.9152</td><td>7.2294</td><td>60%</td></tr>
+          <tr><td><span class="dot" style="background:var(--s-lr)"></span>MGR-LR, r = 2048</td><td>2048</td><td>12.4%</td><td>5.5329</td><td>5.6652</td><td>6.7098</td><td>95%</td></tr>
+          <tr class="rule-group"><td><span class="dot" style="background:var(--s-slr)"></span>MGR-SLR (r=512, k=1024)</td><td>1024</td><td>6.2%</td><td>5.6200</td><td>5.7844</td><td>6.9962</td><td>76%</td></tr>
+          <tr class="best"><td><span class="dot" style="background:var(--s-slr)"></span>MGR-SLR (r=256, k=1536)<span class="tag">best @ 6.2%</span></td><td>1024</td><td>6.2%</td><td>5.5961</td><td>5.7526</td><td>6.9417</td><td>79%</td></tr>
+          <tr><td><span class="dot" style="background:var(--s-slr)"></span>MGR-SLR (r=0, k=2048)</td><td>1024</td><td>6.2%</td><td>5.6261</td><td>5.7805</td><td>6.9526</td><td>79%</td></tr>
+          <tr class="rule-group"><td><span class="dot" style="background:var(--s-slr)"></span>MGR-SLR (r=1024, k=2048)</td><td>2048</td><td>12.4%</td><td>5.5140</td><td>5.6420</td><td>6.6674</td><td>98%</td></tr>
+          <tr><td><span class="dot" style="background:var(--s-slr)"></span>MGR-SLR (r=512, k=3072)</td><td>2048</td><td>12.4%</td><td>5.5074</td><td>5.6336</td><td>6.6421</td><td>100%</td></tr>
+          <tr><td><span class="dot" style="background:var(--s-slr)"></span>MGR-SLR (r=256, k=3584)</td><td>2048</td><td>12.4%</td><td>5.5049</td><td>5.6298</td><td>6.6344</td><td>100%</td></tr>
+          <tr class="rule-group"><td><span class="dot" style="background:var(--s-exact)"></span>MGR-Exact (ceiling)</td><td>2048</td><td>12.4%</td><td>5.5051</td><td>5.6283</td><td>6.6381</td><td>100%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      At the deployable budget of +6.2%, sparse low-rank recovers <strong>79% of the
+      headroom</strong> against low-rank's 60% — perplexity 6.942 vs 7.229 at
+      <code>s=0.9</code>. At +12.4% all three sparse low-rank splits land on the exact rule
+      (6.634–6.667 vs 6.638), while pure low-rank still trails at 6.710.
+    </p>
+  </section>
+
+  <!-- ============ COMPUTE ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Cost</div>
+      <h2>Compute and memory accounting</h2>
+    </div>
+    <p>
+      All figures are per token, per layer, for LLaMA-2-7B (<code>h=4096</code>,
+      <code>d=11008</code>). The dense FFN is <code>3hd</code> = 135.3 M MACs, and percentages
+      are taken against it. Because the FFN core cost is identical for all four methods at a
+      given <code>s</code>, the compensation branch is the entire difference between them.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Compensation form</th><th>MAC formula</th><th>MACs / token</th>
+            <th>% of dense FFN</th><th>Stored params / layer</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>None (TIS)</td><td>—</td><td>0</td><td>0%</td><td>0</td></tr>
+          <tr><td>MGR-LR, r = 512</td><td>2hr</td><td>4.19 M</td><td>3.10%</td><td>4.19 M</td></tr>
+          <tr><td>MGR-LR, r = 1024</td><td>2hr</td><td>8.39 M</td><td>6.20%</td><td>8.39 M</td></tr>
+          <tr><td>MGR-LR, r = 2048</td><td>2hr</td><td>16.78 M</td><td>12.40%</td><td>16.78 M</td></tr>
+          <tr class="rule-group"><td>MGR-SLR (512, 1024)</td><td>2hr + kh</td><td>8.39 M</td><td>6.20%</td><td>20.97 M</td></tr>
+          <tr class="best"><td>MGR-SLR (256, 1536)</td><td>2hr + kh</td><td>8.39 M</td><td>6.20%</td><td>18.87 M</td></tr>
+          <tr><td>MGR-SLR (0, 2048)</td><td>kh</td><td>8.39 M</td><td>6.20%</td><td>16.78 M</td></tr>
+          <tr><td>MGR-SLR (256, 3584)</td><td>2hr + kh</td><td>16.78 M</td><td>12.40%</td><td>18.87 M</td></tr>
+          <tr class="rule-group"><td>MGR-Exact</td><td>h²</td><td>16.78 M</td><td>12.40%</td><td>16.78 M</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>Three consequences worth stating plainly</h3>
+    <ul>
+      <li>
+        <strong>Rank 2048 is the point of no return.</strong> Since <code>2hr = h²</code> when
+        <code>r = h/2 = 2048</code>, any approximation at that budget costs exactly what the
+        exact product costs. This is why the +12.4% row is a saturation check rather than a
+        deployment candidate — the useful operating regime is <code>B_eff ≤ 1024</code>.
+      </li>
+      <li>
+        <strong>MGR-SLR trades memory capacity for arithmetic.</strong> It must keep the full
+        residual <code>R</code> resident (<code>h²</code> per layer) even though it only reads
+        <code>k</code> of its columns per token. Arithmetic and read bandwidth fall; stored
+        parameters do not. In the <code>r=0</code> case the stored matrix is literally
+        <code>M</code> itself.
+      </li>
+      <li>
+        <strong>The mask cost is not counted, equally for everyone.</strong> Under oracle
+        masking both the baseline's score and MGR's score need <code>u</code> and
+        <code>g</code>, so the selection cost is identical across methods and cancels in every
+        comparison here. A deployable system would replace it with a predictor — that is a
+        separate piece of work.
+      </li>
+    </ul>
+  </section>
+
+  <!-- ============ RULED OUT ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Negative results</div>
+      <h2>What we ruled out along the way</h2>
+    </div>
+    <p>
+      Five alternatives were tested and rejected. They are listed because each one narrows the
+      design space for future work.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>Idea</th><th>Outcome @ s = 0.9</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Weight-aware scoring</td><td>Score neurons by <code>|i_j|·‖W_d[:,j]‖</code> instead of <code>|i_j|</code></td><td>8.276 — worse than plain scoring (8.110)</td></tr>
+          <tr><td>Second-moment gate mean</td><td>Use <code>ḡ*=E[u²g]/E[u²]</code> in place of <code>ḡ</code></td><td>6.889 vs 6.638 — consistently worse</td></tr>
+          <tr><td>Whitened SVD</td><td>Factor <code>M</code> under the input covariance</td><td>7.397 vs 7.229 at r=1024 — worse despite 13% lower input-space error</td></tr>
+          <tr><td>Per-layer rank by spectral energy</td><td>Allocate rank where the spectrum is flattest</td><td>10.26 at budget 512 — collapses; starves late layers</td></tr>
+          <tr><td>Hot-neuron sparse split</td><td>Compute the most important rank-1 neuron terms of <code>M</code> exactly</td><td>Premise inverted: removing them <em>raises</em> the rank needed for 90% energy from 1270 to 1470 — the "hot" terms <em>are</em> the low-rank structure</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The recurring lesson across the last three rows: <strong>input-space reconstruction error
+      does not predict perplexity across method families.</strong> Whitening reduced its own
+      objective by 13% and still lost; an offline screen preferred the pure-sparse split that
+      perplexity ranked second. Offline metrics are useful for pruning candidates and useless
+      for picking the winner.
+    </p>
+  </section>
+
+  <!-- ============ CAVEATS ============ -->
+  <section>
+    <div class="sechead">
+      <div class="secnum">Limits</div>
+      <h2>What this does not yet establish</h2>
+    </div>
+    <ul>
+      <li><strong>One model, one metric.</strong> LLaMA-2-7B and WikiText-2 perplexity only. No
+        downstream task accuracy, and no evidence yet that the ranking transfers to other
+        model families.</li>
+      <li><strong>Oracle masking.</strong> Masks come from true activations. A deployable system
+        needs a predictor, and the quality of that predictor could reorder these results.</li>
+      <li><strong>No kernel.</strong> The per-token channel selection and gather are simulated,
+        not implemented. Their real cost is not in any number here.</li>
+      <li><strong>The memory trade is unresolved.</strong> MGR-SLR reduces arithmetic while
+        keeping a full <code>h²</code> matrix resident, which is the wrong direction for
+        memory-capacity-bound deployments.</li>
+    </ul>
+    <h3>Immediate next steps</h3>
+    <ul>
+      <li>Probe <em>below</em> the current budget — <code>B_eff</code> of 512 and 256 — to find
+        where sparse low-rank breaks down. The +12.4% results show the upper end is saturated,
+        so the open question lives at the cheap end.</li>
+      <li>Allocate <code>(r, k)</code> per layer rather than uniformly, validated on perplexity
+        rather than on an offline proxy.</li>
+      <li>Confirm on a zero-shot task suite before making any accuracy claim.</li>
+    </ul>
+    <hr class="div">
+    <p style="font-size:0.83rem;color:var(--muted);max-width:var(--measure)">
+      Every number in this report is read from per-run result files produced by the evaluation
+      pipeline at commits <code>4efbb4e</code> (budget 1024) and <code>9b36cd4</code> (budget
+      2048), run on a single RTX A6000. Configurations are stored under the topic
+      <code>oracle-residual-sparsity</code>.
+    </p>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var css = getComputedStyle(document.documentElement);
+  function tok(n) { return css.getPropertyValue(n).trim(); }
+  function C() {
+    var s = getComputedStyle(document.documentElement);
+    return {
+      slr: s.getPropertyValue('--s-slr').trim(),
+      lr: s.getPropertyValue('--s-lr').trim(),
+      ex: s.getPropertyValue('--s-exact').trim(),
+      base: s.getPropertyValue('--s-base').trim(),
+      lo: s.getPropertyValue('--ramp-lo').trim(),
+      hi: s.getPropertyValue('--ramp-hi').trim(),
+      hair: s.getPropertyValue('--hair').trim(),
+      hairsoft: s.getPropertyValue('--hair-soft').trim(),
+      muted: s.getPropertyValue('--muted').trim(),
+      ink: s.getPropertyValue('--ink').trim(),
+      ink2: s.getPropertyValue('--ink-2').trim(),
+      surface: s.getPropertyValue('--surface').trim()
+    };
+  }
+
+  var esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;'); };
+
+  function legend(id, items) {
+    document.getElementById(id).innerHTML = items.map(function (it) {
+      var sw;
+      if (it.ring) {
+        sw = '<span class="swatch" style="background:none;border:2px solid ' + it.color +
+          ';width:11px;height:11px;border-radius:50%"></span>';
+      } else if (it.dash) {
+        sw = '<span class="swatch dash" style="color:' + it.color + '"></span>';
+      } else {
+        sw = '<span class="swatch" style="background:' + it.color + '"></span>';
+      }
+      return '<span class="item">' + sw + esc(it.label) + '</span>';
+    }).join('');
+  }
+
+  function axisText(x, y, txt, anchor, cls, col, size) {
+    return '<text x="' + x + '" y="' + y + '" text-anchor="' + (anchor || 'middle') +
+      '" fill="' + col + '" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="' +
+      (size || 11) + '" ' + (cls ? 'class="' + cls + '"' : '') + '>' + esc(txt) + '</text>';
+  }
+
+  function attachTips(svgId, tipId) {
+    var svg = document.getElementById(svgId), tip = document.getElementById(tipId);
+    var wrap = svg.parentNode;
+    svg.addEventListener('mouseover', function (e) {
+      var t = e.target;
+      if (!t.getAttribute || !t.getAttribute('data-tip')) return;
+      tip.textContent = t.getAttribute('data-tip');
+      var wr = wrap.getBoundingClientRect(), br = t.getBoundingClientRect();
+      tip.style.left = (br.left + br.width / 2 - wr.left + wrap.scrollLeft) + 'px';
+      tip.style.top = (br.top - wr.top + wrap.scrollTop) + 'px';
+      tip.style.opacity = '1';
+    });
+    svg.addEventListener('mouseout', function (e) {
+      if (e.target.getAttribute && e.target.getAttribute('data-tip')) tip.style.opacity = '0';
+    });
+  }
+
+  var DENSE = 5.4738, EXACT9 = 6.6381;
+
+  /* ---------------- Figure 1 : PPL vs sparsity ---------------- */
+  function fig1() {
+    var c = C(), W = 760, H = 420, M = { t: 26, r: 168, b: 52, l: 62 };
+    var pw = W - M.l - M.r, ph = H - M.t - M.b;
+    var xs = [0.5, 0.7, 0.9], yd = [5.3, 8.3];
+    var sx = function (i) { return M.l + (pw / (xs.length - 1)) * i; };
+    var sy = function (v) { return M.t + (1 - (v - yd[0]) / (yd[1] - yd[0])) * ph; };
+    var series = [
+      { k: 'TIS baseline', col: c.base, v: [5.5216, 5.7284, 8.1096] },
+      { k: 'MGR-LR (r=1024)', col: c.lr, v: [5.7365, 5.9152, 7.2294] },
+      { k: 'MGR-SLR (r=256,k=1536)', col: c.slr, v: [5.5961, 5.7526, 6.9417] },
+      { k: 'MGR-Exact (ceiling)', col: c.ex, v: [5.5051, 5.6283, 6.6381] }
+    ];
+    var o = '';
+    for (var g = 5.5; g <= 8.05; g += 0.5) {
+      o += '<line x1="' + M.l + '" x2="' + (M.l + pw) + '" y1="' + sy(g) + '" y2="' + sy(g) +
+        '" stroke="' + c.hairsoft + '" stroke-width="1"/>';
+      o += axisText(M.l - 12, sy(g) + 4, g.toFixed(1), 'end', null, c.muted);
+    }
+    o += '<line x1="' + M.l + '" x2="' + (M.l + pw) + '" y1="' + sy(DENSE) + '" y2="' + sy(DENSE) +
+      '" stroke="' + c.ink2 + '" stroke-width="1.5" stroke-dasharray="5 4"/>';
+    o += axisText(M.l + pw - 4, sy(DENSE) + 16, 'dense model  5.474', 'end', null, c.ink2, 11);
+    xs.forEach(function (s, i) {
+      o += axisText(sx(i), H - 22, (s * 100).toFixed(0) + '%', 'middle', null, c.ink2, 12);
+    });
+    o += axisText(M.l + pw / 2, H - 4, 'intermediate sparsity  s  (share of FFN neurons zeroed)',
+      'middle', null, c.muted, 11);
+    o += '<text x="16" y="' + (M.t + ph / 2) + '" transform="rotate(-90 16 ' + (M.t + ph / 2) +
+      ')" text-anchor="middle" fill="' + c.muted +
+      '" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">' +
+      'WikiText-2 perplexity  (lower is better)</text>';
+    o += '<line x1="' + M.l + '" x2="' + M.l + '" y1="' + M.t + '" y2="' + (M.t + ph) +
+      '" stroke="' + c.hair + '"/>';
+    o += '<line x1="' + M.l + '" x2="' + (M.l + pw) + '" y1="' + (M.t + ph) + '" y2="' + (M.t + ph) +
+      '" stroke="' + c.hair + '"/>';
+    series.forEach(function (s) {
+      var d = s.v.map(function (v, i) { return (i ? 'L' : 'M') + sx(i) + ' ' + sy(v); }).join(' ');
+      o += '<path d="' + d + '" fill="none" stroke="' + s.col + '" stroke-width="2" stroke-linecap="round"/>';
+      s.v.forEach(function (v, i) {
+        o += '<circle cx="' + sx(i) + '" cy="' + sy(v) + '" r="4.5" fill="' + s.col +
+          '" stroke="' + c.surface + '" stroke-width="2" data-tip="' + s.k + '\ns=' +
+          xs[i].toFixed(1) + '\nPPL ' + v.toFixed(4) + '"/>';
+      });
+      o += '<text x="' + (sx(2) + 12) + '" y="' + (sy(s.v[2]) + 4) + '" fill="' + s.col +
+        '" font-family="system-ui, sans-serif" font-size="11.5" font-weight="600">' +
+        esc(s.v[2].toFixed(3)) + '</text>';
+      o += '<text x="' + (sx(2) + 12) + '" y="' + (sy(s.v[2]) + 18) + '" fill="' + c.muted +
+        '" font-family="ui-monospace, Menlo, monospace" font-size="9.5">' + esc(s.k.split(' (')[0]) + '</text>';
+    });
+    document.getElementById('c1').innerHTML = o;
+    legend('leg1', series.map(function (s) { return { color: s.col, label: s.k }; })
+      .concat([{ color: c.ink2, label: 'Dense model (5.474)', dash: true }]));
+    attachTips('c1', 't1');
+  }
+
+  /* ---------------- Figure 2 : compute vs quality ---------------- */
+  function fig2() {
+    var c = C(), W = 760, H = 430, M = { t: 30, r: 150, b: 58, l: 62 };
+    var pw = W - M.l - M.r, ph = H - M.t - M.b;
+    var xd = [-0.6, 13.4], yd = [6.5, 8.9];
+    var sx = function (v) { return M.l + (v - xd[0]) / (xd[1] - xd[0]) * pw; };
+    var sy = function (v) { return M.t + (1 - (v - yd[0]) / (yd[1] - yd[0])) * ph; };
+    var lrPts = [{ x: 3.10, y: 8.7638, n: 'r=512' }, { x: 6.20, y: 7.2294, n: 'r=1024' }, { x: 12.40, y: 6.7098, n: 'r=2048' }];
+    var slrPts = [{ x: 6.20, y: 6.9417, n: 'r=256,k=1536' }, { x: 12.40, y: 6.6344, n: 'r=256,k=3584' }];
+    var o = '';
+    for (var g = 6.5; g <= 8.91; g += 0.5) {
+      o += '<line x1="' + M.l + '" x2="' + (M.l + pw) + '" y1="' + sy(g) + '" y2="' + sy(g) +
+        '" stroke="' + c.hairsoft + '"/>';
+      o += axisText(M.l - 12, sy(g) + 4, g.toFixed(1), 'end', null, c.muted);
+    }
+    o += '<line x1="' + sx(12.40) + '" x2="' + sx(12.40) + '" y1="' + M.t + '" y2="' + (M.t + ph) +
+      '" stroke="' + c.muted + '" stroke-width="1" stroke-dasharray="3 4"/>';
+    o += axisText(sx(12.40) - 8, M.t + 14, 'cost of exact Mx', 'end', null, c.muted, 10.5);
+    [0, 3.1, 6.2, 12.4].forEach(function (v) {
+      o += axisText(sx(v), H - 28, v.toFixed(1) + '%', 'middle', null, c.ink2, 11.5);
+    });
+    o += axisText(M.l + pw / 2, H - 8, 'compensation overhead  (% of dense FFN multiply–accumulates)',
+      'middle', null, c.muted, 11);
+    o += '<text x="16" y="' + (M.t + ph / 2) + '" transform="rotate(-90 16 ' + (M.t + ph / 2) +
+      ')" text-anchor="middle" fill="' + c.muted +
+      '" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">' +
+      'WikiText-2 perplexity at s = 0.9</text>';
+    o += '<line x1="' + M.l + '" x2="' + M.l + '" y1="' + M.t + '" y2="' + (M.t + ph) + '" stroke="' + c.hair + '"/>';
+    o += '<line x1="' + M.l + '" x2="' + (M.l + pw) + '" y1="' + (M.t + ph) + '" y2="' + (M.t + ph) + '" stroke="' + c.hair + '"/>';
+
+    function poly(pts, col) {
+      return '<path d="' + pts.map(function (p, i) { return (i ? 'L' : 'M') + sx(p.x) + ' ' + sy(p.y); }).join(' ') +
+        '" fill="none" stroke="' + col + '" stroke-width="2"/>';
+    }
+    o += poly(lrPts, c.lr) + poly(slrPts, c.slr);
+    function mark(p, col, label, tip, dx, dy, anchor) {
+      var s = '<circle cx="' + sx(p.x) + '" cy="' + sy(p.y) + '" r="5.5" fill="' + col +
+        '" stroke="' + c.surface + '" stroke-width="2" data-tip="' + tip + '"/>';
+      if (label) {
+        s += '<text x="' + (sx(p.x) + dx) + '" y="' + (sy(p.y) + dy) + '" text-anchor="' + (anchor || 'start') +
+          '" fill="' + col + '" font-family="system-ui, sans-serif" font-size="11.5" font-weight="600">' +
+          esc(p.y.toFixed(3)) + '</text>';
+        s += '<text x="' + (sx(p.x) + dx) + '" y="' + (sy(p.y) + dy + 13) + '" text-anchor="' + (anchor || 'start') +
+          '" fill="' + c.muted + '" font-family="ui-monospace, Menlo, monospace" font-size="9.5">' +
+          esc(label) + '</text>';
+      }
+      return s;
+    }
+    o += mark({ x: 0, y: 8.1096 }, c.base, 'TIS baseline', 'TIS baseline\nno compensation\nPPL 8.1096', 10, -8);
+    o += mark(lrPts[0], c.lr, 'MGR-LR r=512', 'MGR-LR r=512\noverhead 3.10%\nPPL 8.7638', 10, 4);
+    o += mark(lrPts[1], c.lr, 'MGR-LR r=1024', 'MGR-LR r=1024\noverhead 6.20%\nPPL 7.2294', 10, -8);
+    o += mark(lrPts[2], c.lr, 'MGR-LR r=2048', 'MGR-LR r=2048\noverhead 12.40%\nPPL 6.7098', 12, -10);
+    o += mark(slrPts[0], c.slr, 'MGR-SLR B=1024', 'MGR-SLR (r=256, k=1536)\noverhead 6.20%\nPPL 6.9417', 10, 16);
+    o += mark(slrPts[1], c.slr, 'MGR-SLR B=2048', 'MGR-SLR (r=256, k=3584)\noverhead 12.40%\nPPL 6.6344', 12, 20);
+    o += mark({ x: 12.40, y: EXACT9 }, c.ex, 'MGR-Exact', 'MGR-Exact\noverhead 12.40%\nPPL 6.6381', 12, 4);
+    document.getElementById('c2').innerHTML = o;
+    legend('leg2', [
+      { color: c.base, label: 'TIS baseline (no compensation)' },
+      { color: c.lr, label: 'MGR-LR — low-rank only' },
+      { color: c.slr, label: 'MGR-SLR — sparse + low-rank' },
+      { color: c.ex, label: 'MGR-Exact — ceiling' }
+    ]);
+    attachTips('c2', 't2');
+  }
+
+  /* ---------------- Figure 3 : budget split ---------------- */
+  function fig3() {
+    var c = C(), W = 760, H = 420, M = { t: 30, r: 138, b: 56, l: 62 };
+    var pw = W - M.l - M.r, ph = H - M.t - M.b;
+    var xd = [-6, 106], yd = [6.55, 7.30];
+    var sx = function (v) { return M.l + (v - xd[0]) / (xd[1] - xd[0]) * pw; };
+    var sy = function (v) { return M.t + (1 - (v - yd[0]) / (yd[1] - yd[0])) * ph; };
+    var b1024 = [{ x: 0, y: 6.9526, n: 'r=0, k=2048' }, { x: 25, y: 6.9417, n: 'r=256, k=1536' },
+                 { x: 50, y: 6.9962, n: 'r=512, k=1024' }, { x: 100, y: 7.2294, n: 'r=1024 (= MGR-LR)' }];
+    var b2048 = [{ x: 12.5, y: 6.6344, n: 'r=256, k=3584' }, { x: 25, y: 6.6421, n: 'r=512, k=3072' },
+                 { x: 50, y: 6.6674, n: 'r=1024, k=2048' }, { x: 100, y: 6.7098, n: 'r=2048 (= MGR-LR)' }];
+    var o = '';
+    for (var g = 6.6; g <= 7.31; g += 0.1) {
+      o += '<line x1="' + M.l + '" x2="' + (M.l + pw) + '" y1="' + sy(g) + '" y2="' + sy(g) +
+        '" stroke="' + c.hairsoft + '"/>';
+      o += axisText(M.l - 12, sy(g) + 4, g.toFixed(1), 'end', null, c.muted);
+    }
+    o += '<line x1="' + M.l + '" x2="' + (M.l + pw) + '" y1="' + sy(EXACT9) + '" y2="' + sy(EXACT9) +
+      '" stroke="' + c.ex + '" stroke-width="1.5" stroke-dasharray="5 4"/>';
+    o += axisText(M.l + 6, sy(EXACT9) - 7, 'MGR-Exact 6.638', 'start', null, c.ex, 11);
+    [0, 12.5, 25, 50, 100].forEach(function (v) {
+      o += axisText(sx(v), H - 26, v + '%', 'middle', null, c.ink2, 11.5);
+    });
+    o += axisText(M.l + pw / 2, H - 6, 'share of the compensation budget spent on rank  →  100% = pure low-rank',
+      'middle', null, c.muted, 11);
+    o += '<text x="16" y="' + (M.t + ph / 2) + '" transform="rotate(-90 16 ' + (M.t + ph / 2) +
+      ')" text-anchor="middle" fill="' + c.muted +
+      '" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">' +
+      'WikiText-2 perplexity at s = 0.9</text>';
+    o += '<line x1="' + M.l + '" x2="' + M.l + '" y1="' + M.t + '" y2="' + (M.t + ph) + '" stroke="' + c.hair + '"/>';
+    o += '<line x1="' + M.l + '" x2="' + (M.l + pw) + '" y1="' + (M.t + ph) + '" y2="' + (M.t + ph) + '" stroke="' + c.hair + '"/>';
+    function draw(pts, col, name) {
+      var s = '<path d="' + pts.map(function (p, i) { return (i ? 'L' : 'M') + sx(p.x) + ' ' + sy(p.y); }).join(' ') +
+        '" fill="none" stroke="' + col + '" stroke-width="2"/>';
+      pts.forEach(function (p) {
+        s += '<circle cx="' + sx(p.x) + '" cy="' + sy(p.y) + '" r="4.5" fill="' + col +
+          '" stroke="' + c.surface + '" stroke-width="2" data-tip="' + name + '\n' + p.n +
+          '\nrank share ' + p.x + '%\nPPL ' + p.y.toFixed(4) + '"/>';
+      });
+      var last = pts[pts.length - 1];
+      s += '<text x="' + (sx(last.x) + 12) + '" y="' + (sy(last.y) + 4) + '" fill="' + col +
+        '" font-family="system-ui, sans-serif" font-size="11.5" font-weight="600">' + esc(name) + '</text>';
+      s += '<text x="' + (sx(last.x) + 12) + '" y="' + (sy(last.y) + 17) + '" fill="' + c.muted +
+        '" font-family="ui-monospace, Menlo, monospace" font-size="9.5">= MGR-LR here</text>';
+      return s;
+    }
+    o += draw(b2048, c.hi, 'B_eff 2048');
+    o += draw(b1024, c.lo, 'B_eff 1024');
+    var opt = b1024[1];
+    o += '<circle cx="' + sx(opt.x) + '" cy="' + sy(opt.y) + '" r="9" fill="none" stroke="' + c.lo + '" stroke-width="1.5"/>';
+    o += '<text x="' + sx(opt.x) + '" y="' + (sy(opt.y) + 30) + '" text-anchor="middle" fill="' + c.ink2 +
+      '" font-family="ui-monospace, Menlo, monospace" font-size="10">best deployable split</text>';
+    document.getElementById('c3').innerHTML = o;
+    legend('leg3', [
+      { color: c.lo, label: 'B_eff = 1024  (+6.2% compute)' },
+      { color: c.hi, label: 'B_eff = 2048  (+12.4% compute)' },
+      { color: c.ex, label: 'MGR-Exact reference (6.638)', dash: true }
+    ]);
+    attachTips('c3', 't3');
+  }
+
+  function renderAll() { fig1(); fig2(); fig3(); }
+  renderAll();
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', renderAll);
+  }
+  new MutationObserver(renderAll).observe(document.documentElement, {
+    attributes: true, attributeFilter: ['data-theme']
+  });
+})();
+</script>
