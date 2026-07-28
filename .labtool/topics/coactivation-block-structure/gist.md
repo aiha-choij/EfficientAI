@@ -124,6 +124,9 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
   topic proceeds as an experimental axis, independent of that framing.
 
 ## Pointers
+- **Synthesis report (P1+P2+P3, Korean, 4 figures)**:
+  `results/reports/2026-07-28_coactivation-block-structure.md`
+  (figures + generator: `results/reports/figs/`)
 - Spec: `~/Workspace/research-wiki/plans/coactivation-block-structure-spec.md`
   (mac-local; self-contained).
 - Prior measurements: topic `larosa-intermediate-sparsity` gist Key Findings
