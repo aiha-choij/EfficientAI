@@ -18,7 +18,12 @@ pure-sparse pick — validate allocation on PPL only. Escalating per
 pre-approved plan: E2 = B_eff=2048 round (lr_r2048 + 3 s2 splits × 3s).
 
 ## Active Jobs
-- (none — E2 submission in progress)
+- `050-20260729-022242-oracle-llama2-e2-s2-b2048` — oracle-residual-sparsity
+  E2 B_eff=2048 round (a6000-2 pinned, 1 GPU ≥30GiB, PENDING, est. 12-16 h):
+  lr_r2048 + s2 {r1024:k2048, r512:k3072, r256:k3584} × s{0.5,0.7,0.9}.
+  On finish: labtool-result, then design E3 per-layer allocation
+  (follow-through pre-approved 2026-07-27). Card:
+  topics/oracle-residual-sparsity/journal/2026-07-28_experiment-oracle-llama2-e2-s2-b2048.md
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -47,6 +52,9 @@ journal/2026-07-27_pivot-c4-slr-compensation.md.
    fitting (deferred, unchanged).
 
 ## Latest
+- 2026-07-28: `oracle-llama2-e2-s2-b2048` SUBMITTED (050-20260729-022242,
+  a6000-2, tag exp/2026-07-28_oracle-llama2-e2-s2-b2048) — 12 runs at
+  B_eff=2048. Success: best s2 beats lr_r2048 AND 6.9417; stretch ≤6.79.
 - 2026-07-28: `oracle-llama2-e1-s2-ppl` DONE — GATE PASSED: all 3 s2 arms
   beat lr_r1024 at every s; best r256:k1536 5.5961/5.7526/6.9417 (−0.288
   @ s=0.9 vs anchor), gap to C3 halved. Mixed split beats pure sparse (E0
