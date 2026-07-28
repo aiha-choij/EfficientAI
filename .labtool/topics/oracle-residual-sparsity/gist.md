@@ -69,6 +69,19 @@ No-go if C3 − C2 < 5%p.
   lesson) — PPL is the referee.
 
 ## Key Findings
+- **E2 B_eff=2048 round (2026-07-28): SLR saturates onto the exact rule;
+  the budget axis is exhausted upward.** All three s2 arms reach C3 within
+  −0.004…+0.029 PPL @ s=0.9 (best r256:k3584 = 6.6344 vs C3 6.6381 — a tie
+  at the noise floor), while plain lr_r2048 still trails at 6.7098. The
+  rank-share ordering from E1 holds but the spread collapses from 0.29 PPL
+  (B=1024) to 0.075 (B=2048). ARITHMETIC NOTE (derived): 2hr = h² at
+  r = h/2 = 2048, so every arm in this round costs exactly what computing
+  Mx costs — C3 is available at the same budget.
+  When relevant: (a) the deployable frontier is B_eff ≤ 1024 — probe
+  DOWNWARD (512, 256), not upward; (b) never quote a B_eff=2048 arm as a
+  compute win over exact compensation; (c) old "r=2048 reference arm"
+  proposal is now closed.
+  Journal: 2026-07-28_experiment-oracle-llama2-e2-s2-b2048.md
 - **[MAIN] E1 S2 PPL sweep (2026-07-28): H4/S2 confirmed — best deployable
   C4 to date.** LLaMA2-7B, B_eff=1024 (+6.2% compute), wikitext-2 PPL:
   all three slr_input arms beat plain lr_r1024 at every s; best arm
@@ -201,17 +214,18 @@ No-go if C3 − C2 < 5%p.
   5.730/8.108 at s=50/70/90); spec's §8 %p margins translate to "C3/C4 hold
   ≤ Top-K's ΔPPL at ≥15%p higher achieved sparsity" — formalize once curves exist.
 
-## Next Experiments (2026-07-28, from E1 result — gate passed, escalate)
-1. **E2 — B_eff=2048 round (12 runs)**: arms lr_r2048 (LR reference,
-   subsumes the old r=2048 proposal) + s2 {r1024:k2048, r512:k3072,
-   r256:k3584} (rank share 50/25/12.5%, bracketing E1's mixed optimum),
-   abs score, s ∈ {0.5, 0.7, 0.9}. Why: E1 passed the gate with margin;
-   the question is whether SLR's edge persists at +12.4% compute and where
-   the rank-share optimum moves. Success: best s2 arm beats lr_r2048 AND
-   improves on E1's 6.9417 @ s=0.9; stretch: reach C3 + 0.15 (≤ 6.79).
-2. **E3 — per-layer split allocation**: allocate (r_l, k_l) under a global
-   B_eff using E0/E2 per-layer screening, then PPL-validate (E1 lesson:
-   never trust offline L2 for the final pick). Design after E2.
+## Next Experiments (2026-07-28, from E2 — upward axis exhausted, go down)
+1. **E3 — cheap-end sweep, B_eff ∈ {512, 256}** (awaiting user go): s2
+   splits at rank share ~12.5-25% (the E1/E2 optimum region) plus the
+   lr_r512 / lr_r256 references, s ∈ {0.5, 0.7, 0.9}. Why: E2 showed the
+   +12.4% budget is saturated AND equals the cost of exact Mx, so the only
+   remaining deployable question is how far the SLR edge extends downward.
+   Success: an SLR arm at B_eff=512 (+3.1%) beats lr_r1024 (7.2294 @ s=0.9)
+   — i.e. half the compute for better quality than the previous best LR.
+   Failure: SLR degrades as fast as LR below 1024 → the method's value is
+   confined to a narrow budget band; report as such.
+2. **E4 — per-layer (r_l, k_l) allocation** at the best budget from E3.
+   PPL-validate (E1/E0 lesson: offline L2 picks candidates, not winners).
 3. **[deprioritized, kept] Quantized full-rank M (LQER/ASER template)** —
    can compose with the winning s2 arm. Gate: s=0.9 within C3 + 0.1.
 4. **[deferred, unchanged] Loss-aligned A,B fitting (Low-Rank Correction

@@ -923,16 +923,27 @@ MGR-SLR   error = −Σ<sub>c ∉ S(x)</sub> R[:,c]·x_c      <span class="cmt">
     o += mark({ x: 0, y: 8.1096 }, c.base, 'TIS baseline', 'TIS baseline\nno compensation\nPPL 8.1096', 10, -8);
     o += mark(lrPts[0], c.lr, 'MGR-LR r=512', 'MGR-LR r=512\noverhead 3.10%\nPPL 8.7638', 10, 4);
     o += mark(lrPts[1], c.lr, 'MGR-LR r=1024', 'MGR-LR r=1024\noverhead 6.20%\nPPL 7.2294', 10, -8);
-    o += mark(lrPts[2], c.lr, 'MGR-LR r=2048', 'MGR-LR r=2048\noverhead 12.40%\nPPL 6.7098', 12, -10);
+    o += mark(lrPts[2], c.lr, 'MGR-LR r=2048', 'MGR-LR r=2048\noverhead 12.40%\nPPL 6.7098', 13, -17);
     o += mark(slrPts[0], c.slr, 'MGR-SLR B=1024', 'MGR-SLR (r=256, k=1536)\noverhead 6.20%\nPPL 6.9417', 10, 16);
-    o += mark(slrPts[1], c.slr, 'MGR-SLR B=2048', 'MGR-SLR (r=256, k=3584)\noverhead 12.40%\nPPL 6.6344', 12, 20);
-    o += mark({ x: 12.40, y: EXACT9 }, c.ex, 'MGR-Exact', 'MGR-Exact\noverhead 12.40%\nPPL 6.6381', 12, 4);
+    // At 12.4% the sparse low-rank point and the exact ceiling differ by 0.004 PPL — far
+    // inside the marker. Draw the ceiling as a target ring with the measurement landing in it
+    // rather than stacking two labels that would collide.
+    o += '<circle cx="' + sx(12.40) + '" cy="' + sy(EXACT9) + '" r="10" fill="none" stroke="' + c.ex +
+      '" stroke-width="2" data-tip="MGR-Exact (ceiling)\noverhead 12.40%\nPPL 6.6381"/>';
+    o += '<circle cx="' + sx(12.40) + '" cy="' + sy(slrPts[1].y) + '" r="4.5" fill="' + c.slr +
+      '" stroke="' + c.surface + '" stroke-width="1.5" data-tip="MGR-SLR (r=256, k=3584)\noverhead 12.40%\nPPL 6.6344"/>';
+    o += '<text x="' + (sx(12.40) + 17) + '" y="' + (sy(EXACT9) + 3) + '" fill="' + c.slr +
+      '" font-family="system-ui, sans-serif" font-size="11.5" font-weight="600">6.634</text>';
+    o += '<text x="' + (sx(12.40) + 17) + '" y="' + (sy(EXACT9) + 16) + '" fill="' + c.muted +
+      '" font-family="ui-monospace, Menlo, monospace" font-size="9.5">MGR-SLR lands on the</text>';
+    o += '<text x="' + (sx(12.40) + 17) + '" y="' + (sy(EXACT9) + 27) + '" fill="' + c.muted +
+      '" font-family="ui-monospace, Menlo, monospace" font-size="9.5">ceiling (6.638)</text>';
     document.getElementById('c2').innerHTML = o;
     legend('leg2', [
       { color: c.base, label: 'TIS baseline (no compensation)' },
       { color: c.lr, label: 'MGR-LR — low-rank only' },
       { color: c.slr, label: 'MGR-SLR — sparse + low-rank' },
-      { color: c.ex, label: 'MGR-Exact — ceiling' }
+      { color: c.ex, label: 'MGR-Exact — ceiling', ring: true }
     ]);
     attachTips('c2', 't2');
   }
