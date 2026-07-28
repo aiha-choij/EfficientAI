@@ -10,19 +10,16 @@
 | rsparse-repro | 🟢 active | R-Sparse (ICLR25) Llama-2-7B 50% reproduced: 8-task avg 64.59 vs paper 64.06, full baseline exact; matched-protocol PPL vs LaRoSA still open |
 
 ## This Session
-Focus: oracle-residual-sparsity — 2026-07-27 within-topic steer (user): C4
-compensation moves to the SLR line — R-Sparse's sparse/low-rank split
-grafted onto Mx (H4). Two variants at matched B_eff budget: S1 static hot
-rank-1 neuron terms + SVD(M_cold); S2 dynamic top-|x| input channels of the
-SVD residual. Diagnostics-first (E0 offline gates) → E1 PPL sweep vs the
-r=1024 anchor (7.229 @ s=0.9). Old proposals (quantized M, loss-aligned
-fitting) deprioritized, not abandoned. Implementation plan in gist Next
-Experiments; code lands in oracle_mlp.py + scripts/oracle/09_slr_diag.py.
+Focus: oracle-residual-sparsity — steer to SLR line (H4), implementation
+(slr_neuron/slr_input c4 modes, tag exp/2026-07-27_oracle-llama2-e0-slr-diag),
+and E0 diagnostics DONE same day: S1 refuted (hot removal RAISES r90,
+1270→1470 — dead end), S2 passes decisively (all arms beat lr_r1024;
+best pure-sparse −40% mid-stack rel-err; abs score suffices). User approved
+E1 = S2-only 9 runs {r512:k1024, r256:k1536, r0:k2048} × s{0.5,0.7,0.9}.
+Input-L2 screening caveat stands — E1 PPL is the referee.
 
 ## Active Jobs
-- `050-20260728-084743-oracle-llama2-e0-slr-diag` — oracle-residual-sparsity
-  E0 SLR diagnostics (a6000-2 pinned, 1 GPU ≥30GiB, PENDING). Card:
-  topics/oracle-residual-sparsity/journal/2026-07-27_experiment-oracle-llama2-e0-slr-diag.md
+- (none)
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -34,31 +31,30 @@ Mean-gate residual decomposition on LLaMA2-7B (top-K s={0.5,0.7,0.9},
 wikitext-2 PPL): H1 confirmed — exact compensation (C3) cuts C1's degradation
 56% at s=0.9. The open front is the DEPLOYABLE compensation (C4), now on the
 SLR line (H4, 2026-07-27 steer): comp(x) ≈ Mx as sparse + low-rank at
-matched MAC budget — S1 static hot rank-1 neurons + SVD(M_cold), S2 dynamic
-top-|x| input channels of the SVD residual (R-Sparse template; M's heavy
-mid-stack singular tail is the motivation). Anchor to beat: plain r=1024
-(7.229 @ s=0.9, +6.2% compute). Whitening and spectral-energy allocation
-remain dead ends. Specs: topics/oracle-residual-sparsity/spec.md +
-spec-c4-whitening.md; steer card
+matched MAC budget. E0 verdict: S2 (dynamic top-|x| input channels of the
+SVD residual) is the surviving variant — all arms beat lr_r1024 on
+screening, monotone toward pure-sparse (−40% mid-stack rel-err); S1
+(neuron hot set) is a DEAD END (hot removal raises r90 — hot terms ≈ M's
+top subspace). Anchor to beat in PPL: plain r=1024 (7.229 @ s=0.9, +6.2%
+compute). Whitening and spectral-energy allocation remain dead ends. Specs:
+topics/oracle-residual-sparsity/spec.md + spec-c4-whitening.md; steer card
 journal/2026-07-27_pivot-c4-slr-compensation.md.
 
-## Next Experiments (SLR line — details in gist)
-1. E0 offline SLR diagnostics (minutes, 1 GPU): S1 hot-set-removal spectra
-   (r90, energy@r) + S2 x-channel concentration and matched-budget approx
-   error (screening only). Needs a small x-capture pass + new
-   scripts/oracle/09_slr_diag.py.
-2. E1 SLR PPL sweep: c4 comp_mode {slr_neuron, slr_input}, B_eff=1024
-   splits, s={0.5,0.7,0.9}. Gate: beat r=1024 by ≥0.05 PPL @ s=0.9 →
-   B_eff=2048 round (subsumes old r=2048 arm).
-3. [deprioritized, kept] Quantized full-rank M W4/W8; loss-aligned A,B
+## Next Experiments (from E0 result — details in gist)
+1. E1 S2 PPL sweep (user-approved): c4 comp_mode=slr_input, abs score,
+   B_eff=1024 arms {r512:k1024, r256:k1536, r0:k2048} × s={0.5,0.7,0.9} =
+   9 runs. Gate: beat lr_r1024 by ≥0.05 PPL @ s=0.9 → B_eff=2048 round +
+   per-layer rho search; miss → input-side family dead, fall back to
+   quantized-M.
+2. [deprioritized, kept] Quantized full-rank M W4/W8; loss-aligned A,B
    fitting (deferred, unchanged).
 
 ## Latest
-- 2026-07-27: `oracle-llama2-e0-slr-diag` SUBMITTED
-  (050-20260728-084743, a6000-2) — E0 offline SLR gates: hot-set-removal
-  spectra + x-channel concentration + matched-budget rel-err @ B_eff=1024.
-  SLR code (slr_neuron/slr_input c4 modes) landed at tag
-  exp/2026-07-27_oracle-llama2-e0-slr-diag; unit tests + tiny smoke pass.
+- 2026-07-27: `oracle-llama2-e0-slr-diag` DONE (17 min) — S1 refuted (hot
+  removal raises r90 1270→1470; all arms lose to lr_r1024 → Dead End); S2
+  passes (all arms beat lr_r1024, best s2_r0_k2048 mid-stack rel-err 0.198
+  vs 0.330, −40%; abs ≈ wnorm). User: S1 dead, E1 = S2-only 9 runs. Card:
+  topics/oracle-residual-sparsity/journal/2026-07-27_experiment-oracle-llama2-e0-slr-diag.md
 - 2026-07-27: STEER (within-topic, oracle-residual-sparsity): C4
   compensation → SLR hybrid (R-Sparse template on Mx). H4 added; E0
   diagnostics + E1 PPL sweep planned; quantized-M/loss-aligned proposals

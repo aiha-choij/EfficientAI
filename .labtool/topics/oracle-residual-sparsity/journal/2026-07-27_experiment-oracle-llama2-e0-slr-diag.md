@@ -1,6 +1,6 @@
 # Experiment: oracle-llama2-e0-slr-diag
 
-Status: PENDING
+Status: DONE (2026-07-27)
 Date: 2026-07-27
 
 ## Hypothesis tested
@@ -75,5 +75,56 @@ instead of paying ~6 PPL sweeps blind. The matched-budget accounting
   preserved as stash@{0} `pre-slr-sync-20260727` before fast-forward.
 
 ### Results
+(artifacts: job log summary of 050-20260728-084743 + slr_diag_b1024.json on
+a6000-2 ~/workspace/oracle/llama2-7b/results/; JSON git_commit d827aaf,
+16384 tokens/layer; job elapsed 17 min)
+
+D1 — hot-set removal makes M HARDER to approximate (S1 premise inverted):
+
+| hot_n | mean r90 | max r90 | mean energy@2048 |
+|-------|----------|---------|------------------|
+| 0     | 1270.1   | 1524    | 0.971 |
+| 256   | 1437.5   | 1518    | 0.965 |
+| 512   | 1461.2   | 1552    | 0.963 |
+| 768   | 1469.5   | 1568    | 0.963 |
+| 1024  | 1471.5   | 1575    | 0.963 |
+| 1376  | 1469.1   | 1577    | 0.963 |
+
+D2 — matched-budget rel err E‖Mx−comp‖/E‖Mx‖ (mean / mid-stack 4–17 / worst):
+
+| arm | mean | mid-stack | worst |
+|-----|------|-----------|-------|
+| lr_r1024 (baseline)  | 0.2701 | 0.3302 | 0.3545 (L7) |
+| s1_r768_h256         | 0.3063 | 0.3728 | 0.3992 (L7) |
+| s1_r512_h512         | 0.3504 | 0.4261 | 0.4569 (L7) |
+| s1_r256_h768         | 0.4084 | 0.4974 | 0.5329 (L7) |
+| s1_r0_h1024          | 0.5921 | 0.7152 | 0.7613 (L7) |
+| s2_r768_k512_abs     | 0.2306 | 0.2798 | 0.3013 (L18) |
+| s2_r512_k1024_abs    | 0.2096 | 0.2532 | 0.2720 (L18) |
+| s2_r256_k1536_abs    | 0.1877 | 0.2248 | 0.2413 (L18) |
+| s2_r0_k2048_abs      | 0.1836 | 0.1975 | 0.2205 (L18) |
+
+- wnorm ≈ abs everywhere (Δ ≤ 0.0006, abs equal or marginally better).
+- Every S1 arm loses to lr_r1024; monotonically worse with hot_n.
+- Every S2 arm beats lr_r1024; monotonically better as the split gets
+  sparse-heavier; best arm s2_r0_k2048 cuts mid-stack error −40%
+  (0.330 → 0.198).
+- x channel-energy concentration (per token, mean over layers): top-41
+  (1%) 0.136, top-512 0.536, top-1024 0.743, top-2048 0.934 — moderate,
+  no extreme outlier regime.
 
 ### Interpretation
+(user, 2026-07-27 — adopted the proposed reading "S1 폐기, S2 진출")
+
+- S1 (neuron hot set) is a DEAD END: its premise inverted in measurement —
+  removing the top static rank-1 terms makes M_cold HARDER to approximate
+  (mean r90 1270 → ~1470), i.e. the hot terms are aligned with M's low-rank
+  structure, so trading rank for them wastes budget; every S1 arm lost to
+  plain lr_r1024, monotonically in hot_n.
+- S2 proceeds to the E1 PPL sweep: 3 arms r512:k1024 / r256:k1536 /
+  r0:k2048, abs score (wnorm ≈ abs, dropped), s = {0.5, 0.7, 0.9} — 9 runs,
+  anchor lr_r1024 (7.229 @ s=0.9). The weakest split r768:k512 is omitted
+  (monotone trend).
+- Caveat carried forward: this is an input-L2 screening win; the whitening
+  precedent shows cross-family orderings can invert in PPL. E1 is the
+  referee.
