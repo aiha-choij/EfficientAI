@@ -67,33 +67,42 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   5.5210/5.7296/8.1083 (gateway) at s=0.5/0.7/0.9, wikitext-2.
 
 ## Key Findings
-- **[CORRECTION, SUPERSEDES THE TOPIC-CLOSING ENTRY BELOW, 2026-07-31] C1
-  fix: the "refit hurts at s=0.5" headline was substantially a
-  ridge-prior artifact, and s=0.9 is a much bigger Go than previously
-  measured.** All entries below this one used `solve_refit`'s ORIGINAL
-  0-shrinkage-prior ridge (pulls weak-evidence columns toward the
-  all-zero row). Fixed to anchor toward the original W_down instead (see
+- **[CORRECTION, SUPERSEDES THE TOPIC-CLOSING ENTRY BELOW, 2026-07-31,
+  CONFIRMED ON BOTH 3B AND 8B] C1 fix: the "refit hurts at s=0.5"
+  headline was substantially a ridge-prior artifact on BOTH models, and
+  s=0.9 is a much bigger Go than previously measured on BOTH models.**
+  All entries below this one used `solve_refit`'s ORIGINAL 0-shrinkage-
+  prior ridge (pulls weak-evidence columns toward the all-zero row).
+  Fixed to anchor toward the original W_down instead (see
   `refit_mlp.solve_refit` on branch `auto/refit-honesty-corrections`).
-  Recalibrated llama3.2-3b-instruct, g=1, s∈{0.9,0.5} (same calibration
-  tokens as the original runs, fair like-for-like):
+  Recalibrated both llama3.2-3b-instruct and Llama-3.1-8B, g=1,
+  s∈{0.9,0.5} (same calibration tokens as the original runs, fair
+  like-for-like):
 
-  | s | L0 | old L1 (0-anchor) | new L1 (W_down-anchor) | old ΔL1 | new ΔL1 |
-  |---|---|---|---|---|---|
-  | 0.9 | 21.5859 | 19.9510 | **16.1622** | -7.6% | **-25.1%** |
-  | 0.5 | 11.2104 | 13.26 | **11.2074** | +18.3% | **-0.03%** |
+  | model | s | L0 | old L1 (0-anchor) | new L1 (W_down-anchor) | old ΔL1 | new ΔL1 |
+  |---|---|---|---|---|---|---|
+  | 3B | 0.9 | 21.5859 | 19.9510 | 16.1622 | -7.6% | **-25.1%** |
+  | 3B | 0.5 | 11.2104 | 13.26 | 11.2074 | +18.3% | **-0.03%** |
+  | 8B | 0.9 | 12.9347 | 10.3305 | 9.1473 | -20.1% | **-29.3%** |
+  | 8B | 0.5 | 6.3869 | 7.2615 | 6.3804 | +13.7% | **-0.10%** |
 
-  **s=0.5 verdict flips from "hurts" to "no meaningful effect"** (new L1
-  is within 0.03% of L0 and nearly exactly the dense anchor, 11.0489).
-  **s=0.9's Go result more than triples in size** (-25.1% vs -7.6%) — C1
-  was suppressing real signal at high sparsity too, not just adding noise
-  at low sparsity. Per the request's own rule ("3B에서 판별 후 뒤집히는
-  경우에만 8B 확장"), the flip at s=0.5 puts 8B verification back in
-  scope. Out of scope for now, recorded as an observation only: this
-  reopens L2 (Dead End below) as a candidate for re-examination, since it
-  also used the buggy ridge; and the harness accuracy-axis "s=0.5 hurts"
-  confirmation was likewise measured against the old weights and has not
-  been re-checked. Journal:
-  2026-07-31_experiment-refit-c1-m1-corrections.md
+  **s=0.5 verdict flips from "hurts" to "no meaningful effect" on BOTH
+  models** (new L1 lands within 0.03-0.10% of L0/dense on each). **s=0.9's
+  Go result is substantially bigger on BOTH models** (roughly triples on
+  3B, +45% relative on 8B) — C1 was suppressing real signal at high
+  sparsity too, not just adding noise at low sparsity. The 8B extension
+  (triggered by the request's own "flip → verify on 8B" rule) rules out
+  "3B/dev-model artifact" as an explanation for either half of the
+  correction. Out of scope for this request, recorded as observations
+  only: this reopens L2 (Dead End below) as a candidate for
+  re-examination, since it also used the buggy ridge; and the harness
+  accuracy-axis "s=0.5 hurts" confirmation was likewise measured against
+  the old weights on 8B and has not been re-checked. C2 (lambda sweep,
+  3B only): s=0.9 mildly lambda-sensitive (0.1 best of {0.001,0.01,0.1}
+  tested), s=0.5 flat regardless of lambda — confirms the anchor, not
+  regularization strength, drove the correction. Journal:
+  2026-07-31_experiment-refit-c1-m1-corrections.md (full data + PR #3:
+  https://github.com/aiha-choij/EfficientAI/pull/3)
 - **[SUPERSEDED BY THE CORRECTION ABOVE — kept for the historical record,
   do not cite the s=0.5/s=0.7 "hurts" direction from here without reading
   the correction first] [MAIN, TOPIC-CLOSING] Both halves of the core
@@ -308,13 +317,14 @@ branch line (oracle-residual-sparsity) rather than refit alone.
    CONFIRMED: s=0.5 flips from "hurts" to "no meaningful effect", s=0.9
    Go more than triples in size. See the C1 correction entry in Key
    Findings.
-7. **NOW IN SCOPE per the request's own conditional rule** ("뒤집히는
-   경우에만 8B 확장" — it flipped): extend C1's recalibration to
-   Llama-3.1-8B, s∈{0.9,0.5}, g=1, to confirm the correction isn't a
-   3B/dev-model artifact. Not started yet.
-8. C2 (lambda sweep {0.001, 0.01, 0.1}) on the NEW anchored ridge, one
-   point each at s=0.9 and s=0.5 — not started yet, script already
-   supports `--lambdas`.
+7. ~~8B extension~~ — DONE (2026-07-31), CONFIRMED: both halves of the
+   C1 correction generalize to the main model (s=0.9 Go +45% relative
+   improvement; s=0.5 flips to neutral, -0.10%). Not a 3B/dev-model
+   artifact. See the correction entry in Key Findings.
+8. ~~C2 (lambda sweep)~~ — DONE (2026-07-31), 3B only, 6/6 points:
+   s=0.9 mildly lambda-sensitive (0.1 best), s=0.5 flat. Not extended to
+   8B (not required — the 3B sweep already showed lambda is secondary to
+   the anchor fix).
 9. M2 (low priority, optional): corpus-mismatch (wt103 calib vs wt2 eval)
    re-check with calib=c4 — not started.
 
@@ -330,9 +340,9 @@ re-examination with the fixed ridge (M3, reopened by the C1 flip but out
 of this request's scope).
 
 ## Active Jobs
-- M1 (dense anchors), C1 (3B recalibration + eval, s=0.9/0.5, g=1), and
-  C2 (lambda sweep {0.001,0.01,0.1} x s{0.9,0.5}, 6/6 points): all DONE,
-  CONFIRMED — see Key Findings. PR #3 opened.
+(none) — M1, C1 (3B + 8B, both s=0.9/0.5), and C2 (3B lambda sweep,
+6/6 points): all DONE, CONFIRMED on both models where tested. PR #3
+opened, awaiting review. This request's section-4 scope is complete.
 - Running: `refit-c1-build-8b-s09`, `refit-c1-build-8b-s05` (8B
   extension, per the request's flip-triggers-8B rule) — last open item.
 

@@ -1,6 +1,6 @@
 # Experiment: refit-c1-m1-corrections (section 4 honesty corrections: C1 ridge anchor, M1 log-PPL + dense anchor)
 
-Status: CONFIRMED — C1 was a real, substantial bug, not a minor artifact
+Status: CONFIRMED on BOTH 3B and 8B — DONE, no jobs remaining
 Date: 2026-07-31
 
 ## Hypothesis tested
@@ -257,3 +257,37 @@ already-confirmed s=0.9 Go result substantially bigger on the MAIN model
 too (-29.3% vs the old -20.1%), not just the dev model. This is not a
 3B-specific artifact. s=0.5's 8B result (still running) is the last
 piece needed to confirm the s=0.5 flip also generalizes.
+
+## 8B s=0.5 result: the flip generalizes too -- FULLY CONFIRMED on both models
+`refit-c1-eval-8b-s05`: PPL = **6.380413**. Against L0 (6.386932):
+new ΔL1 = **-0.10%** (old ΔL1 was +13.69%, computed from the exact same
+result JSONs: old L1 7.261523).
+
+## FINAL cross-model correction table (both models, both s points)
+
+| model | s | L0 | old L1 (0-anchor) | new L1 (W_down-anchor) | old ΔL1 | new ΔL1 |
+|---|---|---|---|---|---|---|
+| 3B | 0.9 | 21.5859 | 19.9510 | 16.1622 | -7.6% | **-25.1%** |
+| 3B | 0.5 | 11.2104 | 13.26 | 11.2074 | +18.3% | **-0.03%** |
+| 8B | 0.9 | 12.9347 | 10.3305 | 9.1473 | -20.1% | **-29.3%** |
+| 8B | 0.5 | 6.3869 | 7.2615 | 6.3804 | +13.7% | **-0.10%** |
+
+**Both halves of the C1 correction are now confirmed on BOTH models,
+not just the dev model:**
+1. The s=0.5 "refit hurts" headline is refuted on both 3B and 8B --
+   the anchored-ridge L1 lands within 0.03-0.10% of L0/dense on both,
+   vs the old ridge's clear +13.7-18.3% degradation.
+2. The s=0.9 Go result is substantially stronger on both models with the
+   fix (roughly triples on 3B, +45% relative improvement on 8B) than
+   originally measured.
+
+**Status: C1 + M1 + C2, on both 3B and 8B — ALL CONFIRMED, DONE.** No
+jobs remain for this experiment. Everything is committed to PR #3
+(https://github.com/aiha-choij/EfficientAI/pull/3, stacked on
+`auto/local-loss-refit` PR #1, both unmerged, awaiting user review).
+
+Out of scope for this request, recorded as observations only (per its
+own text): (a) L2 (Dead End) is now a stronger re-examination candidate
+given how much the ridge itself mattered; (b) the harness accuracy-axis
+"s=0.5 hurts" confirmation was measured against the OLD buggy weights on
+8B and has not been re-checked against the new ones.
