@@ -90,3 +90,61 @@ argument on existing C7/C8), with unit tests before any GPU eval job,
 per this topic's established discipline. Not started yet — this is a
 real implementation task (new scoring path, new masking-with-
 compensation-on-dropped-blocks logic, new tests), not a quick script.
+
+## Implementation (2026-08-01)
+Implemented as designed above, with one simplification worth noting
+explicitly: the existing C7a/C7/C8a/C8 compensation formulas in
+`block_comp_mlp_forward` needed **zero changes** — they only depend on
+`m_bool` being a per-neuron/per-token boolean (kept vs dropped), not on
+how that boolean was constructed. So the whole P3′ combination reduces
+to a new *mask-construction* path, isolated to three new functions:
+- `neuron_block_topm_mask(block_score, M, m)`: projects an already
+  token-block-aggregated score into neuron-block space via `score @ M`
+  (M = one-hot [D, nb_neuron] partition), keeps the top-m neuron-blocks
+  by aggregate score, broadcasts back via `keep_b @ M.T` — same
+  construction as `p3_block_ppl.py`'s block branch.
+- `block_p3_mask(score, g, M, m, seq_mask)`: composes this with the
+  EXISTING `aggregate_block_score` (token-block axis, unchanged from
+  Phase 1) — the spec's "2D tile" is just these two aggregations
+  composed, not a new tiling mechanism.
+- `build_neuron_partition_onehots(partition_path, B, device, layers)`:
+  loads a `p3_collect_cluster_all.py` file and builds the per-layer M.
+
+Wired into `set_condition` via optional `neuron_partitions`/`neuron_m`
+kwargs (default None = Phase 1-3's exact existing behavior, unchanged)
+and into `block_comp_mlp_forward` via a `getattr(mlp, "blk_neuron_M",
+None)` branch.
+
+**4 new unit tests, all passing** (no regression in the existing 10
+block-comp tests or `test_oracle_units.py`):
+1. B=1 (each neuron its own block) reduces exactly to
+   `oracle_mlp.top_count_mask` (bit-identical, continuous random score →
+   no ties).
+2. neuron_m = nb_neuron (all blocks kept) → C7a output == dense.
+3. Neuron-block sharing: mask constant within every neuron-block
+   (synthetic partition, B=4, 6 blocks).
+4. **The key integration test**: C8 at full rank + a P3′ neuron-block
+   mask (some blocks dropped, at both g=16 and g=64) == dense exactly —
+   confirms the compensation formulas compose correctly with
+   block-quantized (not just unstructured top-p) mask selection.
+
+New eval script `scripts/block_comp/02_eval_p3prime.py` mirrors
+coactivation-block-structure's own P3 budget formula (`K =
+round((1-sparsity)*d)`, `m = round(K/B)`) exactly, so PPL numbers here
+are directly comparable to that topic's existing clustered/random-block
+no-compensation results at the same (B, g, sparsity) — the natural
+baseline P3′ needs to beat.
+
+Committed `a6f4627`, pushed to `auto/block-sparse-compensation`.
+
+**First validation batch submitted** (LLaMA2-7B, g=16, B=64, sparsity=
+0.9 — matching the partition file's own collection sparsity and P3's
+finest tested granularity): `p3prime-c7a-g16-B64` (control, no
+compensation — NOT expected to reproduce P3's own clustered-block
+numbers bit-exactly, since block_comp's residual score differs from
+P3's `|i|*col_norm` score, an interpretation choice already on record
+from Phase 1; only meant to sanity-check the pipeline lands in the same
+catastrophic ballpark P3 found), `p3prime-c7-g16-B64-r688` (rank=d/16),
+`p3prime-c8a-g16-B64-rsk344` (r_sk=d/32), `p3prime-c8-g16-B64-rsk1376`
+(r_sk=d/8) — rank fractions chosen to match Phase 3's own convention.
+All 4 queued/running, none landed yet.

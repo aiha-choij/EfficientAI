@@ -171,22 +171,25 @@ Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
    was a ridge-prior artifact on both models — and strengthens s=0.9's
    Go on both). Tracked in the `local-loss-refit` topic's own
    gist/journal; PR #3 open.
-3. **Phase 4 (P3′) — SCOPED, implementation not started**: combine with
-   `coactivation-block-structure` P2's PPMI neuron-cluster permutation.
-   Design + scoping done (journal/2026-07-31_init-phase4-p3prime.md):
-   P3′ = replace P3's plain "zero the dropped neuron-blocks" masking with
-   block_comp's C7 (mean-gate)/C8 (sketch) compensation on those dropped
-   blocks, using the existing partition file's per-neuron cluster
-   assignments (fetched from `a6000-4` to
-   `~/workspace/analysis/llama2_p3_partitions_s09.pt`, confirmed:
-   llama2-7b, 32 layers, intermediate_size 11008, B∈{64,256},
-   sparsity=0.9 — conveniently matches Phase 3's own target regime).
-   LLaMA2-7B only for the first pass (dense anchor 5.4738 known,
-   partition is model-specific). Needs real new code (2D token-block ×
-   neuron-block score aggregation, compensation applied only to dropped
-   blocks, new unit tests) before any GPU job — not started yet. With
-   Phase 3's 8B gate now formally met, this is the remaining piece of the
-   request's Main Thread A/B.
+3. **Phase 4 (P3′) — IMPLEMENTED, first validation batch running
+   (2026-08-01)**: `neuron_block_topm_mask`/`block_p3_mask`/
+   `build_neuron_partition_onehots` added to `block_comp_mlp.py` — the
+   existing C7a/C7/C8a/C8 compensation formulas needed zero changes
+   (they only depend on the mask being a per-neuron boolean, not on how
+   it's constructed); P3′ is purely a new mask-construction path
+   composing the existing token-block aggregation with a new
+   neuron-block projection via the partition file's one-hot M. 4 new
+   unit tests pass (B=1 reduces to `top_count_mask`; full-keep==dense;
+   neuron-block sharing; **C8 full-rank + P3′ mask == dense**, the key
+   integration check), no regression anywhere else. New eval script
+   `scripts/block_comp/02_eval_p3prime.py` matches coactivation-block-
+   structure's own P3 budget formula (K/m) for direct comparability.
+   Committed `a6f4627`. First validation batch submitted on LLaMA2-7B
+   (g=16, B=64, sparsity=0.9 — matches the partition file and P3's
+   finest granularity): C7a (control), C7 (r=d/16), C8a (r_sk=d/32), C8
+   (r_sk=d/8) — all queued/running, none landed yet. With Phase 3's 8B
+   gate now formally met, this is the remaining piece of the request's
+   Main Thread A/B.
 C9 (overflow hybrid) is explicitly NOT implemented — Phase 3 landed on
 GO, not Partial-go/No-go, so C9 is not promoted per spec's own rule.
 
@@ -204,8 +207,10 @@ GO, not Partial-go/No-go, so C9 is not promoted per spec's own rule.
   progress), killed via `runs -k`, resubmitted post-fix and landed clean.
 - Phase 3 8B round (p=0.3, targeting s_block≈0.9): all done — this is the
   round the formal Go verdict is based on (see Key Findings).
-- Phase 3 8B leg: DONE. No jobs outstanding for this topic's main thread
-  until Phase 4 kicks off.
+- Phase 3 8B leg: DONE.
+- Phase 4 (P3′) first validation batch: `p3prime-c7a-g16-B64`,
+  `p3prime-c7-g16-B64-r688`, `p3prime-c8a-g16-B64-rsk344`,
+  `p3prime-c8-g16-B64-rsk1376` — 2 running, 2 queued, none landed yet.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first
