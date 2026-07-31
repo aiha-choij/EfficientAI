@@ -83,6 +83,20 @@ this alternative. Report whichever happens plainly, no thumb on the scale.
   audit/comparison), raw stats under `.../stats/l1c1_s{s}_g1/`
 - **Sync**: n/a (single-repo gateway session)
 
+## C1 recalibration builds: both done, both eval jobs queued
+`refit-c1-build-3b-s09` and `refit-c1-build-3b-s05` both completed
+cleanly, reusing the EXACT saved calibration tokens from the original
+(buggy-ridge) runs (`calib_tokens.pt`, confirmed in the log) so this is a
+fair like-for-like re-solve. Raw (G,C,n) saved to
+`~/workspace/refit/llama3.2-3b-instruct/stats/l1c1_s{0.9,0.5}_g1/` per
+layer -- future lambda/prior changes need no recalibration going forward.
+New anchored-ridge weights saved to
+`.../weights/l1c1_s{0.9,0.5}_g1_lam0.01/` (kept separate from the
+original `l1_s{s}_g1_lam0.01` artifacts for audit). Eval jobs
+(`refit-c1-eval-3b-s09`, `refit-c1-eval-3b-s05`) queued immediately after
+-- PPL numbers not yet in, no verdict yet on whether s=0.5's "refit
+hurts" finding survives the anchored ridge.
+
 ## M1 results: dense anchors (both landed, no anomaly)
 - 3B (llama3.2-3b-instruct): dense PPL = **11.0489**. Against s=0.9,g=1
   L0 (mask-only, no refit) = 21.5859: masking alone nearly doubles PPL
