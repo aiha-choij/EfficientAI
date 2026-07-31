@@ -130,12 +130,15 @@ Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
 1. **Phase 3 → 8B extension** (needed for spec's actual Go gate: 8B,
    s≈0.9): 8B oracle calibration DONE (`bc-calib-8b`,
    `~/workspace/oracle/Llama-3.1-8B/stats/wikitext103`, 32 layers, no
-   anomaly). Still needed: repeat the C7a/C7/C8a/C8 protocol at a p that
-   lands near s≈0.9 achieved sparsity (3B's own p-vs-sparsity curve
-   suggests p≈0.97-0.99 range, not p≈0.9 — the mapping may differ on 8B,
-   worth a quick p-probe before committing to the full sweep). Only then
-   can Go/Partial-go/No-go (spec §5) be formally declared — current 3B
-   result is Go-crossing but preliminary.
+   anomaly). Correction to an earlier note here: 3B's p-vs-sparsity
+   curve needs a LOWER p (further from 1) to reach HIGHER sparsity
+   (p=0.9->sp=0.51, p=0.7->sp=0.76 -- the direction is p down = sparsity
+   up), so reaching s≈0.9 needs p well below 0.7, not above 0.9. Queued
+   2 probe jobs on 8B (`bc-c3-g1-8b-p05`, `bc-c3-g1-8b-p03`, oracle C3
+   condition, reusing the 8B calibration) to find which p lands near
+   sparsity 0.9 before committing to the full C7a/C7/C8a/C8 sweep. Not
+   landed yet. Only after this can Go/Partial-go/No-go (spec §5) be
+   formally declared — current 3B result is Go-crossing but preliminary.
 2. **§4 (local-loss-refit honesty corrections, C1/C2/M1)** — IN PROGRESS
    on branch `auto/refit-honesty-corrections` (off `auto/local-loss-
    refit`): C1 ridge-anchor fix coded + unit-tested, M1 log-PPL
