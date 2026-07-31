@@ -180,4 +180,14 @@ s=0.5 flip puts 8B verification in scope. Queued:
   multi-lambda loop in `01_build_l1.py` -- one recalibration sweep,
   three solved weight sets, no new code) -- C2's lambda sweep on top of
   the now-fixed anchored ridge.
-None landed yet as of this update.
+
+## C2 build jobs landed (both s=0.9 and s=0.5), eval jobs queued
+`refit-c2-sweep-3b-s09` and `refit-c2-sweep-3b-s05` both completed
+cleanly, reusing the same saved calibration tokens, each producing 3
+weight sets (lambda in {0.001, 0.01, 0.1}) in a single job (the
+already-supported multi-lambda loop needs one calibration sweep, not
+three). Submitted the 3 eval jobs for s=0.9's sweep
+(`refit-c2-eval-3b-s09-lam{001,01,1}`); s=0.5's 3 eval jobs queued for
+next round (kept this submission batch to <=4 new jobs per the queue
+rule). No PPL-vs-lambda numbers yet.
+`refit-c1-build-8b-s09`/`-s05` (8B extension) still running.
