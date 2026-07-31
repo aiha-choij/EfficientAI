@@ -227,3 +227,12 @@ Remaining open item for this experiment: the 8B extension
 (`refit-c1-build-8b-s09`/`-s05`, still running) -- will confirm whether
 the 3B correction (s=0.5 flips to neutral, s=0.9 Go more than triples)
 generalizes to the main model, per the request's own conditional rule.
+
+## 8B extension: s=0.9 build done, eval queued; s=0.5 build still running
+`refit-c1-build-8b-s09` completed cleanly (3 calibration-sweep chunks,
+layers_per_pass=12 as expected for 8B's larger accumulators), reusing
+the existing saved calibration tokens, raw (G,C,n) saved to
+`~/workspace/refit/Llama-3.1-8B/stats/l1c1_s0.9_g1/`. Eval job
+(`refit-c1-eval-8b-s09`) submitted immediately -- PPL not yet in.
+`refit-c1-build-8b-s05` still running (~29 min in, consistent with the
+s=0.9 build's timing, not stalled).
