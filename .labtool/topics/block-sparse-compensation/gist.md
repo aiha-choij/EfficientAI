@@ -33,7 +33,6 @@ and is directly motivated by two closed threads:
   thread.
 
 ## Key Findings
-(no accuracy findings yet — first Phase 2 PPL numbers are queued, not back)
 - **Phase 1 gate met (2026-07-31)**: `block_comp_mlp.py` implements C7a/C7/
   C8a/C8; all 5 spec-required unit tests pass (CPU, tiny model), no
   regression in `test_oracle_units.py`. One documented interpretation call:
@@ -43,6 +42,18 @@ and is directly motivated by two closed threads:
   1 (C7 at g=1 must bit-match C4). Flagged in spec.md/PR/code docstring;
   unconfirmed against the spec author's actual intent.
 - PR #2 (Phase 1+2 code): https://github.com/aiha-choij/EfficientAI/pull/2
+- **Phase 2 round 1 (2026-07-31, PROVISIONAL — llama3.2-3b-instruct)**:
+  C7a (no compensation) at p=0.9: PPL 15.69 (g=16, s_block=0.2375), 15.82
+  (g=64, s_block=0.2012) — worse with bigger blocks in both PPL and
+  achieved-sparsity direction, as expected. Absolute PPL is far better
+  than coactivation P3's neuron+token bare-block catastrophe (4.5k-24k):
+  token-only mask sharing (no neuron permutation) looks survivable, not
+  catastrophic, at this (g,p). C2 g=1 anchor measured for the first time
+  on this dev model: PPL 11.16 (p=0.9, sparsity 0.459), 12.06 (p=0.7,
+  sparsity 0.704) — but **not yet a clean sharing-tax number**, since C2
+  and C7a use different score families (see Open Questions); round 2 adds
+  the in-family (residual-score) g=1 anchor, oracle C3.
+  Journal: journal/2026-07-31_experiment-block-comp-phase2-3b-round1.md
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
@@ -51,14 +62,13 @@ and is directly motivated by two closed threads:
   compensation formula, not the selection criterion? Implemented as
   residual-score (see Key Findings) because that's what unit test 1
   requires; not confirmed with the spec author.
+- Phase 2 round 1's C2-vs-C7a PPL gap mixes two effects (score family +
+  sharing tax) — resolved by round 2's in-family anchor (C3 g=1), not yet
+  landed.
 
 ## Dead Ends
 (none yet in this topic; see `coactivation-block-structure` gist for the
 "bare block mask, no compensation" dead end this topic responds to)
-
-## Open Questions
-(record here, don't invent answers, if any spec ambiguity surfaces during
-implementation)
 
 ## Next Experiments
 Execution order per spec §5 operating rules:
@@ -82,17 +92,13 @@ C9 (overflow hybrid) is explicitly NOT implemented yet — only promoted if
 Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
 
 ## Active Jobs
-- `block-comp-calib-3b` (050-20260731-164842): DONE — oracle-format g_bar/
-  col_norm calibration for `/raid/LLM/llama3.2-3b-instruct`
-  (wikitext103, n=512, seqlen=2048), saved to
-  `~/workspace/oracle/llama3.2-3b-instruct/stats/wikitext103` (28 layers).
-  Prerequisite for every block_comp condition (all use the residual score).
-- Phase 2 sharing-tax-curve jobs (round 1, resubmitted after a naming
-  bug — see Dead Ends): C2 g=1 anchor at p∈{0.7,0.9}, C7a at (g=16,p=0.9)
-  and (g=64,p=0.9), llama3.2-3b-instruct. IDs `050-20260731-1746{51,54,59}`
-  + `050-20260731-174703` (`bc-c2-g1-p09`, `bc-c2-g1-p07`,
-  `bc-c7a-g16-p09`, `bc-c7a-g64-p09`); one running, three queued as of
-  2026-07-31 17:47.
+- `block-comp-calib-3b` (050-20260731-164842): DONE.
+- Phase 2 round 1: DONE, all 4 jobs ok (see Key Findings + journal).
+- Phase 2 round 2 (queued 2026-07-31 ~18:0x): oracle C3 (residual score,
+  g=1, in-family anchor) at p∈{0.7,0.9}, C7a at (g=16,p=0.7) and
+  (g=64,p=0.7) — fills in the p=0.7 point and gives the proper in-family
+  anchor round 1 was missing. Names kept dot-free per the Dead End below
+  (`bc-c3-g1-p09`, `bc-c3-g1-p07`, `bc-c7a-g16-p07`, `bc-c7a-g64-p07`).
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first

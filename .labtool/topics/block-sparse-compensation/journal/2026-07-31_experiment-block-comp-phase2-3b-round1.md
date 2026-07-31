@@ -1,6 +1,6 @@
 # Experiment: block-comp-phase2-3b-round1 (Phase 2 — sharing-tax curve, first pass)
 
-Status: PENDING
+Status: PROVISIONAL (results in, gate not yet reached -- round 2 needed)
 Date: 2026-07-31
 
 ## Hypothesis tested
@@ -67,6 +67,47 @@ more p/g points than this first pass to assess.
   `~/workspace/oracle/llama3.2-3b-instruct/stats/wikitext103` (calib),
   `~/workspace/block_comp/llama3.2-3b-instruct/results/*.json` (eval)
 - **Sync**: n/a (single-repo gateway session, no cross-host sync needed)
+
+## Results
+All 4 jobs STATUS=ok, llama3.2-3b-instruct, wikitext-2 test PPL:
+
+| condition | g | p | achieved sparsity/s_block | PPL |
+|---|---|---|---|---|
+| C2 (per-token, \|i\|·col_norm) | 1 | 0.9 | 0.4592 | 11.1624 |
+| C2 (per-token) | 1 | 0.7 | 0.7038 | 12.0568 |
+| C7a (block, residual score, no comp) | 16 | 0.9 | 0.2375 | 15.6911 |
+| C7a (block, residual score, no comp) | 64 | 0.9 | 0.2012 | 15.8210 |
+
+Sanity checks passed: C2 g=1 p↓ → sparsity↑, PPL↑ (both directions correct).
+C7a g=16→64 at fixed p=0.9: sparsity drops slightly (0.2375→0.2012, larger
+blocks average the residual score flatter, keeping marginally more
+neurons) and PPL rises slightly (15.69→15.82) — directionally consistent
+with "larger token block = more sharing tax."
+
+## Interpretation
+- C7a's absolute PPL (15.7-15.8) is far better than coactivation P3's
+  bare block-mask catastrophe (4.5k-24k) — but that comparison is not
+  apples-to-apples: P3 additionally block-shares the MLP's *neuron* axis
+  (via clustering/random neuron partitions on LLaMA2-7B), while C7a here
+  only block-shares the *token* mask (no neuron permutation, no rank
+  reduction, still one mask value per neuron per block, on 3B). The
+  token-only sharing tax at g=16/64 looks real but survivable (worse than
+  dense/per-token, not catastrophic) — consistent with the expectation
+  that neuron-axis sharing is the more damaging axis, and motivates
+  Phase 4 (P3') combining both axes.
+- **The C2-vs-C7a comparison in this round is confounded by score family**
+  (flagged pre-registered in this card's "What we're testing over
+  alternatives"): C2 selects by |i|*col_norm, C7a by the C3/C4/C5 residual
+  score |u*(g-g_bar)|*col_norm. At the same p=0.9 these produce very
+  different achieved sparsity (0.459 vs 0.2375) even before g enters the
+  picture, so the PPL gap (11.16 vs 15.69) mixes "sharing tax" with "score
+  family difference." Round 2 adds oracle C3 at g=1 (same residual score,
+  no block sharing) as the proper in-family anchor, isolating g as the
+  only variable.
+- Not yet a Phase 2 gate verdict: need the g=1 residual-score anchor (C3)
+  plus at least one more p point to see whether the curve's shape is
+  consistent with the coactivation overlap measurement (C(1)=0.316 at
+  s=0.9) per the Phase 2 completion gate. Round 2 queued for both.
 
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
