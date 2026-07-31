@@ -174,6 +174,52 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   topic's method.
   Journal: 2026-07-31_experiment-refit-l2-validate-3b.md
 
+- **[M1, honesty correction] Sharing-tax absorption headline was an
+  exponential distortion — replaced with log-PPL (2026-07-31)**. The
+  "3B 37% / 8B 60%" absorption figures in the topic-closing entry above
+  were computed on raw PPL score, which distorts multiplicative
+  quantities (PPL itself is exp(cross-entropy nats), so differencing raw
+  PPL conflates "how much worse" with "how much worse, exponentiated").
+  Recomputed on log-PPL (nats, i.e. mean cross-entropy) using the exact
+  same underlying result JSONs: **3B absorption ≈ 12.4%, 8B ≈ 21.5%**
+  (both roughly a third of the raw-PPL figures). Verified by direct
+  recomputation from `~/workspace/refit/{llama3.2-3b-instruct,
+  Llama-3.1-8B}/results/{l0,l1}_s0.9_g{1,128}*.json` — not re-estimated,
+  the exact same PPL numbers, just a different (more honest) aggregation.
+  **The old 37%/60% headline is demoted to "PPL-score basis" and must be
+  reported alongside, not instead of, the log-PPL figures going forward**
+  (per the requesting agent request's explicit instruction). Directional
+  conclusion (refit absorbs more of the tax on the larger model, 8B > 3B)
+  is UNCHANGED by this correction — only the magnitude was wrong.
+- **[C1, critical correction, code done 2026-07-31 — GPU jobs in
+  flight]**: `solve_refit`'s ridge was a 0-shrinkage prior (weak evidence
+  pulls W_tilde toward the all-zero row). Fixed to anchor toward the
+  ORIGINAL W_down instead (master design: `W_tilde = (C + lambda*diag_mean
+  *W_anchor)(G + lambda*diag_mean*I)^-1`, reduces to the old formula at
+  W_anchor=0). This is a real candidate alternate explanation for the
+  s=0.5/0.7 "refit hurts" finding above (never ruled out before): if low-
+  sparsity masking leaves little true bias to correct, the OLD ridge could
+  have been actively pulling weak-evidence columns toward zero instead of
+  leaving them at their trustworthy original value, adding pure noise on
+  top of (or instead of) any real corpus-mismatch bias-variance story.
+  Mathematically, the anchored solution is provably at least as good as
+  the anchor on in-sample SSE for any lambda>=0 (same argument that shows
+  0-anchored ridge always beats the zero vector). All refit+oracle unit
+  tests re-verified, no regression. **Recalibration required** (G/C were
+  never saved from the original s=0.5/0.7/0.9 runs) — build script now
+  also saves raw (G,C,n) to disk per layer so this never has to happen
+  again for a pure lambda/prior change. GPU jobs submitted (3B, s=0.9 and
+  s=0.5, g=1) — not yet landed; **whether the s=0.5/0.7 "hurts" conclusion
+  survives this fix is still open**, do not assume either outcome.
+  Branch: `auto/refit-honesty-corrections` (off `auto/local-loss-refit`,
+  PR #1 still unmerged) — separate from `block-sparse-compensation`'s own
+  branch. Code not yet proposed via `agent-pr` (pending recalibration
+  results so the PR description can report them).
+- **[M1] Dense (s=0) PPL anchor — GPU jobs in flight (2026-07-31)**: no
+  code needed (existing L0 mode at s=0 IS the dense forward, unit-tested
+  identity already covers this), just two eval runs queued for 3B and 8B
+  to complete the result table's absolute frame. Not yet landed.
+
 ## Dead Ends
 - 2026-07-31 — **L2 (sequential/GPTQ-style refit against the sparse
   stream)**: loses to both L0 and L1 at s=0.9,g=1 on llama3.2-3b-instruct,
@@ -232,7 +278,12 @@ partial-sequential variants (flagged as ideas in its Dead-End card, not
 started).
 
 ## Active Jobs
-- (none)
+- Reactivated 2026-07-31 for the requesting agent request's section-4
+  honesty corrections (C1/C2/M1). 4 jobs queued: `refit-dense-anchor-3b`,
+  `refit-dense-anchor-8b` (M1), `refit-c1-build-3b-s09`,
+  `refit-c1-build-3b-s05` (C1 recalibration with the fixed anchored
+  ridge, `--stats_out` set so G/C are saved this time). Not yet landed.
+  C2 (lambda sweep) queued for after C1's verdict is in.
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
