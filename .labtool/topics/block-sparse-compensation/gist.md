@@ -33,7 +33,24 @@ and is directly motivated by two closed threads:
   thread.
 
 ## Key Findings
-(none yet — Phase 1 implementation in progress)
+(no accuracy findings yet — first Phase 2 PPL numbers are queued, not back)
+- **Phase 1 gate met (2026-07-31)**: `block_comp_mlp.py` implements C7a/C7/
+  C8a/C8; all 5 spec-required unit tests pass (CPU, tiny model), no
+  regression in `test_oracle_units.py`. One documented interpretation call:
+  the block mask's selection score is the C3/C4/C5 residual score
+  (`|u*(g-g_bar)|*col_norm`), not the `|i|*col_norm` score the spec's
+  generic block-notation section literally writes — required for unit test
+  1 (C7 at g=1 must bit-match C4). Flagged in spec.md/PR/code docstring;
+  unconfirmed against the spec author's actual intent.
+- PR #2 (Phase 1+2 code): https://github.com/aiha-choij/EfficientAI/pull/2
+
+## Open Questions
+- Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
+  score, or did the spec intend the `|i|*col_norm` (C1/C2) score for a
+  different reason and the "C7=C4's math" line was only about the
+  compensation formula, not the selection criterion? Implemented as
+  residual-score (see Key Findings) because that's what unit test 1
+  requires; not confirmed with the spec author.
 
 ## Dead Ends
 (none yet in this topic; see `coactivation-block-structure` gist for the
@@ -65,7 +82,17 @@ C9 (overflow hybrid) is explicitly NOT implemented yet — only promoted if
 Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
 
 ## Active Jobs
-(none yet)
+- `block-comp-calib-3b` (050-20260731-164842): DONE — oracle-format g_bar/
+  col_norm calibration for `/raid/LLM/llama3.2-3b-instruct`
+  (wikitext103, n=512, seqlen=2048), saved to
+  `~/workspace/oracle/llama3.2-3b-instruct/stats/wikitext103` (28 layers).
+  Prerequisite for every block_comp condition (all use the residual score).
+- 4 Phase 2 sharing-tax-curve jobs queued (2026-07-31,
+  `050-20260731-1652{25,29,33,37}`): C2 g=1 anchor at p∈{0.7,0.9}, C7a at
+  (g=16,p=0.9) and (g=64,p=0.9), llama3.2-3b-instruct. First pass is
+  intentionally narrow (p=0.9 primary, p=0.7 for context) — queue rule
+  caps a single submission batch at 4; more p points to follow once these
+  land.
 
 ## Pointers
 - Full spec (verbatim, Korean, authoritative): `spec.md` in this topic —
