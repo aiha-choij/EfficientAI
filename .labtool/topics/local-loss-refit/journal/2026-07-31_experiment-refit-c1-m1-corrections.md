@@ -191,3 +191,18 @@ three). Submitted the 3 eval jobs for s=0.9's sweep
 next round (kept this submission batch to <=4 new jobs per the queue
 rule). No PPL-vs-lambda numbers yet.
 `refit-c1-build-8b-s09`/`-s05` (8B extension) still running.
+
+## C2 (lambda sweep) partial results: s=0.9 nearly flat across lambda
+| s | lambda | L1 PPL |
+|---|---|---|
+| 0.9 | 0.001 | 16.1553 |
+| 0.9 | 0.01 | 16.1622 (matches the C1 result at the default lambda, as expected) |
+| 0.9 | 0.1 | pending |
+| 0.5 | 0.001/0.01/0.1 | pending (3 eval jobs just queued) |
+
+At s=0.9, PPL is essentially flat across a 10x lambda change (16.1553 vs
+16.1622, a 0.04% difference) -- with 512x2048 calibration tokens against
+d=8192, G is well-conditioned enough that ridge strength barely matters
+in this range. Whether s=0.5 shows the same flatness (or is more
+lambda-sensitive, being the regime where the anchor matters most) is the
+open question this sweep is actually testing -- not yet answered.
