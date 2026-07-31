@@ -52,7 +52,7 @@ import os
 
 import torch
 
-from .oracle_mlp import build_M_factors, iter_mlps, top_p_mask
+from .oracle_mlp import compute_M, iter_mlps, top_p_mask
 
 CONDITIONS = ("c7a", "c7", "c8a", "c8")
 
@@ -145,11 +145,33 @@ def build_gate_up_down_sketch(mlp, r_sk):
     return Ag, Bg, Au, Bu, Ad, Bd
 
 
+def _build_comp_lr_factors(mlp, rank):
+    """C7's comp_lr factors: same math as oracle_mlp.build_M_factors's
+    plain (non-whitened) path -- M = W_down diag(g_bar) W_up, rank-r SVD
+    -- but with the SVD run on CPU, not GPU.
+
+    oracle_mlp.py itself is intentionally left untouched (shared with the
+    paused oracle-residual-sparsity topic), so this is a local
+    reimplementation of just the SVD step, not a call to
+    oracle_mlp.build_M_factors. Needed because that GPU-based SVD, called
+    once per layer across a whole model, caused the exact same kind of
+    unbounded CUDA memory growth Phase 3 already hit once for the
+    gate/up/down sketch (see _svd_factors's docstring) -- this time on
+    8B (h=4096, 32 layers), where M itself is bigger and there are more
+    layers than on the 3B dev model that never tripped this."""
+    M = compute_M(mlp)  # [h,h], cheap, computed on GPU
+    U, S, Vh = torch.linalg.svd(M.cpu(), full_matrices=False)
+    r = min(rank, S.shape[0])
+    sq = S[:r].sqrt()
+    B = (U[:, :r] * sq.unsqueeze(0)).to(M.device)
+    A = (sq.unsqueeze(1) * Vh[:r, :]).to(M.device)
+    return A, B
+
+
 def attach_block_factors_inplace(model, rank, r_sk, condition=None):
-    """Build and attach C7's comp_lr factors (rank, reusing oracle_mlp's C4
-    factor builder -- M = W_down diag(g_bar) W_up) and/or C8/C8a's gate/up/
-    down sketches (r_sk) directly (used by tests; a save/load pair mirrors
-    oracle_mlp.py's convention for the real build scripts).
+    """Build and attach C7's comp_lr factors (rank) and/or C8/C8a's
+    gate/up/down sketches (r_sk) directly (used by tests; a save/load
+    pair mirrors oracle_mlp.py's convention for the real build scripts).
 
     condition, if given, skips whichever half a condition never uses (c7
     only needs comp_lr; c8/c8a only need the sketch) -- real eval runs
@@ -162,7 +184,7 @@ def attach_block_factors_inplace(model, rank, r_sk, condition=None):
     for _, mlp in iter_mlps(model):
         dtype = mlp.down_proj.weight.dtype
         if need_comp:
-            A, B, _ = build_M_factors(mlp, rank)
+            A, B = _build_comp_lr_factors(mlp, rank)
             mlp.blk_comp_A, mlp.blk_comp_B = A.to(dtype), B.to(dtype)
         if need_sketch:
             Ag, Bg, Au, Bu, Ad, Bd = build_gate_up_down_sketch(mlp, r_sk)
