@@ -200,21 +200,30 @@ rule). No PPL-vs-lambda numbers yet.
 | 0.9 | 0.1 | **16.0359** (best of the three) |
 | 0.5 | 0.001 | 11.2132 |
 | 0.5 | 0.01 | 11.2074 |
-| 0.5 | 0.1 | pending |
+| 0.5 | 0.1 | **11.2047** |
 
-At s=0.9, lambda=0.1 is mildly better than 0.001/0.01 (16.04 vs ~16.16,
-~0.8% better) -- not perfectly monotonic (0.01 is slightly worse than
-0.001, likely within run-to-run/optimization noise at this scale) but
-the higher-lambda arm is the clear best of the three tested. At s=0.5,
-both lambda values land within 0.05% of each other and within ~0.3% of
-L0/dense -- confirms the "essentially neutral, not lambda-sensitive"
-reading from the C1 recalibration holds across this sweep too, not just
-at the one lambda originally tested. `l1c2_s0.5_g1_lam0.1` eval still
-running -- expect it to land in the same tight neutral band.
+**C2 sweep complete (6/6 points landed).** At s=0.9, lambda=0.1 is mildly
+better than 0.001/0.01 (16.04 vs ~16.16, ~0.8% better) -- not perfectly
+monotonic (0.01 slightly worse than 0.001, likely run-to-run/optimization
+noise at this scale) but the higher-lambda arm is the clear best of the
+three. At s=0.5, PPL decreases smoothly and monotonically with lambda
+(11.2132 -> 11.2074 -> 11.2047) but the ENTIRE range spans only 0.08% --
+all three land within ~0.3% of L0 (11.2104) and dense (11.0489). Confirms
+the "essentially neutral, not lambda-sensitive" reading holds across the
+whole sweep, not just the one lambda originally tested.
 
 **Practical implication for C2's own question**: at s=0.9, a slightly
 higher lambda than the original default (0.01) may be worth adopting
 going forward (0.1 beat both smaller values here) -- not conclusive from
-3 points, but directionally suggestive. At s=0.5, lambda choice doesn't
-matter within this range; the anchor (C1), not the regularization
-strength, is what drove the correction.
+3 points on 1 model, but directionally suggestive; worth confirming on
+8B once that recalibration lands. At s=0.5, lambda choice doesn't matter
+within this range; the anchor (C1), not the regularization strength, is
+what drove the correction -- C2's own contribution at low sparsity is
+negligible, which is itself informative (it means the earlier "hurts"
+finding really was about the anchor, not merely under-regularized).
+
+## Status: C1 + M1 + C2 (3B leg) all CONFIRMED and DONE
+Remaining open item for this experiment: the 8B extension
+(`refit-c1-build-8b-s09`/`-s05`, still running) -- will confirm whether
+the 3B correction (s=0.5 flips to neutral, s=0.9 Go more than triples)
+generalizes to the main model, per the request's own conditional rule.

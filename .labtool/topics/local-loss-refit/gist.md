@@ -330,12 +330,11 @@ re-examination with the fixed ridge (M3, reopened by the C1 flip but out
 of this request's scope).
 
 ## Active Jobs
-- M1 (dense anchors) and C1 (3B recalibration + eval, s=0.9/0.5, g=1):
-  all DONE, CONFIRMED — see Key Findings. PR #3 opened.
+- M1 (dense anchors), C1 (3B recalibration + eval, s=0.9/0.5, g=1), and
+  C2 (lambda sweep {0.001,0.01,0.1} x s{0.9,0.5}, 6/6 points): all DONE,
+  CONFIRMED — see Key Findings. PR #3 opened.
 - Running: `refit-c1-build-8b-s09`, `refit-c1-build-8b-s05` (8B
-  extension, per the request's flip-triggers-8B rule), `refit-c2-sweep-
-  3b-s09`, `refit-c2-sweep-3b-s05` (lambda sweep {0.001,0.01,0.1} on the
-  new anchored ridge, one job each s point). None landed yet.
+  extension, per the request's flip-triggers-8B rule) — last open item.
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
