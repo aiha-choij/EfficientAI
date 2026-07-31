@@ -2,6 +2,10 @@
 
 Date: 2026-07-31
 
+Status: STRONG POSITIVE SIGNAL at (g=16, B=64) — C8/C8a recover ~99% of
+P3's catastrophic tax (in-family anchor confirmed). Replicating at B=256
+before declaring full CONFIRMED.
+
 ## Why now
 Phase 3's spec §5 gate is now formally GO (8B, g=16, s≈0.9 — see
 `2026-07-31_experiment-block-comp-phase3-8b.md`). Phase 4 is the last
@@ -199,3 +203,40 @@ recovery number above uses a stand-in anchor from a different score
 family. Once the in-family probe lands, will interpolate a proper
 matched-sparsity anchor (same log-PPL-interpolation method as the 8B
 round) and recompute.
+
+## In-family anchor lands — confirms the preliminary numbers almost exactly
+Both probes landed clean, bracketing the target sparsity (0.9012) nicely:
+`p3prime-c3-g1-llama2-p05` (p=0.5 -> sparsity 0.8771, PPL 6.3575),
+`p3prime-c3-g1-llama2-p03` (p=0.3 -> sparsity 0.9536, PPL 8.3618). Log-
+PPL interpolation at s=0.9012 gives anchor PPL **6.9298** -- barely
+different from the earlier cross-score-family stand-in (8.11), so the
+preliminary recovery numbers move by less than 1pp:
+
+| condition | PPL | recovery (in-family anchor) | ΔPPL vs anchor |
+|---|---|---|---|
+| C7a (no comp) | 6874.22 | 0% | +6867.29 |
+| C7 (mean-gate, r=d/16) | 4952.39 | 28.0% | +4945.46 |
+| C8 (deployable, r_sk=d/8) | 48.89 | **99.4%** | +41.96 |
+| C8a (diagnostic, r_sk=d/32) | 37.17 | **99.6%** | +30.24 |
+
+**Confirmed: Phase 4's motivating question from P3 has a clear positive
+answer at this (g=16, B=64) setting.** Gate/up-sketch compensation
+(C8/C8a) recovers ~99% of the catastrophic tax that neuron-block +
+token-block sharing creates at s=0.9 -- the same regime
+`coactivation-block-structure`'s P3 found completely unrecoverable by
+masking alone (clustered or random). Mean-gate-only compensation (C7)
+remains weak (~28%), reproducing this topic's most consistent finding
+(u/gate-sketch exactness, not mean-gate, is the dominant lever) even
+more starkly than any earlier round. Same caveat as the 8B verdict
+applies: this is a recovery-RATIO result, not evidence that C8's
+absolute quality (PPL 48.89) is close to dense/anchor (~6.9) -- ΔPPL is
+still +41.96, so "recovery" here means "escapes the catastrophic
+collapse regime," a real and useful result but not literal parity with
+per-token masking.
+
+**Not yet extending to a full CONFIRMED verdict on one data point alone**
+(mirrors Phase 3's own precedent of replicating across block sizes
+before declaring CONFIRMED): submitted a second validation batch at
+B=256 (g=16 unchanged, same rank/r_sk fractions -- C7a/C7/C8a/C8) to
+check the ~99% recovery pattern holds at the partition file's other
+available granularity, not just B=64.

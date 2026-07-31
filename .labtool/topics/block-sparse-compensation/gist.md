@@ -184,23 +184,27 @@ Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
    integration check), no regression anywhere else. New eval script
    `scripts/block_comp/02_eval_p3prime.py` matches coactivation-block-
    structure's own P3 budget formula (K/m) for direct comparability.
-   Committed `a6f4627`. **First validation batch landed (2026-08-01) —
-   strongest result in the topic so far**: C7a (control, no comp) PPL
-   6874.22 (catastrophic, same ballpark as coactivation's own P3 finding
-   for bare clustered-block masking); C7 (mean-gate, r=d/16) PPL 4952.39
-   (weak, ~28% preliminary recovery); **C8a (r_sk=d/32) PPL 37.17 and C8
-   (r_sk=d/8) PPL 48.89 — both ~99% preliminary recovery**, using
-   coactivation's own per-token anchor (8.11) as a cross-score-family
-   stand-in (proper in-family g=1 anchor probes submitted, not landed
-   yet — verdict not final). Even under Phase 4's harder combined
-   token-block + neuron-block sharing at s=0.9 (exactly the regime P3
-   showed was catastrophic and unrecoverable by masking alone),
-   gate/up-sketch compensation closes ~99% of the gap — directly
-   confirms this topic's core thesis extends to the 2D-tile setting.
-   With Phase 3's 8B gate now formally met and Phase 4 showing this
-   strong a signal, the request's Main Thread A/B is close to fully
-   answered — remaining: confirm the proper anchor, then decide whether
-   further sweeping (B=256, other g) or extending to 8B is warranted.
+   Committed `a6f4627`. **First validation batch landed (2026-08-01),
+   in-family anchor confirmed — strongest result in the topic so far**:
+   C7a (control, no comp) PPL 6874.22 (catastrophic, same ballpark as
+   coactivation's own P3 finding for bare clustered-block masking); C7
+   (mean-gate, r=d/16) PPL 4952.39 (weak, 28.0% recovery); **C8a
+   (r_sk=d/32) PPL 37.17 (99.6%) and C8 (r_sk=d/8) PPL 48.89 (99.4%)** —
+   using the proper in-family g=1 anchor (log-PPL-interpolated to the
+   achieved sparsity 0.9012, PPL 6.9298, from two fresh probe points on
+   llama2-7b — barely moved the preliminary cross-score-family estimate,
+   confirming it robustly). Same caveat as the 8B verdict: this is a
+   recovery-ratio result (escaping C7a's catastrophic collapse), not
+   evidence C8's absolute PPL is near dense (ΔPPL vs anchor is still
+   +41.96). Even under Phase 4's harder combined token-block +
+   neuron-block sharing at s=0.9 (exactly the regime P3 showed was
+   catastrophic and unrecoverable by masking alone), gate/up-sketch
+   compensation closes ~99% of the gap — directly confirms this topic's
+   core thesis extends to the 2D-tile setting. Not yet declaring full
+   CONFIRMED off one (g,B) point (mirrors Phase 3's own cross-g
+   replication precedent) — a second batch at B=256 (same g=16, same
+   rank fractions) is queued to check the pattern generalizes across
+   neuron-block granularity, not just B=64.
 C9 (overflow hybrid) is explicitly NOT implemented — Phase 3 landed on
 GO, not Partial-go/No-go, so C9 is not promoted per spec's own rule.
 
@@ -220,8 +224,10 @@ GO, not Partial-go/No-go, so C9 is not promoted per spec's own rule.
   round the formal Go verdict is based on (see Key Findings).
 - Phase 3 8B leg: DONE.
 - Phase 4 (P3′) first validation batch: all 4 landed (see Key Findings).
-- Phase 4 in-family anchor probes: `p3prime-c3-g1-llama2-p05`,
-  `p3prime-c3-g1-llama2-p03` — queued, not landed yet.
+- Phase 4 in-family anchor probes: both landed (see Key Findings).
+- Phase 4 B=256 replication batch: `p3prime-c7a-g16-B256`,
+  `p3prime-c7-g16-B256-r688`, `p3prime-c8a-g16-B256-rsk344`,
+  `p3prime-c8-g16-B256-rsk1376` — queued, not landed yet.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first
