@@ -122,20 +122,33 @@ def set_condition(model, mode, s=0.0, g=1):
 # effect.
 # ---------------------------------------------------------------------------
 
-def enable_l1_collect_mode(model, s, g):
-    for _, mlp in iter_mlps(model):
-        d = mlp.intermediate_size
-        h = mlp.hidden_size
-        dev = mlp.down_proj.weight.device
+def enable_l1_collect_mode(model, s, g, layers=None):
+    """layers: iterable of layer indices to actually accumulate (G, C) for
+    this pass (None = all). Every layer still runs l1_collect_forward (plain
+    dense passthrough, so downstream layers always see dense input, per L1's
+    definition) -- only the (G, C) allocation, and therefore the memory
+    cost, is restricted to `layers`. Needed because a [d,d] fp32 G per layer
+    is large for bigger models (e.g. 0.82GB/layer at d=14336 -> 26GB for all
+    32 layers of Llama-3.1-8B at once, on top of the model weights); the
+    build script chunks layers across multiple calibration sweeps to keep
+    this bounded (see scripts/refit/01_build_l1.py --layers_per_pass)."""
+    target = set(layers) if layers is not None else None
+    for layer_idx, mlp in iter_mlps(model):
         mlp.refit_collect = True
         mlp.refit_s = s
         mlp.refit_g = g
-        mlp.refit_G = torch.zeros(d, d, dtype=torch.float32, device=dev)
-        mlp.refit_C = torch.zeros(h, d, dtype=torch.float32, device=dev)
-        mlp.refit_n = 0
+        if target is None or layer_idx in target:
+            d = mlp.intermediate_size
+            h = mlp.hidden_size
+            dev = mlp.down_proj.weight.device
+            mlp.refit_G = torch.zeros(d, d, dtype=torch.float32, device=dev)
+            mlp.refit_C = torch.zeros(h, d, dtype=torch.float32, device=dev)
+            mlp.refit_n = 0
 
 
 def _accumulate_l1(mlp, i, score, y_star):
+    if not hasattr(mlp, "refit_G"):
+        return  # this layer is not in the current collection chunk
     m_bool = block_mask(score, mlp.refit_s, mlp.refit_g)
     z = (m_bool.to(i.dtype) * i).float().reshape(-1, i.shape[-1])
     y = y_star.float().reshape(-1, y_star.shape[-1])
@@ -157,15 +170,17 @@ def l1_collect_forward(mlp, x):
 
 
 def finalize_l1(model):
-    """Returns {layer_idx: {'G':..., 'C':..., 'n':...}} and clears collect
-    mode. Does NOT solve -- solving happens in the build script so lambda
-    can be swept without recomputing G/C."""
+    """Returns {layer_idx: {'G':..., 'C':..., 'n':...}} for whichever layers
+    were in the active collection chunk (see enable_l1_collect_mode), and
+    clears collect mode. Does NOT solve -- solving happens in the build
+    script so lambda can be swept without recomputing G/C."""
     out = {}
     for layer_idx, mlp in iter_mlps(model):
-        assert mlp.refit_n > 0, "finalize_l1 called before any calibration tokens"
-        out[layer_idx] = {"G": mlp.refit_G.cpu(), "C": mlp.refit_C.cpu(), "n": mlp.refit_n}
+        if hasattr(mlp, "refit_G"):
+            assert mlp.refit_n > 0, "finalize_l1 called before any calibration tokens"
+            out[layer_idx] = {"G": mlp.refit_G.cpu(), "C": mlp.refit_C.cpu(), "n": mlp.refit_n}
+            del mlp.refit_G, mlp.refit_C
         mlp.refit_collect = False
-        del mlp.refit_G, mlp.refit_C
     return out
 
 

@@ -42,6 +42,11 @@ if __name__ == "__main__":
                     help="one --out_dir_lamX per value; ridge lambda sweep (dev models only)")
     ap.add_argument("--calib_tokens", type=str, default=None,
                     help="path to reuse/save the exact calibration token tensor")
+    ap.add_argument("--layers_per_pass", type=int, default=None,
+                    help="how many layers' (G,C) [d,d]+[h,d] fp32 accumulators "
+                         "stay resident on GPU at once (repeats the calibration "
+                         "sweep ceil(L/this) times). Default: auto-sized to keep "
+                         "accumulators under ~12GiB total.")
     ap.add_argument("--out_dir", type=str, required=True,
                     help="base dir; per-lambda weights go in {out_dir}_lam{L}")
     args = ap.parse_args()
@@ -68,17 +73,29 @@ if __name__ == "__main__":
         print(f"saved calibration tokens: {tok_path}")
 
     refit_mlp.attach_col_norms(model)
-    refit_mlp.enable_l1_collect_mode(model, s=args.s, g=args.g)
+
+    num_layers = model.config.num_hidden_layers
+    d, h = model.config.intermediate_size, model.config.hidden_size
+    bytes_per_layer = 4 * (d * d + h * d)  # G [d,d] + C [h,d], fp32
+    layers_per_pass = args.layers_per_pass or max(1, int(12 * (1024 ** 3) // bytes_per_layer))
+    layers_per_pass = min(layers_per_pass, num_layers)
+    all_layers = list(range(num_layers))
+    chunks = [all_layers[i:i + layers_per_pass] for i in range(0, num_layers, layers_per_pass)]
+    print(f"layers_per_pass={layers_per_pass} ({bytes_per_layer / 1e9:.2f} GB/layer) "
+          f"-> {len(chunks)} calibration sweep(s) for {num_layers} layers")
 
     device = model.model.embed_tokens.weight.device
-    with torch.no_grad():
-        for i in range(0, args.nsamples, args.batch_size):
-            batch = tokens[i:i + args.batch_size].to(device)
-            model(batch)
-            if i % 32 == 0:
-                print(f"calib sample {i}/{args.nsamples}", flush=True)
-
-    stats = refit_mlp.finalize_l1(model)
+    stats = {}
+    for ci, chunk in enumerate(chunks):
+        refit_mlp.enable_l1_collect_mode(model, s=args.s, g=args.g, layers=chunk)
+        with torch.no_grad():
+            for i in range(0, args.nsamples, args.batch_size):
+                batch = tokens[i:i + args.batch_size].to(device)
+                model(batch)
+                if i % 64 == 0:
+                    print(f"chunk {ci + 1}/{len(chunks)} (layers {chunk[0]}-{chunk[-1]}) "
+                          f"calib sample {i}/{args.nsamples}", flush=True)
+        stats.update(refit_mlp.finalize_l1(model))
 
     for lam in args.lambdas:
         weights = {layer_idx: refit_mlp.solve_refit(st["G"], st["C"], lam=lam)

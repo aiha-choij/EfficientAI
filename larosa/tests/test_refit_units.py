@@ -166,6 +166,49 @@ def test_4_block_rules():
           "no cross-sequence bleed, padding excluded")
 
 
+def test_6_layer_chunked_collect_matches_all_at_once():
+    # Regression test for the OOM fix: enable_l1_collect_mode(..., layers=)
+    # must give bitwise-identical (G, C) whether all layers are collected in
+    # one pass or split across multiple passes over the same calibration data
+    # (this is what scripts/refit/01_build_l1.py's --layers_per_pass chunking
+    # relies on for large models, e.g. Llama-3.1-8B: 32 layers x [d,d] fp32
+    # G doesn't fit on one GPU at once).
+    torch.manual_seed(20)
+    config = LlamaConfig(
+        vocab_size=VOCAB, hidden_size=H, intermediate_size=D,
+        num_hidden_layers=4, num_attention_heads=4, num_key_value_heads=4,
+        max_position_embeddings=256, use_cache=False,
+    )
+    config._attn_implementation = "eager"
+    config.sparse_mode = "refit"
+    config.refit_mode = "l1"
+    model = LlamaForCausalLM(config).float().eval()
+    refit_mlp.attach_col_norms(model)
+
+    batches = [torch.randint(0, VOCAB, (2, 32)) for _ in range(4)]
+
+    def run_collect(layer_chunks):
+        stats = {}
+        for chunk in layer_chunks:
+            refit_mlp.enable_l1_collect_mode(model, s=0.5, g=1, layers=chunk)
+            with torch.no_grad():
+                for b in batches:
+                    model(b)
+            stats.update(refit_mlp.finalize_l1(model))
+        return stats
+
+    stats_all_at_once = run_collect([None])
+    stats_chunked = run_collect([[0, 1], [2, 3]])
+
+    assert set(stats_all_at_once) == set(stats_chunked) == {0, 1, 2, 3}
+    for layer_idx in stats_all_at_once:
+        a, c = stats_all_at_once[layer_idx], stats_chunked[layer_idx]
+        assert torch.equal(a["G"], c["G"]), f"layer {layer_idx}: G differs when chunked"
+        assert torch.equal(a["C"], c["C"]), f"layer {layer_idx}: C differs when chunked"
+        assert a["n"] == c["n"]
+    print("PASS layer-chunked collection == all-at-once (bitwise, 2 chunks of 2 layers)")
+
+
 def test_5_calib_reproducibility(tmp_path_str):
     nsamples, seqlen, seed = 4, 16, 123
     g1 = torch.Generator().manual_seed(seed)
@@ -199,4 +242,5 @@ if __name__ == "__main__":
     test_4_block_rules()
     with tempfile.TemporaryDirectory() as td:
         test_5_calib_reproducibility(td)
+    test_6_layer_chunked_collect_matches_all_at_once()
     print("ALL REFIT UNIT TESTS PASSED")
