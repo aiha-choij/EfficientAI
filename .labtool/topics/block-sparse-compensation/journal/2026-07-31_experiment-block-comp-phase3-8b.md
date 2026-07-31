@@ -106,3 +106,18 @@ Also queued `bc-c3-g1-8b-p07` (in-family g=1 anchor at p=0.7) to bracket
 C7a's s_block=0.7337 for interpolation -- p=0.5's g=1 anchor (0.8814) is
 too high (need a LOWER-sparsity g=1 point, i.e. a HIGHER p, to bracket
 from below).
+
+### g=1 anchor result: close single-point estimate near C7a's sparsity
+`bc-c3-g1-8b-p07`: p=0.7 -> sparsity 0.7541, PPL 6.7521 -- close to
+(slightly above) C7a's s_block=0.7337, not an exact bracket. Given the
+3B experiment's anchor curve was quite flat over comparable sparsity
+ranges (log-PPL nearly constant across a 0.3+ sparsity span), using this
+single nearby point as an approximate anchor for sp~0.73 is reasonable
+rather than spending another job for a tighter bracket -- flagged as an
+approximation, not treated as exact. Preliminary sharing-tax read at
+this point: C7a PPL 49.4909 vs anchor ~6.75 -> a very large tax at this
+near-s=0.9 8B operating point (much bigger, in absolute PPL terms, than
+anything measured on 3B, consistent with the 3B finding that tax grows
+steeply with sparsity -- this is now a much higher sparsity than the 3B
+sweep ever reached). C7/C8a/C8 results (still running) will show whether
+compensation can recover a useful fraction of this much larger gap.
