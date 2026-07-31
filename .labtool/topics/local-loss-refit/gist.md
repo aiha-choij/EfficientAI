@@ -83,6 +83,31 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   tuning/calibration corpus; only ΔL1 at matched (s,g) is a valid
   cross-run comparison.
   Journal: 2026-07-31_experiment-refit-l0l1-validate-3b.md
+- **[MAIN, PROVISIONAL] Reduced-cost L0/L1 matrix, dev model (2026-07-31):
+  refit's benefit is confined to s=0.9 — at s=0.5/0.7 it HURTS.**
+  llama3.2-3b-instruct, 8 (s,g) points, wikitext-2 PPL (calib wikitext103):
+  ΔL1 is favorable at every g tested when s=0.9 (g=1: −1.6, g=8: −25.8,
+  g=32: −56.3, g=128: −130.1 PPL — grows fast with g, tracking L0's own
+  g-driven blowup: L0 21.6→371.9 across g=1..128; L1 absorbs roughly 37% of
+  the ADDITIONAL sharing-tax PPL from g=1→128) but ΔL1 is UNFAVORABLE at
+  s=0.5 and s=0.7 (+2.05 to +3.97 PPL, +18% to +26% relative, both g=1 and
+  g=32). This was not exercised by the single-point verification (which
+  only covered s=0.9).
+  Leading hypothesis (not confirmed): bias-variance tradeoff — at low s the
+  mask removes little, so there's very little true bias for refit to
+  correct, and the closed-form fit (which always reduces IN-SAMPLE loss,
+  per unit test 3) mostly picks up calibration-corpus noise that doesn't
+  transfer to the eval set (calib corpus wikitext103 != eval wikitext-2,
+  a real if related distribution shift). At s=0.9 the systematic masking
+  bias is large enough to dominate that variance cost.
+  When relevant: (a) do NOT generalize "refit helps" beyond the high-
+  sparsity regime without re-checking; (b) this is PROVISIONAL — dev model
+  only (instruct-tuned, non-spec corpus for calib), main model
+  (Llama-3.1-8B) matrix job still running at write time, must confirm or
+  refute before treating the low-s regression as a real property of the
+  method vs an artifact of this dev setup; (c) does not change the s=0.9,
+  g=1 Go decision, which is unaffected.
+  Journal: 2026-07-31_experiment-refit-l0l1-matrix-3b.md
 
 ## Dead Ends
 (none yet)
@@ -111,12 +136,11 @@ branch line (oracle-residual-sparsity) rather than refit alone.
    PPL-first per the request's own fallback clause.
 
 ## Active Jobs
-- `050-20260731-104517-refit-l0l1-matrix-3b` (a100-40-2) — reduced-cost L0/L1
-  matrix, llama3.2-3b-instruct (dev)
-- `050-20260731-104521-refit-l0l1-matrix-8b` (a100-40-2) — reduced-cost L0/L1
-  matrix, Llama-3.1-8B (main)
-  Both: g∈{1,32} all s∈{0.5,0.7,0.9}, g∈{8,128} s=0.9 only; script
-  `scripts/refit/run_matrix.sh`.
+- `050-20260731-105247-refit-l0l1-matrix-8b` (a100-40-2, GPU2) — reduced-cost
+  L0/L1 matrix, Llama-3.1-8B (main); g∈{1,32} all s∈{0.5,0.7,0.9}, g∈{8,128}
+  s=0.9 only; script `scripts/refit/run_matrix.sh`. Resubmission of
+  `050-20260731-104521-...` which OOM'd (fixed same day, see
+  refit_mlp.enable_l1_collect_mode `layers=` chunking).
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
