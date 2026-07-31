@@ -87,12 +87,24 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   (wikitext103, n=512, seqlen=2048), saved to
   `~/workspace/oracle/llama3.2-3b-instruct/stats/wikitext103` (28 layers).
   Prerequisite for every block_comp condition (all use the residual score).
-- 4 Phase 2 sharing-tax-curve jobs queued (2026-07-31,
-  `050-20260731-1652{25,29,33,37}`): C2 g=1 anchor at p∈{0.7,0.9}, C7a at
-  (g=16,p=0.9) and (g=64,p=0.9), llama3.2-3b-instruct. First pass is
-  intentionally narrow (p=0.9 primary, p=0.7 for context) — queue rule
-  caps a single submission batch at 4; more p points to follow once these
-  land.
+- Phase 2 sharing-tax-curve jobs (round 1, resubmitted after a naming
+  bug — see Dead Ends): C2 g=1 anchor at p∈{0.7,0.9}, C7a at (g=16,p=0.9)
+  and (g=64,p=0.9), llama3.2-3b-instruct. IDs `050-20260731-1746{51,54,59}`
+  + `050-20260731-174703` (`bc-c2-g1-p09`, `bc-c2-g1-p07`,
+  `bc-c7a-g16-p09`, `bc-c7a-g64-p09`); one running, three queued as of
+  2026-07-31 17:47.
+
+## Dead Ends
+- **qsub job names must not contain `.` (2026-07-31)**: named the first
+  round of eval jobs with the literal p-value (`bc-c2-g1-p0.9`). The
+  dispatcher passes the job ID straight into a tmux session name
+  (`qcom-<id>`), and tmux rejects `.` in session names ("bad session
+  name") — every dispatch attempt failed silently into an infinite ~20s
+  retry loop (no GPU ever touched, but ~54 min of wasted dispatcher
+  cycles before caught during a periodic check). Fix: use `p09`/`p07`
+  (no dot) in job names; only the qsub `-n` NAME is affected, not the
+  `--p` argument value passed to the script. Applies to any future job
+  name built from a float knob (p, lambda, etc.) in this or other topics.
 
 ## Pointers
 - Full spec (verbatim, Korean, authoritative): `spec.md` in this topic —
