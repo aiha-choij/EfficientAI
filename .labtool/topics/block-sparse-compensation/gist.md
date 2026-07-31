@@ -58,9 +58,19 @@ and is directly motivated by two closed threads:
   sharing (no neuron permutation) is survivable, not catastrophic.
   Journal: journal/2026-07-31_experiment-block-comp-phase2-3b-round1.md
   (full data table + interpolation method)
-- **Phase 3 kicked off (2026-07-31)**: first C7/C8a/C8 data point queued
-  at the harder regime above (g=16, p=0.7, rank=512, r_sk=256=d/32) to
-  test H4's recovery-rate gate (≥50%) where the tax is biggest.
+- **Phase 3 round 1: bug found + fixed (2026-07-31)**: 2 of 3 first-round
+  jobs OOM'd — root-caused to two real bugs (GPU SVD on full projection
+  matrices growing unbounded across 28 layers; building both C7 and
+  C8/C8a factor sets unconditionally regardless of which the condition
+  needs). Fixed (CPU SVD + `condition`-gated factor building, commit
+  `80942a6`), unit tests re-verified, both jobs resubmitted.
+- **C8a (diagnostic upper bound) result is striking**: g=16, p=0.7,
+  r_sk=256 → sparsity 0.5397, **PPL 11.3815** — recovers ~99% of the
+  sharing tax vs C7a's PPL 33.9006 at this regime (anchor ~11.1). Strong
+  early evidence for H4/H5: most of the sharing tax is captured by a
+  low-rank *gate* estimate alone (u, W_down still exact in this
+  diagnostic condition). C7/C8 (deployable forms, resubmitted) will show
+  whether that ceiling survives full sketching.
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
@@ -73,6 +83,19 @@ and is directly motivated by two closed threads:
   tax.~~ RESOLVED: in-family C3 g=1 anchor (score-family fix) +
   interpolation across a 4-point p-sweep (sparsity-matching fix) — see
   Key Findings for the final table.
+- **Small unexplained achieved-sparsity gap between C7a and C8a at the
+  same nominal (g,p)**: C7a at g=16,p=0.7 measured s_block=0.5202; C8a at
+  the identical (g,p,model,stats) measured s_block=0.5397. Both use the
+  exact same mask-selection code path (`_resid_score` + `block_p_mask`),
+  so this should be bit-identical in principle. Leading hypothesis (not
+  confirmed): bf16 + per-GPU kernel nondeterminism across the two
+  separate job runs (different physical GPUs) compounding over 28 layers
+  of attention+MLP, nudging borderline neurons across the cumulative-mass
+  cutoff in a score region that may be fairly flat/plateaued. Not
+  re-verified with a same-GPU, same-process A/B check. Worth revisiting
+  if the gap recurs at a size that would distort a recovery-rate
+  computation (this round's ~2pp gap is small relative to the PPL
+  differences being measured, but flagging rather than assuming away).
 
 ## Dead Ends
 (none yet in this topic; see `coactivation-block-structure` gist for the
@@ -104,10 +127,11 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   failure (`bc-c3-g1-p095`, CUDA OOM, shared-cluster contention) worked
   around by submitting a more useful point instead of a blind retry —
   see journal.
-- Phase 3 round 1 (queued 2026-07-31 ~18:04): `bc-c7-g16-p07-r512`,
-  `bc-c8a-g16-p07-rsk256`, `bc-c8-g16-p07-rsk256`
-  (050-20260731-1804{03,04,07}) — C7/C8a/C8 at (g=16,p=0.7,sparsity~0.52),
-  the harder sharing-tax regime Phase 2 identified.
+- Phase 3 round 1: `bc-c8a-g16-p07-rsk256` DONE (striking result, see Key
+  Findings). `bc-c7-g16-p07-r512` and `bc-c8-g16-p07-rsk256` FAILED (OOM,
+  fixed in commit `80942a6`), resubmitted as `bc-c7-g16-p07-r512b`
+  (050-20260731-181049) and `bc-c8-g16-p07-rsk256b`
+  (050-20260731-181054), both dispatched normally.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first

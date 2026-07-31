@@ -221,6 +221,42 @@ sketch, smallest of the spec's sweep {d/32,d/16,d/8}). Jobs:
 be computable once these land: recovery = (C7a_PPL - condition_PPL) /
 (C7a_PPL - anchor_PPL) = (33.90 - condition_PPL) / (33.90 - 11.11).
 
+## Phase 3 round 1: bug found + fixed, first result striking
+Two of the three Phase 3 jobs failed with CUDA OOM
+(`bc-c7-g16-p07-r512`, `bc-c8-g16-p07-rsk256`); the third
+(`bc-c8a-g16-p07-rsk256`) succeeded. **Root-caused as two real bugs, not
+external contention** (unlike the earlier `bc-c3-g1-p095` OOM):
+1. `_svd_factors` ran `torch.linalg.svd` directly on GPU for the full
+   gate/up/down projection weight matrices (8192x3072 on this dev model) —
+   much larger than oracle_mlp's own SVD target M ([h,h]=[3072,3072]).
+   Doing this across 28 layers x 3 projections caused unbounded CUDA
+   memory growth (process hit ~19.8GB vs the model's own ~6GB footprint)
+   — never caught by the CPU-only tiny-model unit tests.
+2. `attach_block_factors_inplace` unconditionally built BOTH C7's
+   comp_lr AND C8/C8a's sketch regardless of which one the requested
+   condition actually uses — the c7 job crashed inside sketch-building it
+   never needed.
+Fixed: `_svd_factors` now runs on CPU (only the tiny rank-r result moves
+to GPU); `attach_block_factors_inplace` takes a `condition` argument and
+skips the unused half. All unit tests re-verified (no regression — the
+CPU tiny-model tests never exercised this code path at real scale in the
+first place, which is exactly why it shipped un-caught). Commit
+`80942a6`. Both failed jobs resubmitted (`bc-c7-g16-p07-r512b`,
+`bc-c8-g16-p07-rsk256b`).
+
+**C8a result is striking**: g=16, p=0.7, r_sk=256=d/32 →
+achieved sparsity 0.5397 (vs C7a's 0.5202 at the same nominal p, g — see
+Open Questions for the small discrepancy), **PPL 11.3815**. Compared to
+C7a's PPL 33.9006 at this regime and the ~11.08-11.11 in-family anchor,
+C8a recovers almost the ENTIRE sharing tax:
+recovery = (33.9006 - 11.3815) / (33.9006 - 11.11) ≈ **99%**. This is
+H4's diagnostic upper bound (gate estimated via a small sketch, but u and
+W_down still exact) — strong evidence that most of the sharing tax lives
+in the "which neurons deviate from ḡ" signal a low-rank gate estimate can
+already capture. C7 and C8 (the two resubmitted jobs) will show whether
+the *deployable* forms (7's mean-gate-only compensation, 8's fully
+sketched compensation) come anywhere close to this ceiling.
+
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
 queue-submission rule caps a single batch at 4. Round 2 will fill in
