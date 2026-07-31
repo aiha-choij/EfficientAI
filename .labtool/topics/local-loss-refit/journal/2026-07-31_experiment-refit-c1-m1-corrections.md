@@ -83,6 +83,19 @@ this alternative. Report whichever happens plainly, no thumb on the scale.
   audit/comparison), raw stats under `.../stats/l1c1_s{s}_g1/`
 - **Sync**: n/a (single-repo gateway session)
 
+## M1 results: dense anchors (both landed, no anomaly)
+- 3B (llama3.2-3b-instruct): dense PPL = **11.0489**. Against s=0.9,g=1
+  L0 (mask-only, no refit) = 21.5859: masking alone nearly doubles PPL
+  (+95.4%). L1 (refit) = 19.9510, still +80.6% over dense -- refit
+  recovers only part of masking's own damage, not the whole gap to dense.
+- 8B (Llama-3.1-8B): dense PPL = **6.2394**. Against s=0.9,g=1 L0 =
+  12.9347: masking alone +107.3% over dense. L1 = 10.3305, +65.5% over
+  dense.
+- Both jobs sparsity=0.0 confirmed (dense passthrough, matches the L0
+  s=0 unit-test identity). This completes the M1 absolute-frame request:
+  the result table can now report L0/L1 PPL relative to a real dense
+  anchor, not just relative to each other.
+
 ## Notes
 - The C1 code fix is mathematically guaranteed to never make in-sample fit
   worse than the anchor (W_down) at any lambda -- see the docstring in

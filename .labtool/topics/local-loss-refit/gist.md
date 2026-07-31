@@ -215,10 +215,13 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   PR #1 still unmerged) — separate from `block-sparse-compensation`'s own
   branch. Code not yet proposed via `agent-pr` (pending recalibration
   results so the PR description can report them).
-- **[M1] Dense (s=0) PPL anchor — GPU jobs in flight (2026-07-31)**: no
-  code needed (existing L0 mode at s=0 IS the dense forward, unit-tested
-  identity already covers this), just two eval runs queued for 3B and 8B
-  to complete the result table's absolute frame. Not yet landed.
+- **[M1, DONE] Dense (s=0) PPL anchor (2026-07-31)**: 3B dense PPL
+  **11.0489**, 8B dense PPL **6.2394** (no new code — `mode=l0,s=0.0` is
+  the exact dense-forward identity, already unit-tested). Puts masking's
+  OWN damage in frame for the first time: at s=0.9,g=1, masking alone
+  (L0 vs dense) costs +95.4% PPL on 3B / +107.3% on 8B; refit (L1)
+  recovers some of that but still lands +80.6% / +65.5% above dense —
+  refit narrows the gap masking opens, it doesn't close it.
 
 ## Dead Ends
 - 2026-07-31 — **L2 (sequential/GPTQ-style refit against the sparse
@@ -278,12 +281,11 @@ partial-sequential variants (flagged as ideas in its Dead-End card, not
 started).
 
 ## Active Jobs
-- Reactivated 2026-07-31 for the requesting agent request's section-4
-  honesty corrections (C1/C2/M1). 4 jobs queued: `refit-dense-anchor-3b`,
-  `refit-dense-anchor-8b` (M1), `refit-c1-build-3b-s09`,
-  `refit-c1-build-3b-s05` (C1 recalibration with the fixed anchored
-  ridge, `--stats_out` set so G/C are saved this time). Not yet landed.
-  C2 (lambda sweep) queued for after C1's verdict is in.
+- M1 dense anchors: DONE (`refit-dense-anchor-3b`, `refit-dense-anchor-8b`
+  — see Key Findings).
+- C1 recalibration: `refit-c1-build-3b-s09`, `refit-c1-build-3b-s05`
+  running (a100-40-2, builds only so far — eval jobs to follow once
+  these land). C2 (lambda sweep) queued for after C1's verdict is in.
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
