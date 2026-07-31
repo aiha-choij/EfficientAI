@@ -73,12 +73,19 @@ and is directly motivated by two closed threads:
 - **C7 result — H4 Partial-go signature**: g=16, p=0.7, rank=512 →
   sparsity 0.5317, PPL 28.2506, recovery ≈**25%** (well under the 50% Go
   threshold, far below C8a's ~99%). Matches spec section 5's Partial-go
-  pattern exactly (C8a recovers, plain mean-gate compensation doesn't) —
-  direct evidence for H5: the static mean-gate ḡ term (oracle C4's own
-  mechanism) can't chase the per-token gate deviation that actually
-  drives the tax; a per-token gate estimate (even a small rank-256
-  sketch) nearly can. C8 (deployable, u also sketched — still running)
-  will show whether that holds once u stops being exact.
+  pattern exactly.
+- **C8 (deployable) result — H5 refinement**: g=16, p=0.7, r_sk=256 →
+  PPL 27.7207, recovery ≈**27%** — essentially the SAME as C7, NOT
+  C8a's ~99%. Full table: C7a 0% / C7 ~25% / C8 ~27% / C8a ~99% / anchor
+  100%. This means C8a's near-total recovery is NOT mainly about gate
+  (ĝ) estimation quality (C8 uses the same gate-sketch rank and still
+  collapses to C7's level) — the dominant factor looks like keeping **u
+  exact**, not the low-rank gate estimate per se. This sharpens H5 beyond
+  the spec's original statement; a direct test (u-exact-but-gate+down-
+  sketched diagnostic) would disambiguate up-sketch vs down-sketch but
+  isn't implemented. Per spec's Partial-go remediation, queued the rest
+  of the r_sk sweep (512=d/16, 1024=d/8) to check if more rank helps
+  before concluding this is a structural (not just rank-budget) limit.
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
@@ -91,6 +98,10 @@ and is directly motivated by two closed threads:
   tax.~~ RESOLVED: in-family C3 g=1 anchor (score-family fix) +
   interpolation across a 4-point p-sweep (sparsity-matching fix) — see
   Key Findings for the final table.
+- **Is it the up-sketch or the down-sketch that collapses C8's recovery
+  from C8a's ~99% to ~27%?** No implemented condition isolates this (only
+  c7a/c7/c8a/c8 exist) — a "u exact, gate+down sketched" diagnostic would
+  answer it directly. Not fabricated, not yet built.
 - **Small unexplained achieved-sparsity gap between C7a and C8a at the
   same nominal (g,p)**: C7a at g=16,p=0.7 measured s_block=0.5202; C8a at
   the identical (g,p,model,stats) measured s_block=0.5397. Both use the
@@ -135,11 +146,13 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   failure (`bc-c3-g1-p095`, CUDA OOM, shared-cluster contention) worked
   around by submitting a more useful point instead of a blind retry —
   see journal.
-- Phase 3 round 1: `bc-c8a-g16-p07-rsk256` DONE (striking result, see Key
-  Findings). `bc-c7-g16-p07-r512` and `bc-c8-g16-p07-rsk256` FAILED (OOM,
-  fixed in commit `80942a6`), resubmitted as `bc-c7-g16-p07-r512b`
-  (050-20260731-181049) and `bc-c8-g16-p07-rsk256b`
-  (050-20260731-181054), both dispatched normally.
+- Phase 3 round 1: all 4 jobs (c7a already had it; c7/c8a/c8) DONE — see
+  Key Findings for the full recovery table.
+- Phase 3 round 2 (queued): `bc-c8-g16-p07-rsk512` (r_sk=d/16),
+  `bc-c8-g16-p07-rsk1024` (r_sk=d/8) (050-20260731-1821{10,15}) —
+  finishes the spec's r_sk sweep to check whether more sketch rank closes
+  C8's gap to C8a before concluding it's a structural (up/down-sketch)
+  limit rather than a rank-budget one.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first

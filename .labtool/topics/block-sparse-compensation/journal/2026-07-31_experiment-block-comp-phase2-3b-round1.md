@@ -268,9 +268,41 @@ this regime, while a per-token gate estimate (even from a small rank-256
 sketch, C8a) captures nearly all of it. This is strong, direct evidence
 for H5 (sharing-tax neurons are the ones whose gate deviates most from
 ḡ — a mean-gate compensation structurally cannot chase that deviation,
-a per-token gate estimate can). The open question is whether C8
-(deployable, u also sketched) keeps C8a's ~99% or regresses toward C7's
-~25% once u is no longer exact — still running.
+a per-token gate estimate can).
+
+**C8 (deployable) result — the ceiling does NOT survive full sketching,
+important refinement to H5**: g=16, p=0.7, r_sk=256 → sparsity 0.5193,
+PPL 27.7207. recovery = (33.9006-27.7207)/(33.9006-11.11) ≈ **27%** —
+essentially the SAME as C7's ~25%, nowhere near C8a's ~99%.
+
+Full round-1 recovery table (g=16, p=0.7, sparsity≈0.52-0.54):
+
+| condition | PPL | recovery |
+|---|---|---|
+| C7a (no compensation, baseline) | 33.9006 | 0% |
+| C7 (mean-gate ḡ, rank=512) | 28.2506 | ~25% |
+| C8 (full sketch, r_sk=256=d/32) | 27.7207 | ~27% |
+| C8a (gate-sketch only, u/W_down exact, diagnostic) | 11.3815 | ~99% |
+| in-family g=1 anchor | ~11.11 | 100% |
+
+**This reframes the H5 read**: the ~99% recovery in C8a is NOT primarily
+about the quality of the low-rank *gate* estimate (ĝ) -- C8, which uses
+the SAME gate sketch rank (256) plus additionally sketches u and routes
+the whole tail through a down-projection sketch, collapses almost all the
+way back to C7's level. The dominant factor appears to be keeping **u
+exact**, not ĝ's approximation quality. This is a genuinely different,
+more specific hypothesis than the spec's H5 as stated ("sharing-tax
+neurons are the ones whose gate deviates most from ḡ") -- worth testing
+directly (not yet done): an intermediate diagnostic condition with u kept
+exact but gate+down sketched (isolating whether it's the up-sketch or the
+down-sketch collapsing the recovery) would disambiguate this, but isn't
+implemented yet (only c7a/c7/c8a/c8 exist). Flagged as a candidate next
+diagnostic, not fabricated as a result.
+Per the spec's own Partial-go remediation ("r_sk 증가/비대칭 rank로
+재시도"), queued the rest of the planned r_sk sweep for C8:
+`bc-c8-g16-p07-rsk512` (r_sk=512=d/16), `bc-c8-g16-p07-rsk1024`
+(r_sk=1024=d/8) — if recovery doesn't climb substantially with rank, that
+sharpens the "it's the up/down sketch, not the rank" reading above.
 
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
