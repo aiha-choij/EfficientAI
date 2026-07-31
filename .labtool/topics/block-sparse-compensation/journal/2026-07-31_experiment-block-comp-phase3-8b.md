@@ -82,3 +82,27 @@ directly -- didn't spend a third job narrowing further (linear
 interpolation between these two points would suggest p~0.45 for exactly
 0.90, but 0.8814 is within the spec's own approximate "≈0.9" framing).
 Proceeded straight to the main sweep at p=0.5, g=16.
+
+### Main sweep round 1: C7a lands, C7 OOM's on a NEW bug (fixed)
+`bc-c7a-g16-8b-p05`: g=16, p=0.5 -> **s_block=0.7337, PPL 49.4909**
+(block aggregation flattens sparsity below the g=1 anchor's 0.8814, same
+qualitative pattern as 3B).
+
+`bc-c7-g16-8b-p05-r896` FAILED with CUDA OOM inside
+`compute_M`/`build_M_factors`'s SVD -- a NEW instance of the same class
+of bug Phase 3 already hit once (see the earlier journal card): the
+comp_lr factor path (used only by C7, imported from `oracle_mlp.py`)
+still ran its M=[h,h] SVD on GPU, once per layer. At 8B scale (h=4096,
+32 layers -- bigger and more layers than 3B's h=3072/28, which never
+tripped this) it OOM'd despite the model itself needing only ~16GB.
+**Root-caused and fixed**: added a local `_build_comp_lr_factors` (CPU
+SVD, same math) in `block_comp_mlp.py`, NOT a change to `oracle_mlp.py`
+itself (kept untouched per this topic's convention -- that file is
+shared with the paused `oracle-residual-sparsity` topic). Unit tests
+(both block-comp and oracle) re-verified, no regression. Resubmitted as
+`bc-c7-g16-8b-p05-r896b`.
+
+Also queued `bc-c3-g1-8b-p07` (in-family g=1 anchor at p=0.7) to bracket
+C7a's s_block=0.7337 for interpolation -- p=0.5's g=1 anchor (0.8814) is
+too high (need a LOWER-sparsity g=1 point, i.e. a HIGHER p, to bracket
+from below).

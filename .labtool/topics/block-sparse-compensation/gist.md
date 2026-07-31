@@ -121,21 +121,26 @@ and is directly motivated by two closed threads:
   differences being measured, but flagging rather than assuming away).
 
 ## Dead Ends
-(none yet in this topic; see `coactivation-block-structure` gist for the
-"bare block mask, no compensation" dead end this topic responds to)
+See the consolidated Dead Ends section below (qsub naming, GPU-SVD memory
+growth) — none of this topic's actual research directions (block sharing,
+compensation) are dead; see `coactivation-block-structure` gist for the
+"bare block mask, no compensation" dead end this topic responds to.
 
 ## Next Experiments
 Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
 (CONFIRMED, cross-g). Remaining, in priority order:
-1. **Phase 3 → 8B extension, IN PROGRESS**: 8B oracle calibration DONE.
-   p-probe DONE: p=0.5 -> sparsity 0.8814 (close enough to the spec's
-   "s≈0.9 구간"), p=0.3 -> 0.9565 (overshoot). Main sweep queued at
-   p=0.5, g=16: `bc-c7a-g16-8b-p05`, `bc-c7-g16-8b-p05-r896`,
-   `bc-c8a-g16-8b-p05-rsk448`, `bc-c8-g16-8b-p05-rsk1792` (ranks scaled
-   to match the same *fraction* of d=14336 as the best 3B config, not
-   the same absolute rank). Not landed yet. Only after this can
-   Go/Partial-go/No-go (spec §5) be formally declared — current 3B
-   result is Go-crossing but preliminary. Journal:
+1. **Phase 3 → 8B extension, IN PROGRESS**: 8B oracle calibration + p-probe
+   DONE (p=0.5 -> sparsity 0.8814, close enough to "s≈0.9"). C7a landed
+   (s_block=0.7337, PPL 49.4909). **Found + fixed a second instance of
+   the Phase-1 GPU-SVD-memory-growth bug**: C7's comp_lr path
+   (`oracle_mlp.build_M_factors`, GPU SVD per layer) OOM'd at 8B scale
+   (h=4096, 32 layers). Fixed with a local CPU-SVD reimplementation in
+   `block_comp_mlp.py` (`oracle_mlp.py` itself intentionally untouched —
+   shared with the paused `oracle-residual-sparsity` topic). Resubmitted;
+   C8a/C8 (which only use the already-fixed sketch path) are running
+   fine. Also queued `bc-c3-g1-8b-p07` to bracket C7a's s_block from the
+   g=1 anchor side. Not all landed yet. Only after the full table is in
+   can Go/Partial-go/No-go (spec §5) be formally declared. Journal:
    journal/2026-07-31_experiment-block-comp-phase3-8b.md
 2. **§4 (local-loss-refit honesty corrections, C1/C2/M1) — DONE**,
    confirmed on both 3B and 8B (C1 fixes the s=0.5 "hurts" headline —
@@ -160,7 +165,10 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
 - Phase 3 round 1: all 4 jobs (c7a already had it; c7/c8a/c8) DONE — see
   Key Findings for the full recovery table.
 - Phase 3 3B round (g∈{16,64}, p=0.7): all 7 jobs done, CONFIRMED (see
-  Key Findings + journal for the full table). No jobs currently running.
+  Key Findings + journal for the full table).
+- Phase 3 8B round: C7a done (s_block=0.7337, PPL 49.4909); C7 failed
+  once (OOM, fixed, resubmitted as `bc-c7-g16-8b-p05-r896b`); C8a, C8,
+  and the `bc-c3-g1-8b-p07` bracket point still running/queued.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first
@@ -173,6 +181,15 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   (no dot) in job names; only the qsub `-n` NAME is affected, not the
   `--p` argument value passed to the script. Applies to any future job
   name built from a float knob (p, lambda, etc.) in this or other topics.
+- **GPU-based SVD in a per-layer loop causes unbounded CUDA memory
+  growth at large-model scale (recurring pattern, 2 instances so far)**:
+  first hit in the gate/up/down sketch path (Phase 3 round 1, 3B, fixed
+  by moving `_svd_factors` to CPU); recurred in C7's comp_lr path
+  (`oracle_mlp.build_M_factors`, Phase 3 8B round, fixed by adding a
+  local CPU-SVD `_build_comp_lr_factors` in `block_comp_mlp.py` instead
+  of touching `oracle_mlp.py`). Any future per-layer SVD added to this
+  module should default to CPU from the start rather than rediscovering
+  this at each new model scale.
 
 ## Pointers
 - Full spec (verbatim, Korean, authoritative): `spec.md` in this topic —
