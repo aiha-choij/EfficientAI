@@ -49,12 +49,13 @@ from transformers.utils import (
 )
 from .configuration_llama import LlamaConfig
 from .oracle_mlp import oracle_mlp_forward
+from .block_comp_mlp import block_comp_mlp_forward
 
 
 logger = logging.get_logger(__name__)
 
 # Modes in which attention is fully dense and the MLP alone is modified.
-DENSE_ATTN_MODES = ("topk_intermediate", "oracle")
+DENSE_ATTN_MODES = ("topk_intermediate", "oracle", "block_comp")
 
 _CONFIG_FOR_DOC = "LlamaConfig"
 
@@ -338,6 +339,10 @@ class LlamaMLP(nn.Module):
             # Oracle conditions C0-C5 (top-p on i or on the mean-gate residual,
             # with optional compensation); see inference/oracle_mlp.py.
             down_proj = oracle_mlp_forward(self, x)
+        elif getattr(self, "sparse_mode", "larosa") == "block_comp":
+            # Block-shared-mask sharing-tax compensation conditions
+            # C7a/C7/C8a/C8; see inference/block_comp_mlp.py.
+            down_proj = block_comp_mlp_forward(self, x)
         elif getattr(self, "sparse_mode", "larosa") == "topk_intermediate":
             # Intermediate-only mode: dense gate/up on the original-basis x,
             # per-token magnitude Top-K on i = u * g before down_proj.
@@ -837,6 +842,18 @@ class LlamaDecoderLayer(nn.Module):
             self.mlp.oracle_s = getattr(config, 'oracle_s', 0.0)
             self.mlp.oracle_layer_dense = layer_idx in getattr(config, 'oracle_exclude_layers', [])
             self.mlp.oracle_stats_mode = False
+        elif self.sparse_mode == 'block_comp':
+            # No rotation matrices. Condition/p/g come from the config; the
+            # oracle calibration stats (g_bar, col_norm) and this mode's own
+            # comp_lr/gate-up-down sketch factors are attached after
+            # from_pretrained via oracle_mlp.{load_stats, attach_col_norms}
+            # + block_comp_mlp.{attach_block_factors_inplace, load_block_factors}
+            # (same precondition as oracle C3/C4/C5 -- run dense calibration
+            # first, this mode has no calibration pass of its own).
+            self.mlp.blk_condition = getattr(config, 'blk_condition', 'c7a')
+            self.mlp.blk_p = getattr(config, 'blk_p', 1.0)
+            self.mlp.blk_g = getattr(config, 'blk_g', 1)
+            self.mlp.blk_seq_mask = None
         else:
             self.Q_path = config.Q_path
             self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
