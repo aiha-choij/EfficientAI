@@ -127,24 +127,21 @@ and is directly motivated by two closed threads:
 ## Next Experiments
 Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
 (CONFIRMED, cross-g). Remaining, in priority order:
-1. **Phase 3 → 8B extension** (needed for spec's actual Go gate: 8B,
-   s≈0.9): 8B oracle calibration DONE (`bc-calib-8b`,
-   `~/workspace/oracle/Llama-3.1-8B/stats/wikitext103`, 32 layers, no
-   anomaly). Correction to an earlier note here: 3B's p-vs-sparsity
-   curve needs a LOWER p (further from 1) to reach HIGHER sparsity
-   (p=0.9->sp=0.51, p=0.7->sp=0.76 -- the direction is p down = sparsity
-   up), so reaching s≈0.9 needs p well below 0.7, not above 0.9. Queued
-   2 probe jobs on 8B (`bc-c3-g1-8b-p05`, `bc-c3-g1-8b-p03`, oracle C3
-   condition, reusing the 8B calibration) to find which p lands near
-   sparsity 0.9 before committing to the full C7a/C7/C8a/C8 sweep. Not
-   landed yet. Only after this can Go/Partial-go/No-go (spec §5) be
-   formally declared — current 3B result is Go-crossing but preliminary.
-2. **§4 (local-loss-refit honesty corrections, C1/C2/M1)** — IN PROGRESS
-   on branch `auto/refit-honesty-corrections` (off `auto/local-loss-
-   refit`): C1 ridge-anchor fix coded + unit-tested, M1 log-PPL
-   correction done (headline revised 37%/60%->~12%/~22%), recalibration
-   + dense-anchor GPU jobs queued. Tracked in the `local-loss-refit`
-   topic's own gist/journal, not here — see there for results.
+1. **Phase 3 → 8B extension, IN PROGRESS**: 8B oracle calibration DONE.
+   p-probe DONE: p=0.5 -> sparsity 0.8814 (close enough to the spec's
+   "s≈0.9 구간"), p=0.3 -> 0.9565 (overshoot). Main sweep queued at
+   p=0.5, g=16: `bc-c7a-g16-8b-p05`, `bc-c7-g16-8b-p05-r896`,
+   `bc-c8a-g16-8b-p05-rsk448`, `bc-c8-g16-8b-p05-rsk1792` (ranks scaled
+   to match the same *fraction* of d=14336 as the best 3B config, not
+   the same absolute rank). Not landed yet. Only after this can
+   Go/Partial-go/No-go (spec §5) be formally declared — current 3B
+   result is Go-crossing but preliminary. Journal:
+   journal/2026-07-31_experiment-block-comp-phase3-8b.md
+2. **§4 (local-loss-refit honesty corrections, C1/C2/M1) — DONE**,
+   confirmed on both 3B and 8B (C1 fixes the s=0.5 "hurts" headline —
+   was a ridge-prior artifact on both models — and strengthens s=0.9's
+   Go on both). Tracked in the `local-loss-refit` topic's own
+   gist/journal; PR #3 open.
 3. Phase 4 (P3′) — combine with `coactivation-block-structure` P2's PPMI
    neuron-cluster permutation: rerun C7/C8 on top of the clustered blocks
    from `a6000-4:~/workspace/analysis/llama2_p3_partitions_s09.pt`
