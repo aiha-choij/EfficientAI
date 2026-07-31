@@ -332,6 +332,15 @@ defined for 8B at s≈0.9, not 3B at sparsity~0.52 — this is strong,
 encouraging preliminary evidence on the dev model, not yet a formal
 Go verdict.
 
+## Phase 3 round 2 results (g=64 replication, in progress)
+`bc-c7-g64-p07-r512`: sparsity 0.4849, PPL 28.5836. Against the Phase 2
+C7a control (g=64,p=0.7: PPL 32.3566, sparsity 0.4727) and the interpolated
+anchor at this sparsity (~11.08): recovery = (32.3566-28.5836)/
+(32.3566-11.08) ≈ **18%** — even lower than g=16's C7 recovery (~25%),
+consistent direction (plain mean-gate compensation stays weak). C8a and
+C8(d/8) at g=64 still running — will show whether the g=16 pattern (C8a
+near-ceiling, C8 crossing 50% at d/8) replicates.
+
 ## Phase 3 round 2 (queued): does the pattern generalize across g?
 To check whether the g=16 pattern (Partial-go at small rank, Go-crossing
 at r_sk=d/8, near-total C8a ceiling) is g=16-specific or general,
