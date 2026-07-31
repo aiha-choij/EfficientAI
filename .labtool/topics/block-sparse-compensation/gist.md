@@ -131,16 +131,15 @@ Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
 (CONFIRMED, cross-g). Remaining, in priority order:
 1. **Phase 3 → 8B extension, IN PROGRESS**: 8B oracle calibration + p-probe
    DONE (p=0.5 -> sparsity 0.8814, close enough to "s≈0.9"). C7a landed
-   (s_block=0.7337, PPL 49.4909). **Found + fixed a second instance of
-   the Phase-1 GPU-SVD-memory-growth bug**: C7's comp_lr path
-   (`oracle_mlp.build_M_factors`, GPU SVD per layer) OOM'd at 8B scale
-   (h=4096, 32 layers). Fixed with a local CPU-SVD reimplementation in
-   `block_comp_mlp.py` (`oracle_mlp.py` itself intentionally untouched —
-   shared with the paused `oracle-residual-sparsity` topic). Resubmitted;
-   C8a/C8 (which only use the already-fixed sketch path) are running
-   fine. Also queued `bc-c3-g1-8b-p07` to bracket C7a's s_block from the
-   g=1 anchor side. Not all landed yet. Only after the full table is in
-   can Go/Partial-go/No-go (spec §5) be formally declared. Journal:
+   (s_block=0.7337, PPL 49.4909); g=1 anchor bracket landed (sparsity
+   0.7541, PPL 6.7521). Hit the same memory-growth bug class twice more
+   (OOM, then a 35-49min stall) before root-causing it properly as a
+   missing `torch.no_grad()` (see Dead Ends) — fixed (commit `6b80dcf`),
+   stalled jobs killed via `runs -k` and resubmitted as
+   `bc-c7-g16-8b-p05-r896c`/`bc-c8a-g16-8b-p05-rsk448b`/
+   `bc-c8-g16-8b-p05-rsk1792b` (all queued). Once these land, compute the
+   full 8B recovery table and formally declare Go/Partial-go/No-go per
+   spec §5. Journal:
    journal/2026-07-31_experiment-block-comp-phase3-8b.md
 2. **§4 (local-loss-refit honesty corrections, C1/C2/M1) — DONE**,
    confirmed on both 3B and 8B (C1 fixes the s=0.5 "hurts" headline —
@@ -166,9 +165,12 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   Key Findings for the full recovery table.
 - Phase 3 3B round (g∈{16,64}, p=0.7): all 7 jobs done, CONFIRMED (see
   Key Findings + journal for the full table).
-- Phase 3 8B round: C7a done (s_block=0.7337, PPL 49.4909); C7 failed
-  once (OOM, fixed, resubmitted as `bc-c7-g16-8b-p05-r896b`); C8a, C8,
-  and the `bc-c3-g1-8b-p07` bracket point still running/queued.
+- Phase 3 8B round: C7a done (s_block=0.7337, PPL 49.4909); g=1 anchor
+  bracket done (`bc-c3-g1-8b-p07`, sparsity 0.7541, PPL 6.7521). C7/C8a/C8
+  all stalled on pre-fix code (35-49min, no progress) — killed via
+  `runs -k` after root-causing the real bug (missing torch.no_grad(), see
+  Dead Ends) and resubmitted post-fix as `bc-c7-g16-8b-p05-r896c`,
+  `bc-c8a-g16-8b-p05-rsk448b`, `bc-c8-g16-8b-p05-rsk1792b` — all queued.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first
@@ -181,15 +183,34 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   (no dot) in job names; only the qsub `-n` NAME is affected, not the
   `--p` argument value passed to the script. Applies to any future job
   name built from a float knob (p, lambda, etc.) in this or other topics.
-- **GPU-based SVD in a per-layer loop causes unbounded CUDA memory
-  growth at large-model scale (recurring pattern, 2 instances so far)**:
-  first hit in the gate/up/down sketch path (Phase 3 round 1, 3B, fixed
-  by moving `_svd_factors` to CPU); recurred in C7's comp_lr path
-  (`oracle_mlp.build_M_factors`, Phase 3 8B round, fixed by adding a
-  local CPU-SVD `_build_comp_lr_factors` in `block_comp_mlp.py` instead
-  of touching `oracle_mlp.py`). Any future per-layer SVD added to this
-  module should default to CPU from the start rather than rediscovering
-  this at each new model scale.
+- **Per-layer SVD "OOM"/"hang" was never about GPU vs CPU — missing
+  torch.no_grad() was the real bug, misdiagnosed twice (2026-07-31)**:
+  first hit in the gate/up/down sketch path (Phase 3 round 1, 3B) as a
+  CUDA OOM, "fixed" by moving `_svd_factors` to CPU; recurred in C7's
+  comp_lr path at 8B scale as another OOM, "fixed" the same way with a
+  local CPU-SVD `_build_comp_lr_factors`. Both fixes worked (unblocked
+  the immediate crash) but were treating a symptom: `_svd_factors` and
+  friends are called with model weight tensors, which have
+  `requires_grad=True` by default (`.eval()` doesn't change that), so
+  every layer's SVD call built and RETAINED an autograd graph that
+  nothing ever freed — unbounded memory growth regardless of device. The
+  CPU move just traded a fast GPU OOM for slow CPU compute, which then
+  surfaced as a *third* incident: 3 concurrent 8B sweep jobs stalled
+  35-49 minutes with zero eval-loop progress (CPU SVD of matrices up to
+  14336x4096, contended across 3 simultaneous CPU-heavy jobs on one
+  host). Properly fixed by reverting to GPU SVD and adding
+  `@torch.no_grad()` to `attach_block_factors_inplace` (commit
+  `6b80dcf`) — the real lesson: any future per-layer SVD (or other
+  no-backward-needed tensor op) on model weights in this codebase MUST
+  be wrapped in `torch.no_grad()` explicitly; CPU-vs-GPU placement was
+  never the actual fix.
+- **Killed jobs are recoverable via `runs -k <ID>`** — corrects an
+  earlier assumption in this topic's journal that a running remote job
+  had no safe kill mechanism. `runs -k` sends `tmux kill-session -t
+  qcom-<id>` on the assigned host; the job then shows up in
+  `queue/failed/` with its original `meta`/`cmd` intact, so the exact
+  command can be recovered and resubmitted. Used to clear 3 stalled
+  pre-fix 8B jobs before resubmitting them on the no_grad-fixed code.
 
 ## Pointers
 - Full spec (verbatim, Korean, authoritative): `spec.md` in this topic —

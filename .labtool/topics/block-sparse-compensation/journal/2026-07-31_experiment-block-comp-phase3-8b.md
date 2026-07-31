@@ -42,13 +42,17 @@ point. No strong prior on which; report whichever happens.
 
 ## Reproducibility
 - **Git tag**: none yet (branch `auto/block-sparse-compensation`, commit
-  `7cbb446` at time of the p-probe)
+  `6b80dcf` as of the no_grad fix)
 - **Job IDs**: probes `050-20260731-200313-bc-c3-g1-8b-p05` (p=0.5,
   STATUS=ok), `050-20260731-200318-bc-c3-g1-8b-p03` (p=0.3, STATUS=ok);
-  sweep `050-20260731-2006{48,54,59}`, `050-20260731-200704`
-  (`bc-c7a-g16-8b-p05`, `bc-c7-g16-8b-p05-r896`,
-  `bc-c8a-g16-8b-p05-rsk448`, `bc-c8-g16-8b-p05-rsk1792`) -- all queued,
-  none landed yet.
+  g=1 anchor `050-20260731-201235-bc-c3-g1-8b-p07` (STATUS=ok); C7a
+  `050-20260731-200648-bc-c7a-g16-8b-p05` (STATUS=ok);
+  pre-fix (killed, superseded): `bc-c7-g16-8b-p05-r896` (OOM, failed),
+  `bc-c7-g16-8b-p05-r896b`/`bc-c8a-g16-8b-p05-rsk448`/`bc-c8-g16-8b-p05-rsk1792`
+  (all killed via `runs -k` after 35-49min stall, see Notes below);
+  resubmitted post-fix as `bc-c7-g16-8b-p05-r896c`,
+  `bc-c8a-g16-8b-p05-rsk448b`, `bc-c8-g16-8b-p05-rsk1792b` (all queued
+  as of this writing).
 - **Assigned host/GPU**: a100-40-2 (pinned via -H)
 - **Commands**: probes via `scripts/oracle/04_eval_ppl.py --condition c3`
   (oracle-format, reusing 8B calibration); sweep via
@@ -106,6 +110,34 @@ Also queued `bc-c3-g1-8b-p07` (in-family g=1 anchor at p=0.7) to bracket
 C7a's s_block=0.7337 for interpolation -- p=0.5's g=1 anchor (0.8814) is
 too high (need a LOWER-sparsity g=1 point, i.e. a HIGHER p, to bracket
 from below).
+
+### Second bug in the same class, found by a stall not a crash (fixed properly this time)
+The `bc-c7-g16-8b-p05-r896b` resubmit (CPU-SVD workaround) and the
+still-running `bc-c8a-g16-8b-p05-rsk448` / `bc-c8-g16-8b-p05-rsk1792`
+were all found stalled at a periodic check: 35-49 minutes elapsed, log
+showing only checkpoint-load lines, zero eval-loop progress (verified
+via `runs -l` on all three). Root-caused properly this time (superseding
+the CPU-SVD "fix" explanation from the previous section): the actual bug
+in both this incident and the earlier `bc-c7-g16-8b-p05-r896` OOM was
+that `attach_block_factors_inplace` (and the SVD helpers it calls) were
+never wrapped in `torch.no_grad()`. Model weights have
+`requires_grad=True` by default (`.eval()` doesn't change that), so every
+per-layer SVD call built and retained an autograd graph that nothing
+ever freed -- unbounded memory growth regardless of device. The CPU-SVD
+move only traded GPU OOM for CPU compute; at 8B scale (matrices up to
+14336x4096) plus 3 concurrent CPU-heavy jobs contending for the same
+host's cores, that CPU path was so slow it looked like a hang.
+
+Fix: reverted `_svd_factors`/`_build_comp_lr_factors` to GPU SVD and
+added `@torch.no_grad()` to `attach_block_factors_inplace` (commit
+`6b80dcf`, pushed to `auto/block-sparse-compensation`). Re-verified both
+`test_block_comp_units.py` and `test_oracle_units.py` -- no regression.
+Killed all 3 stalled pre-fix jobs via `runs -k` (this command exists and
+works -- corrects an earlier assumption in this topic that running jobs
+couldn't be safely stopped) and resubmitted identically as
+`bc-c7-g16-8b-p05-r896c`, `bc-c8a-g16-8b-p05-rsk448b`,
+`bc-c8-g16-8b-p05-rsk1792b` (all queued, a100-40-2 pinned, 3 jobs in this
+batch).
 
 ### g=1 anchor result: close single-point estimate near C7a's sparsity
 `bc-c3-g1-8b-p07`: p=0.7 -> sparsity 0.7541, PPL 6.7521 -- close to
