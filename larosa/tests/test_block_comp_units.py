@@ -14,6 +14,16 @@
 #                        (batch-row) boundaries never mixed; padding excluded
 # 5. mask-vs-slice     : full-compute-then-mask == column-sliced skip
 #                        (oracle spec unit test 4, one layer)
+#
+# Phase 4 (P3') tests -- neuron-block-quantized mask selection combined
+# with the same token-block sharing (g) above (block_p3_mask/
+# neuron_block_topm_mask in inference/block_comp_mlp.py):
+# 6. B=1 reduction     : neuron-block selection with block size 1 (each
+#                        neuron its own block) matches plain top-count
+# 7. full-keep identity: neuron_m = nb_neuron (all blocks kept) == dense
+# 8. neuron-block sharing: mask constant within every neuron-block
+# 9. c8 full-rank + P3' mask == dense (compensation formulas are
+#    unaffected by neuron-block-quantized vs unstructured mask selection)
 
 import os
 import sys
@@ -195,6 +205,83 @@ def test_5_mask_vs_slice(model):
     print(f"PASS mask-vs-slice equivalence (block mask): max diff {diff:.2e}")
 
 
+def _make_partition_onehot(Dd, B, device=None):
+    """Deterministic synthetic partition for tests: consecutive neurons
+    grouped into blocks of size B (assign = arange(Dd)//B). NOT the real
+    PPMI clustering (that comes from an external artifact -- see
+    build_neuron_partition_onehots) -- these tests only need SOME valid
+    one-hot M to exercise the block_p3_mask/neuron_block_topm_mask wiring,
+    the clustering method itself is out of scope for this module."""
+    assign = torch.arange(Dd, device=device) // B
+    nb = int(assign[-1].item()) + 1
+    M = torch.zeros(Dd, nb, device=device, dtype=torch.float32)
+    M[torch.arange(Dd, device=device), assign] = 1.0
+    return M
+
+
+def test_6_p3_b1_reduces_to_topcount():
+    torch.manual_seed(11)
+    Bsz, T, Dd = 3, 20, 24
+    score = torch.rand(Bsz, T, Dd)  # continuous -> ties have probability 0
+    M = _make_partition_onehot(Dd, 1)  # nb_neuron == Dd (each neuron its own block)
+    assert M.shape == (Dd, Dd)
+    m_keep = 9
+    block_score, _ = block_comp_mlp.aggregate_block_score(score, g=1)
+    keep_p3 = block_comp_mlp.neuron_block_topm_mask(block_score, M, m_keep)
+    keep_ref = oracle_mlp.top_count_mask(block_score, m_keep)
+    assert torch.equal(keep_p3, keep_ref), "B=1 neuron-block selection should match plain top-count"
+    print(f"PASS P3' B=1 reduces to top_count_mask (m={m_keep})")
+
+
+def test_7_p3_full_neuron_keep_identity(model, ids):
+    to_block_comp(model)
+    block_comp_mlp.set_condition(model, "c7a", p=1.0, g=1)
+    y_dense = logits(model, ids)
+
+    B = 8
+    nb = D // B
+    parts = {li: _make_partition_onehot(D, B) for li, _ in oracle_mlp.iter_mlps(model)}
+    block_comp_mlp.set_condition(model, "c7a", g=16, neuron_partitions=parts, neuron_m=nb)
+    y = logits(model, ids)
+    diff = (y - y_dense).abs().max().item()
+    assert diff < 1e-3, f"P3' full-neuron-keep vs dense: max diff {diff}"
+    print(f"PASS P3' full neuron-block keep ({nb}/{nb} blocks) == dense: max logit diff {diff:.2e}")
+
+
+def test_8_p3_neuron_block_sharing():
+    torch.manual_seed(13)
+    Bsz, T, Dd, B, g = 2, 12, 24, 4, 3
+    score = torch.rand(Bsz, T, Dd)
+    M = _make_partition_onehot(Dd, B)
+    nb = Dd // B
+    m_keep = nb // 2
+    mask = block_comp_mlp.block_p3_mask(score, g, M, m_keep)
+    assert mask.shape == (Bsz, T, Dd)
+    for k in range(nb):
+        cols = mask[:, :, k * B:(k + 1) * B]
+        assert torch.equal(cols, cols[:, :, 0:1].expand_as(cols)), \
+            f"neuron block {k}: mask not uniform across its neurons"
+    print(f"PASS P3' neuron-block sharing: {nb} neuron-blocks (B={B}), uniform mask within each")
+
+
+def test_9_p3_c8_full_rank_dense_equivalence(model, ids):
+    to_block_comp(model)
+    block_comp_mlp.set_condition(model, "c7a", p=1.0, g=1)
+    y_dense = logits(model, ids)
+
+    B = 8
+    nb = D // B
+    parts = {li: _make_partition_onehot(D, B) for li, _ in oracle_mlp.iter_mlps(model)}
+    full_r_sk = min(H, D)
+    block_comp_mlp.attach_block_factors_inplace(model, rank=H, r_sk=full_r_sk)
+    for g, m_keep in ((16, nb // 2), (64, nb - 3)):
+        block_comp_mlp.set_condition(model, "c8", g=g, neuron_partitions=parts, neuron_m=m_keep)
+        y_c8 = logits(model, ids)
+        diff = (y_c8 - y_dense).abs().max().item()
+        assert diff < 1e-3, f"P3' c8 full-rank (g={g}, m={m_keep}) vs dense: max diff {diff}"
+        print(f"PASS P3' c8 full-rank == dense (g={g}, m={m_keep}/{nb}): max logit diff {diff:.2e}")
+
+
 if __name__ == "__main__":
     model = build_model()
     ids = torch.randint(0, VOCAB, (2, 64), generator=torch.Generator().manual_seed(7))
@@ -203,4 +290,8 @@ if __name__ == "__main__":
     test_3_c8_full_rank(model, ids)
     test_4_block_sharing()
     test_5_mask_vs_slice(model)
+    test_6_p3_b1_reduces_to_topcount()
+    test_7_p3_full_neuron_keep_identity(model, ids)
+    test_8_p3_neuron_block_sharing()
+    test_9_p3_c8_full_rank_dense_equivalence(model, ids)
     print("ALL BLOCK-COMP UNIT TESTS PASSED")

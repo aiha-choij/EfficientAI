@@ -97,6 +97,71 @@ def block_p_mask(score, p, g, seq_mask=None):
     return m_block.index_select(-2, bid)
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 (P3'): neuron-block-quantized mask selection, combined with the
+# same token-block sharing (g) as above -- the spec's "2D tile" (token
+# block x neuron block). Neuron blocks come from coactivation-block-
+# structure's P2/P3 PPMI-clustered partitions (p3_collect_cluster_all.py);
+# this module only consumes that artifact, doesn't reproduce the
+# clustering. Selection here mirrors p3_block_ppl.py's patched_mlp_forward
+# block branch (score @ M -> top-m blocks -> keep_b @ M.T), generalized to
+# also token-block-aggregate first via the existing aggregate_block_score.
+#
+# Deliberately reuses block_comp_mlp_forward's existing c7a/c7/c8a/c8
+# compensation formulas UNCHANGED: those formulas only depend on m_bool
+# being a per-neuron/per-token boolean (kept vs dropped), not on how the
+# mask was constructed. Quantizing the drop decision to neuron-blocks
+# is entirely a mask-construction concern, isolated to the two functions
+# below plus the M/m wiring in set_condition/block_comp_mlp_forward.
+# ---------------------------------------------------------------------------
+
+def neuron_block_topm_mask(block_score, M, m):
+    """block_score: [..., nb_token, D] (already token-block-aggregated,
+    fp32, non-negative). M: [D, nb_neuron] one-hot partition (neuron ->
+    cluster id). m: number of neuron-blocks to KEEP per token-block.
+    Returns a per-neuron boolean mask [..., nb_token, D], constant within
+    each neuron-block -- same construction as p3_block_ppl.py's block
+    branch (bscore = score @ M; keep top-m blocks; broadcast back via
+    keep_b @ M.T)."""
+    bscore = block_score.float() @ M
+    top = torch.topk(bscore, m, dim=-1).indices
+    keep_b = torch.zeros_like(bscore).scatter_(-1, top, 1.0)
+    return (keep_b @ M.T) > 0
+
+
+def block_p3_mask(score, g, M, m, seq_mask=None):
+    """Combines token-block sharing (g, via aggregate_block_score -- same
+    as block_p_mask) with neuron-block quantization (M, m, via
+    neuron_block_topm_mask) -- both axes of the spec's Phase 4 "2D tile".
+    g=1 (no token aggregation) and/or nb_neuron=D (M = identity, B=1)
+    degenerate back to finer-grained selection along the corresponding
+    axis; see test_block_comp_units.py for the exact-reduction checks."""
+    block_score, bid = aggregate_block_score(score, g, seq_mask=seq_mask)
+    keep = neuron_block_topm_mask(block_score, M, m)
+    return keep.index_select(-2, bid)
+
+
+def build_neuron_partition_onehots(partition_path, B, device, layers=None):
+    """Loads a p3_collect_cluster_all.py partition file
+    (coactivation-block-structure topic) and builds one per-layer one-hot
+    M [D, nb_neuron] (fp32, on device) from its 'clustered' (PPMI +
+    balanced k-means, P2's validated method) assignment at block size B.
+    'random' control partitions live in the same file under the same key
+    structure if ever needed, not built here. Returns {layer_idx: M}."""
+    part = torch.load(partition_path, map_location="cpu", weights_only=False)
+    n_layers = len(part["partitions"])
+    idxs = layers if layers is not None else range(n_layers)
+    out = {}
+    for li in idxs:
+        a = part["partitions"][li][B]["clustered"].to(device)
+        D = a.shape[0]
+        nb = int(a.max().item()) + 1
+        M = torch.zeros(D, nb, device=device, dtype=torch.float32)
+        M[torch.arange(D, device=device), a] = 1.0
+        out[li] = M
+    return out
+
+
 def _resid_score(mlp, u, g):
     """Same per-token score as oracle C3/C4/C5: |u*(g-g_bar)| * col_norm.
     Requires mlp.oracle_g_bar / mlp.oracle_col_norm already attached (via
@@ -245,7 +310,12 @@ def block_comp_mlp_forward(mlp, x):
     i = u * g
 
     score = _resid_score(mlp, u, g)
-    m_bool = block_p_mask(score, mlp.blk_p, mlp.blk_g, seq_mask=getattr(mlp, "blk_seq_mask", None))
+    neuron_M = getattr(mlp, "blk_neuron_M", None)
+    if neuron_M is not None:
+        m_bool = block_p3_mask(score, mlp.blk_g, neuron_M, mlp.blk_neuron_m,
+                                seq_mask=getattr(mlp, "blk_seq_mask", None))
+    else:
+        m_bool = block_p_mask(score, mlp.blk_p, mlp.blk_g, seq_mask=getattr(mlp, "blk_seq_mask", None))
     achieved = 1.0 - m_bool.float().mean().item()
     mlp.infer_sparsity_h1 = 0.0
     mlp.infer_sparsity_h2 = achieved
@@ -278,13 +348,25 @@ def block_comp_mlp_forward(mlp, x):
     raise ValueError(f"unknown block condition {cond!r}")
 
 
-def set_condition(model, condition, p=1.0, g=1, seq_mask=None):
+def set_condition(model, condition, p=1.0, g=1, seq_mask=None,
+                   neuron_partitions=None, neuron_m=None):
+    """neuron_partitions, if given: {layer_idx: M [D, nb_neuron]} (one-hot,
+    from build_neuron_partition_onehots) -- switches mask selection to
+    Phase 4/P3''s neuron-block-quantized top-m (block_p3_mask) instead of
+    the default unstructured top-p (block_p_mask). neuron_m: number of
+    neuron-blocks to keep per token-block (required together with
+    neuron_partitions). `p` is ignored when neuron_partitions is given
+    (P3' budgets by block COUNT, not cumulative mass -- see
+    block_p3_mask/neuron_block_topm_mask). Default None reproduces
+    Phase 1-3's existing behavior exactly."""
     assert condition in CONDITIONS, condition
-    for _, mlp in iter_mlps(model):
+    for layer_idx, mlp in iter_mlps(model):
         mlp.blk_condition = condition
         mlp.blk_p = p
         mlp.blk_g = g
         mlp.blk_seq_mask = seq_mask
+        mlp.blk_neuron_M = neuron_partitions[layer_idx] if neuron_partitions is not None else None
+        mlp.blk_neuron_m = neuron_m
         mlp.blk_sp_sum = 0.0
         mlp.blk_sp_cnt = 0
 
