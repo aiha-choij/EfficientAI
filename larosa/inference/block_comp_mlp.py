@@ -115,24 +115,32 @@ def _svd_factors(W, rank):
     (fp32, on W's original device) with B @ A ~ W (rank-r truncated SVD);
     exact at rank=full.
 
-    SVD runs on CPU, not on W's device: gate_proj/up_proj/down_proj are
-    full [d,h]-shaped projection matrices (e.g. 8192x3072 for the 3B dev
-    model, larger still at 8B) -- much bigger than oracle_mlp.py's own
-    SVD target M ([h,h], derived and much smaller). Doing this on GPU
-    across every layer's three projections caused unbounded CUDA memory
-    growth in Phase 3's first real (non-tiny-CPU-unit-test) run --
-    `attach_block_factors_inplace` OOM'd partway through a 28-layer 3B
-    model despite the model itself only using ~6GB (see block-sparse-
-    compensation journal, Phase 3 round 1 OOM). The unit tests never
-    caught this because they run entirely on a tiny CPU model. CPU SVD
-    trades a little one-time load latency for eliminating that pressure;
-    the returned factors are tiny (rank r_sk << min(out,in)) so moving
-    them back to W's device is cheap."""
-    U, S, Vh = torch.linalg.svd(W.float().cpu(), full_matrices=False)
+    Runs on W's own device (GPU in real usage). An earlier version of
+    this function moved the SVD to CPU, misdiagnosing the root cause of
+    Phase 3's first OOM (see block-sparse-compensation journal, round 1)
+    as "GPU SVD of a big matrix is just too memory-hungry." The REAL
+    cause: this function is called with the model's weight tensors,
+    which have requires_grad=True by default (`.eval()` does not disable
+    it) -- every layer's SVD therefore built and RETAINED an autograd
+    graph that nothing ever freed (no backward ever runs), so GPU memory
+    grew monotonically across a whole model's layers regardless of which
+    device the SVD ran on. oracle_mlp.py's own use of the same style of
+    SVD (build_M_factors) never hit this because every caller wraps it in
+    `torch.no_grad()`; this module's caller (`attach_block_factors_inplace`,
+    below) didn't. The CPU-SVD workaround "fixed" the OOM by trading it
+    for CPU compute -- but CPU SVD of a full [d,h] matrix (e.g. 14336x4096
+    at 8B) turned out to be slow enough, and multiple concurrent jobs
+    contending for the same host's CPU cores made it slower still, that
+    Phase 3's 8B sweep stalled for 40+ minutes producing no eval output
+    (caught during a periodic check, not a crash). Fixed properly:
+    `attach_block_factors_inplace` now runs its whole body under
+    `torch.no_grad()`, so the SVD is both fast (GPU) and memory-safe
+    (nothing retained)."""
+    U, S, Vh = torch.linalg.svd(W.float(), full_matrices=False)
     r = min(rank, S.shape[0])
     sq = S[:r].sqrt()
-    B = (U[:, :r] * sq.unsqueeze(0)).to(W.device)
-    A = (sq.unsqueeze(1) * Vh[:r, :]).to(W.device)
+    B = U[:, :r] * sq.unsqueeze(0)
+    A = sq.unsqueeze(1) * Vh[:r, :]
     return A, B
 
 
@@ -147,27 +155,25 @@ def build_gate_up_down_sketch(mlp, r_sk):
 
 def _build_comp_lr_factors(mlp, rank):
     """C7's comp_lr factors: same math as oracle_mlp.build_M_factors's
-    plain (non-whitened) path -- M = W_down diag(g_bar) W_up, rank-r SVD
-    -- but with the SVD run on CPU, not GPU.
+    plain (non-whitened) path -- M = W_down diag(g_bar) W_up, rank-r SVD.
 
     oracle_mlp.py itself is intentionally left untouched (shared with the
     paused oracle-residual-sparsity topic), so this is a local
-    reimplementation of just the SVD step, not a call to
-    oracle_mlp.build_M_factors. Needed because that GPU-based SVD, called
-    once per layer across a whole model, caused the exact same kind of
-    unbounded CUDA memory growth Phase 3 already hit once for the
-    gate/up/down sketch (see _svd_factors's docstring) -- this time on
-    8B (h=4096, 32 layers), where M itself is bigger and there are more
-    layers than on the 3B dev model that never tripped this."""
-    M = compute_M(mlp)  # [h,h], cheap, computed on GPU
-    U, S, Vh = torch.linalg.svd(M.cpu(), full_matrices=False)
+    reimplementation rather than a call to oracle_mlp.build_M_factors.
+    Runs on GPU (M's device) under the caller's `torch.no_grad()` --
+    see _svd_factors's docstring for why that (not the device) is what
+    actually matters for avoiding the memory-growth bug this module hit
+    twice before finding the real cause."""
+    M = compute_M(mlp)  # [h,h], computed on GPU
+    U, S, Vh = torch.linalg.svd(M, full_matrices=False)
     r = min(rank, S.shape[0])
     sq = S[:r].sqrt()
-    B = (U[:, :r] * sq.unsqueeze(0)).to(M.device)
-    A = (sq.unsqueeze(1) * Vh[:r, :]).to(M.device)
+    B = U[:, :r] * sq.unsqueeze(0)
+    A = sq.unsqueeze(1) * Vh[:r, :]
     return A, B
 
 
+@torch.no_grad()
 def attach_block_factors_inplace(model, rank, r_sk, condition=None):
     """Build and attach C7's comp_lr factors (rank) and/or C8/C8a's
     gate/up/down sketches (r_sk) directly (used by tests; a save/load
@@ -178,7 +184,14 @@ def attach_block_factors_inplace(model, rank, r_sk, condition=None):
     should always pass it, since building both unconditionally wastes a
     full gate/up/down SVD sweep every time (each condition only reads one
     half at forward time). Default None (tests) builds both, unchanged
-    from the original behavior."""
+    from the original behavior.
+
+    @torch.no_grad() is load-bearing, not decoration: model weights have
+    requires_grad=True by default (.eval() doesn't change that), so
+    without it every layer's SVD retains an autograd graph that never
+    gets freed (no backward ever runs) -- this is the actual mechanism
+    behind the memory-growth bugs this module hit twice before (see
+    _svd_factors's docstring), not the choice of GPU vs CPU."""
     need_comp = condition in (None, "c7")
     need_sketch = condition in (None, "c8", "c8a")
     for _, mlp in iter_mlps(model):
