@@ -171,15 +171,22 @@ Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
    was a ridge-prior artifact on both models — and strengthens s=0.9's
    Go on both). Tracked in the `local-loss-refit` topic's own
    gist/journal; PR #3 open.
-3. **Phase 4 (P3′) — NOT YET STARTED, next up**: combine with
-   `coactivation-block-structure` P2's PPMI neuron-cluster permutation:
-   rerun C7/C8 on top of the clustered blocks from
-   `a6000-4:~/workspace/analysis/llama2_p3_partitions_s09.pt`
-   (LLaMA2-7B only — model mismatch with this topic's main models, 3B/8B;
-   plan is to run Phase 4 on llama2-7b first (cheap, reuses partitions,
-   dense anchor 5.4738 known) and only extend to 8B if the direction looks
-   worthwhile). With Phase 3's 8B gate now formally met, this is the
-   remaining piece of the request's Main Thread A/B.
+3. **Phase 4 (P3′) — SCOPED, implementation not started**: combine with
+   `coactivation-block-structure` P2's PPMI neuron-cluster permutation.
+   Design + scoping done (journal/2026-07-31_init-phase4-p3prime.md):
+   P3′ = replace P3's plain "zero the dropped neuron-blocks" masking with
+   block_comp's C7 (mean-gate)/C8 (sketch) compensation on those dropped
+   blocks, using the existing partition file's per-neuron cluster
+   assignments (fetched from `a6000-4` to
+   `~/workspace/analysis/llama2_p3_partitions_s09.pt`, confirmed:
+   llama2-7b, 32 layers, intermediate_size 11008, B∈{64,256},
+   sparsity=0.9 — conveniently matches Phase 3's own target regime).
+   LLaMA2-7B only for the first pass (dense anchor 5.4738 known,
+   partition is model-specific). Needs real new code (2D token-block ×
+   neuron-block score aggregation, compensation applied only to dropped
+   blocks, new unit tests) before any GPU job — not started yet. With
+   Phase 3's 8B gate now formally met, this is the remaining piece of the
+   request's Main Thread A/B.
 C9 (overflow hybrid) is explicitly NOT implemented — Phase 3 landed on
 GO, not Partial-go/No-go, so C9 is not promoted per spec's own rule.
 
