@@ -163,19 +163,15 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   2026-07-31_experiment-refit-l2-validate-3b.md
 
 ## Open Questions
-- **lm-eval-harness `piqa` task fails on this gateway env**: `lm_eval==0.4.3`
-  defines `piqa` via a legacy HF-hub python loading script; the gateway's
-  `datasets==5.0.0` removed loading-script support entirely (several major
-  versions ahead of what 0.4.3 was built against), so
-  `datasets.load_dataset` raises `RuntimeError: Dataset scripts are no
-  longer supported, but found piqa.py`. HFLM wrapping of our
-  already-configured model instance itself works fine (only the dataset
-  download step fails) — confirmed 2026-07-31 via
-  `refit-lmeval-smoke-3b`. Not fixing by changing the shared conda env
-  (blast radius beyond this topic); testing whether the other 7 tasks are
-  unaffected (some may also use loading scripts) before deciding whether
-  to just drop `piqa` from the suite or fall back to PPL-only per the
-  request's own fallback clause.
+- ~~lm-eval-harness `piqa` task fails on this gateway env~~ → resolved by
+  scoping down: `piqa` alone hits `datasets==5.0.0`'s removal of legacy
+  HF-hub loading-script support (`lm_eval==0.4.3` defines `piqa` via one);
+  the other 7 request-spec tasks (arc_easy, arc_challenge, boolq,
+  hellaswag, winogrande, sciq, lambada_openai) all confirmed working
+  (checked individually/in small groups, 2026-07-31). Suite going forward:
+  7 tasks, `piqa` dropped, documented deviation from the request's 8-task
+  list — not fixing by changing the shared conda env (blast radius beyond
+  this topic).
 - Exact s/g crossover point where ΔL1 flips sign looks model-dependent
   (3B: still negative at s=0.7,g=32; 8B: ~neutral there) — not pinned down,
   not blocking (s=0.9 Go stands either way), but relevant if this method
@@ -196,14 +192,20 @@ branch line (oracle-residual-sparsity) rather than refit alone.
 4. ~~Implement + validate L2~~ — DONE (2026-07-31), unit-tested correct,
    CONFIRMED to lose to L0/L1 at s=0.9,g=1 (not a calibration artifact —
    see Dead Ends). Not extending to the broader matrix.
-5. lm-eval-harness zero-shot suite (8 tasks, --limit 1000) — availability
-   confirmed (0.4.3). This is the next open item: L0/L1's PPL story is
-   solid on two models, but the request's judgment criteria are framed
-   around accuracy (normalized zero-shot), with PPL as a secondary signal.
-   Not yet run.
+5. lm-eval-harness zero-shot suite — SUBMITTED (2026-07-31), 4 jobs:
+   Llama-3.1-8B, L0 vs L1 x s∈{0.9 (confirmed-helps), 0.5 (confirmed-hurts)}
+   x g=1, 7 tasks (piqa dropped, see Open Questions), --limit 1000. Checks
+   whether the PPL-based finding (refit helps at s=0.9, hurts at s=0.5)
+   holds on the accuracy axis the request's own judgment criteria are
+   framed around.
 
 ## Active Jobs
-- (none)
+- `050-20260731-155329-refit-harness-l0-s09-8b`
+- `050-20260731-155334-refit-harness-l1-s09-8b`
+- `050-20260731-155342-refit-harness-l0-s05-8b`
+- `050-20260731-155351-refit-harness-l1-s05-8b`
+  All: Llama-3.1-8B, g=1, 7 tasks (arc_easy/arc_challenge/boolq/hellaswag/
+  winogrande/sciq/lambada_openai), --limit 1000, a100-40-2.
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
