@@ -112,12 +112,27 @@ def _resid_score(mlp, u, g):
 
 def _svd_factors(W, rank):
     """W: [out, in] (nn.Linear weight layout). Returns A [r,in], B [out,r]
-    (fp32) with B @ A ~ W (rank-r truncated SVD); exact at rank=full."""
-    U, S, Vh = torch.linalg.svd(W.float(), full_matrices=False)
+    (fp32, on W's original device) with B @ A ~ W (rank-r truncated SVD);
+    exact at rank=full.
+
+    SVD runs on CPU, not on W's device: gate_proj/up_proj/down_proj are
+    full [d,h]-shaped projection matrices (e.g. 8192x3072 for the 3B dev
+    model, larger still at 8B) -- much bigger than oracle_mlp.py's own
+    SVD target M ([h,h], derived and much smaller). Doing this on GPU
+    across every layer's three projections caused unbounded CUDA memory
+    growth in Phase 3's first real (non-tiny-CPU-unit-test) run --
+    `attach_block_factors_inplace` OOM'd partway through a 28-layer 3B
+    model despite the model itself only using ~6GB (see block-sparse-
+    compensation journal, Phase 3 round 1 OOM). The unit tests never
+    caught this because they run entirely on a tiny CPU model. CPU SVD
+    trades a little one-time load latency for eliminating that pressure;
+    the returned factors are tiny (rank r_sk << min(out,in)) so moving
+    them back to W's device is cheap."""
+    U, S, Vh = torch.linalg.svd(W.float().cpu(), full_matrices=False)
     r = min(rank, S.shape[0])
     sq = S[:r].sqrt()
-    B = U[:, :r] * sq.unsqueeze(0)
-    A = sq.unsqueeze(1) * Vh[:r, :]
+    B = (U[:, :r] * sq.unsqueeze(0)).to(W.device)
+    A = (sq.unsqueeze(1) * Vh[:r, :]).to(W.device)
     return A, B
 
 
@@ -130,19 +145,30 @@ def build_gate_up_down_sketch(mlp, r_sk):
     return Ag, Bg, Au, Bu, Ad, Bd
 
 
-def attach_block_factors_inplace(model, rank, r_sk):
+def attach_block_factors_inplace(model, rank, r_sk, condition=None):
     """Build and attach C7's comp_lr factors (rank, reusing oracle_mlp's C4
-    factor builder -- M = W_down diag(g_bar) W_up) and C8/C8a's gate/up/
+    factor builder -- M = W_down diag(g_bar) W_up) and/or C8/C8a's gate/up/
     down sketches (r_sk) directly (used by tests; a save/load pair mirrors
-    oracle_mlp.py's convention for the real build scripts)."""
+    oracle_mlp.py's convention for the real build scripts).
+
+    condition, if given, skips whichever half a condition never uses (c7
+    only needs comp_lr; c8/c8a only need the sketch) -- real eval runs
+    should always pass it, since building both unconditionally wastes a
+    full gate/up/down SVD sweep every time (each condition only reads one
+    half at forward time). Default None (tests) builds both, unchanged
+    from the original behavior."""
+    need_comp = condition in (None, "c7")
+    need_sketch = condition in (None, "c8", "c8a")
     for _, mlp in iter_mlps(model):
         dtype = mlp.down_proj.weight.dtype
-        A, B, _ = build_M_factors(mlp, rank)
-        mlp.blk_comp_A, mlp.blk_comp_B = A.to(dtype), B.to(dtype)
-        Ag, Bg, Au, Bu, Ad, Bd = build_gate_up_down_sketch(mlp, r_sk)
-        mlp.blk_sketch_Ag, mlp.blk_sketch_Bg = Ag.to(dtype), Bg.to(dtype)
-        mlp.blk_sketch_Au, mlp.blk_sketch_Bu = Au.to(dtype), Bu.to(dtype)
-        mlp.blk_sketch_Ad, mlp.blk_sketch_Bd = Ad.to(dtype), Bd.to(dtype)
+        if need_comp:
+            A, B, _ = build_M_factors(mlp, rank)
+            mlp.blk_comp_A, mlp.blk_comp_B = A.to(dtype), B.to(dtype)
+        if need_sketch:
+            Ag, Bg, Au, Bu, Ad, Bd = build_gate_up_down_sketch(mlp, r_sk)
+            mlp.blk_sketch_Ag, mlp.blk_sketch_Bg = Ag.to(dtype), Bg.to(dtype)
+            mlp.blk_sketch_Au, mlp.blk_sketch_Bu = Au.to(dtype), Bu.to(dtype)
+            mlp.blk_sketch_Ad, mlp.blk_sketch_Bd = Ad.to(dtype), Bd.to(dtype)
 
 
 def save_block_factors(model, rank, r_sk, out_dir):

@@ -80,7 +80,8 @@ if __name__ == "__main__":
         if args.factors_dir:
             block_comp_mlp.load_block_factors(model, args.factors_dir)
         else:
-            block_comp_mlp.attach_block_factors_inplace(model, rank=args.rank, r_sk=args.r_sk)
+            block_comp_mlp.attach_block_factors_inplace(model, rank=args.rank, r_sk=args.r_sk,
+                                                        condition=args.condition)
 
     block_comp_mlp.set_condition(model, args.condition, p=args.p, g=args.g)
 
