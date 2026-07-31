@@ -1,6 +1,6 @@
 # Experiment: block-comp-phase3-8b (Phase 3 — C7/C8a/C8 sweep, 8B, formal Go gate)
 
-Status: PENDING (p-probe done, main sweep running)
+Status: CONFIRMED — GO (spec §5 primary criterion met at 8B, g=16, s≈0.9; see caveats in Results)
 Date: 2026-07-31
 
 ## Hypothesis tested
@@ -51,8 +51,11 @@ point. No strong prior on which; report whichever happens.
   `bc-c7-g16-8b-p05-r896b`/`bc-c8a-g16-8b-p05-rsk448`/`bc-c8-g16-8b-p05-rsk1792`
   (all killed via `runs -k` after 35-49min stall, see Notes below);
   resubmitted post-fix as `bc-c7-g16-8b-p05-r896c`,
-  `bc-c8a-g16-8b-p05-rsk448b`, `bc-c8-g16-8b-p05-rsk1792b` (all queued
-  as of this writing).
+  `bc-c8a-g16-8b-p05-rsk448b`, `bc-c8-g16-8b-p05-rsk1792b` (all landed
+  clean, git commit `7524fad`); p=0.3 round (target sparsity):
+  `bc-c7a-g16-8b-p03`, `bc-c7-g16-8b-p03-r896`,
+  `bc-c8a-g16-8b-p03-rsk448`, `bc-c8-g16-8b-p03-rsk1792` (all landed
+  clean, git commit `966e057`).
 - **Assigned host/GPU**: a100-40-2 (pinned via -H)
 - **Commands**: probes via `scripts/oracle/04_eval_ppl.py --condition c3`
   (oracle-format, reusing 8B calibration); sweep via
@@ -198,6 +201,74 @@ final verdict, for two reasons:
    comparability with everything measured so far, but the formal
    Go/Partial-go/No-go declaration should note this is under the proxy
    metric, not the spec's literal formula.
+
+### p=0.3 round: lands at the spec's actual s≈0.9 target — formal Go verdict
+All 4 jobs (C7a/C7/C8a/C8, git commit `966e057`) landed clean, achieved
+sparsity 0.887-0.898 -- squarely in the spec's literal "s≈0.9" target
+region this time (unlike the p=0.5 round's ~0.75):
+
+| condition | s_block | PPL |
+|---|---|---|
+| C7a (no comp) | 0.8925 | **1243.4146** |
+| C7 (mean-gate, rank=896) | 0.8978 | 42.6553 |
+| C8a (diagnostic, r_sk=d/32) | 0.8963 | 12.2478 |
+| C8 (deployable, r_sk=d/8) | 0.8874 | 20.4122 |
+
+C7a's PPL blows up catastrophically at this sparsity (1243 vs ~7-16 for
+the g=1 anchor in this range) -- consistent with
+`coactivation-block-structure`'s P3 finding that bare block-shared
+masking near s=0.9 is catastrophic (their range was 4.5k-24k for
+neuron+token sharing; this is token-only sharing, less extreme but
+still catastrophic, matching the direction).
+
+Using a log-PPL-interpolated g=1 anchor between the existing
+`bc-c3-g1-8b-p05` (sparsity 0.8814, PPL 7.8314) and `bc-c3-g1-8b-p03`
+(sparsity 0.9565, PPL 15.7063) bracket points, evaluated at each
+condition's own achieved sparsity:
+
+| condition | recovery (PPL-ratio proxy) | ΔPPL vs anchor |
+|---|---|---|
+| C7 | **97.2%** | +33.54 |
+| C8 | **99.0%** | +12.13 |
+| C8a | **99.7%** | +3.26 |
+
+**Formal verdict: GO for H4** (spec §5's primary criterion, "C8 회수율 ≥
+50%", is met with a very wide margin: 99.0% vs the 50% bar) at 8B, g=16,
+s≈0.9 -- the spec's literal target regime, unlike the p=0.5 round.
+Spec's *alternate* criterion ("또는 ΔPPL ≤ +1.0") is NOT met by any
+condition (C8's ΔPPL is +12.13) -- flagging this because it changes what
+"Go" means here: the recovery-ratio is dominated by C7a's own PPL
+blowing up to 1243 at this near-catastrophic sparsity, so a large
+recovery fraction does not imply C8's absolute quality (PPL 20.41) is
+anywhere near dense (PPL ~8.3) -- it means C8 avoids the catastrophic
+collapse regime C7a falls into, which is a real and useful result but a
+different claim than "close to dense." Both criteria are stated with
+"또는" (OR) in the spec, so satisfying recovery≥50% alone is sufficient
+for a Go declaration -- reporting both numbers here so the verdict isn't
+read as stronger than it is.
+
+**H5 refinement, round 2**: at s~0.75 (p=0.5 round), C8a (~98%) sharply
+outperformed C7 (~78%) and C8 (~89%) fell in between -- rank/u-exactness
+clearly mattered. At s~0.9 (this round), the gap nearly closes: C7
+(97.2%), C8 (99.0%), C8a (99.7%) are all within 2.5pp of each other. Read
+together with the ΔPPL caveat above: once C7a's own baseline is
+catastrophic enough (PPL in the hundreds-to-thousands), *any* of these
+compensation schemes recovers nearly all of the "recoverable" ratio,
+because the denominator itself has grown enormous -- the earlier finding
+("u-exactness is the dominant lever distinguishing C7/C8/C8a") was most
+visible in the *moderate*-tax regime (s~0.5-0.75); it washes out under
+the ratio metric once the tax is this large. This is itself informative
+about the ratio metric's behavior near catastrophic collapse, not
+necessarily evidence that gate-estimate quality stops mattering in
+absolute terms (C7's ΔPPL of +33.5 vs C8a's +3.3 shows real, large
+absolute differences still exist).
+
+**Phase 3 formal gate (spec §5) is now MET at 8B, g=16, s≈0.9** --
+subject to the two caveats already on record: (1) recovery computed as a
+PPL-ratio proxy, not spec's literal critical-sparsity-ratio formula (not
+retroactively re-derived); (2) the Go verdict here is via the
+recovery-ratio criterion only, not the alternate ΔPPL≤+1.0 criterion.
+Marking this journal card's Status CONFIRMED / Go.
 
 ### g=1 anchor result: close single-point estimate near C7a's sparsity
 `bc-c3-g1-8b-p07`: p=0.7 -> sparsity 0.7541, PPL 6.7521 -- close to

@@ -1,7 +1,10 @@
 # block-sparse-compensation — Can input-dependent compensation recover the sharing tax of a block-shared mask?
 
 ## Status
-active — started 2026-07-31 from spec (full spec preserved verbatim in
+Phase 1-3 CONFIRMED, **Phase 3's formal spec §5 gate MET: GO** (8B, g=16,
+s≈0.9 — see Key Findings for the recovery table and caveats). Phase 4
+(coactivation combination on LLaMA2-7B) not yet started — next up.
+Started 2026-07-31 from spec (full spec preserved verbatim in
 `spec.md`; see there for the authoritative math). Continues the
 `oracle-residual-sparsity` C0–C6 numbering (paused, kept active as anchor)
 and is directly motivated by two closed threads:
@@ -141,41 +144,44 @@ compensation) are dead; see `coactivation-block-structure` gist for the
 ## Next Experiments
 Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
 (CONFIRMED, cross-g). Remaining, in priority order:
-1. **Phase 3 → 8B extension, IN PROGRESS**: 8B oracle calibration + p-probe
-   DONE. Hit the SVD memory-growth bug class twice more (OOM, then a
-   35-49min stall) before root-causing it properly as a missing
-   `torch.no_grad()` (see Dead Ends) — fixed (commit `6b80dcf`). p=0.5
-   round (g=16) landed clean on the fixed code: C7a s_block=0.7337
-   PPL=49.4909; C7 s_block=0.7500 PPL=16.1227 (~78% recovery); C8
-   (r_sk=d/8) s_block=0.7370 PPL=11.5803 (~89%); C8a s_block=0.7500
-   PPL=7.7136 (~98%) — all comfortably cross the 50% Go bar, much
-   stronger than the 3B leg's C7~18-25%. **Not yet a formal verdict**:
-   (a) achieved sparsity (~0.75) is well short of the spec's literal
-   "s≈0.9" — block aggregation flattens it more than expected at this p
-   — so pushed a p=0.3 round (full C7a/C7/C8a/C8, 4 jobs, queued) to
-   land closer to the actual target sparsity, since the 3B leg showed
-   tax grows steeply/nonlinearly with sparsity and recovery at ~0.9 may
-   look different than at ~0.75; (b) recovery has been computed as a
-   PPL-ratio proxy, not spec's literal critical-sparsity-ratio formula
-   (see Open Questions) — flagging, not re-deriving retroactively. Once
-   the p=0.3 round lands, compute the full recovery table at the actual
-   target sparsity and formally declare Go/Partial-go/No-go per spec §5
-   (with the proxy-metric caveat noted). Journal:
+1. **Phase 3 → 8B extension, DONE — formal GO verdict (2026-07-31)**: 8B
+   oracle calibration + p-probe done. Hit the SVD memory-growth bug class
+   twice more (OOM, then a 35-49min stall) before root-causing it
+   properly as a missing `torch.no_grad()` (see Dead Ends) — fixed
+   (commit `6b80dcf`). Two rounds run: p=0.5 (s_block~0.74-0.75 — short
+   of spec's "s≈0.9" target; C7~78%/C8~89%/C8a~98% recovery) and p=0.3
+   (s_block~0.887-0.898 — squarely in the target region; **C7 97.2% /
+   C8 99.0% / C8a 99.7% recovery**, C7a's own PPL blows up to 1243.4 at
+   this sparsity, consistent with the coactivation topic's catastrophic-
+   collapse finding). **Spec §5's primary Go criterion (C8 recovery ≥50%)
+   is met with a very wide margin at the actual target sparsity — formal
+   verdict: GO.** Two caveats on record, not blocking the verdict: (a)
+   recovery is a PPL-ratio proxy, not spec's literal critical-sparsity-
+   ratio formula (see Open Questions); (b) spec's *alternate* criterion
+   (ΔPPL≤+1.0 vs anchor) is NOT met (C8's ΔPPL is +12.13) — the huge
+   recovery ratio reflects escaping C7a's catastrophic collapse, not
+   closing the gap to dense-level absolute quality. H5 refines further:
+   the u-exactness/gate-quality gap between C7/C8/C8a that was large at
+   moderate sparsity (s~0.5-0.75) nearly vanishes under the ratio metric
+   once C7a's baseline is this catastrophic — all three land within
+   2.5pp of each other. Full tables in the journal:
    journal/2026-07-31_experiment-block-comp-phase3-8b.md
 2. **§4 (local-loss-refit honesty corrections, C1/C2/M1) — DONE**,
    confirmed on both 3B and 8B (C1 fixes the s=0.5 "hurts" headline —
    was a ridge-prior artifact on both models — and strengthens s=0.9's
    Go on both). Tracked in the `local-loss-refit` topic's own
    gist/journal; PR #3 open.
-3. Phase 4 (P3′) — combine with `coactivation-block-structure` P2's PPMI
-   neuron-cluster permutation: rerun C7/C8 on top of the clustered blocks
-   from `a6000-4:~/workspace/analysis/llama2_p3_partitions_s09.pt`
+3. **Phase 4 (P3′) — NOT YET STARTED, next up**: combine with
+   `coactivation-block-structure` P2's PPMI neuron-cluster permutation:
+   rerun C7/C8 on top of the clustered blocks from
+   `a6000-4:~/workspace/analysis/llama2_p3_partitions_s09.pt`
    (LLaMA2-7B only — model mismatch with this topic's main models, 3B/8B;
    plan is to run Phase 4 on llama2-7b first (cheap, reuses partitions,
    dense anchor 5.4738 known) and only extend to 8B if the direction looks
-   worthwhile).
-C9 (overflow hybrid) is explicitly NOT implemented yet — only promoted if
-Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
+   worthwhile). With Phase 3's 8B gate now formally met, this is the
+   remaining piece of the request's Main Thread A/B.
+C9 (overflow hybrid) is explicitly NOT implemented — Phase 3 landed on
+GO, not Partial-go/No-go, so C9 is not promoted per spec's own rule.
 
 ## Active Jobs
 - Phase 2 (calibration + 4 rounds of eval): all DONE. One transient
@@ -189,9 +195,10 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
 - Phase 3 8B round (p=0.5): all done (see Key Findings for the recovery
   table). C7/C8a/C8 stalled once on pre-fix code (35-49min, no
   progress), killed via `runs -k`, resubmitted post-fix and landed clean.
-- Phase 3 8B round (p=0.3, targeting s_block≈0.9): `bc-c7a-g16-8b-p03`,
-  `bc-c7-g16-8b-p03-r896`, `bc-c8a-g16-8b-p03-rsk448`,
-  `bc-c8-g16-8b-p03-rsk1792` — all queued, not landed yet.
+- Phase 3 8B round (p=0.3, targeting s_block≈0.9): all done — this is the
+  round the formal Go verdict is based on (see Key Findings).
+- Phase 3 8B leg: DONE. No jobs outstanding for this topic's main thread
+  until Phase 4 kicks off.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first
