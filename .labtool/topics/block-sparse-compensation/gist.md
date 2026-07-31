@@ -128,16 +128,20 @@ and is directly motivated by two closed threads:
 Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
 (CONFIRMED, cross-g). Remaining, in priority order:
 1. **Phase 3 → 8B extension** (needed for spec's actual Go gate: 8B,
-   s≈0.9): calibrate Llama-3.1-8B (oracle format, same as the 3B
-   calibration job), then repeat the C7a/C7/C8a/C8 protocol at a p that
-   lands near s≈0.9 achieved sparsity. Only then can Go/Partial-go/No-go
-   (spec §5) be formally declared — current 3B result is Go-crossing but
-   preliminary.
-2. **§4 (local-loss-refit honesty corrections, C1/C2/M1)** — explicitly
-   requested to run in parallel with this topic's GPU-heavy work
-   (light load) but not yet started this session. Tracked in
-   `local-loss-refit` topic, not here; a separate branch stacked on
-   `auto/local-loss-refit` (unmerged PR #1) is needed.
+   s≈0.9): 8B oracle calibration DONE (`bc-calib-8b`,
+   `~/workspace/oracle/Llama-3.1-8B/stats/wikitext103`, 32 layers, no
+   anomaly). Still needed: repeat the C7a/C7/C8a/C8 protocol at a p that
+   lands near s≈0.9 achieved sparsity (3B's own p-vs-sparsity curve
+   suggests p≈0.97-0.99 range, not p≈0.9 — the mapping may differ on 8B,
+   worth a quick p-probe before committing to the full sweep). Only then
+   can Go/Partial-go/No-go (spec §5) be formally declared — current 3B
+   result is Go-crossing but preliminary.
+2. **§4 (local-loss-refit honesty corrections, C1/C2/M1)** — IN PROGRESS
+   on branch `auto/refit-honesty-corrections` (off `auto/local-loss-
+   refit`): C1 ridge-anchor fix coded + unit-tested, M1 log-PPL
+   correction done (headline revised 37%/60%->~12%/~22%), recalibration
+   + dense-anchor GPU jobs queued. Tracked in the `local-loss-refit`
+   topic's own gist/journal, not here — see there for results.
 3. Phase 4 (P3′) — combine with `coactivation-block-structure` P2's PPMI
    neuron-cluster permutation: rerun C7/C8 on top of the clustered blocks
    from `a6000-4:~/workspace/analysis/llama2_p3_partitions_s09.pt`
