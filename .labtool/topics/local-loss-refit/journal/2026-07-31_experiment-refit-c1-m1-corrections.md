@@ -236,3 +236,10 @@ the existing saved calibration tokens, raw (G,C,n) saved to
 (`refit-c1-eval-8b-s09`) submitted immediately -- PPL not yet in.
 `refit-c1-build-8b-s05` still running (~29 min in, consistent with the
 s=0.9 build's timing, not stalled).
+
+`refit-c1-build-8b-s05` also completed cleanly (same 3-chunk pattern),
+raw stats saved to `.../stats/l1c1_s0.5_g1/`. Both 8B recalibration
+builds now done; both eval jobs (`refit-c1-eval-8b-s09`,
+`refit-c1-eval-8b-s05`) submitted. Neither PPL landed yet -- this is the
+last open number needed to confirm or refute whether the 3B C1
+correction generalizes to the main model.
