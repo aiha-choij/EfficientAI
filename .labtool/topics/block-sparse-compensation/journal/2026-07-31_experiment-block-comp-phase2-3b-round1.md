@@ -132,6 +132,63 @@ Queued 2 more C3 g=1 points (p=0.95, p=0.97) to bracket the ~0.20-0.24
 sparsity region C7a occupies at p=0.9, so the next update can interpolate
 a same-sparsity anchor value instead of comparing raw PPL at matched p.
 
+## Round 3 results + first honest sharing-tax estimate
+| condition | g | p | achieved sparsity | PPL |
+|---|---|---|---|---|
+| C3 (in-family anchor) | 1 | 0.97 | 0.3111 | 11.0504 |
+| C3 (in-family anchor) | 1 | 0.95 | — | FAILED (CUDA OOM, transient — see Notes) |
+| C7a | 16 | 0.7 | 0.5202 | 33.9006 |
+| C7a | 64 | 0.7 | 0.4727 | 32.3566 |
+
+`bc-c3-g1-p095` (050-20260731-175727) failed: `CUDA OutOfMemoryError`
+during `attach_col_norms`, "Process 1227241 has 32.93 GiB memory in use"
+on the assigned GPU — far more than any of this topic's own jobs ever
+allocate (a 3B model's own footprint is ~6GB, confirmed by every
+succeeding job's own memory lines). This is a different, much larger
+process that was not present a few seconds earlier at dispatch time (the
+probe-based dispatcher has an inherent race: it checks free memory once,
+then the job's actual model load happens later) — read as transient
+external GPU contention on the shared cluster, not a bug in this topic's
+code or job spec. `nvidia-smi` re-checked immediately after: all GPUs back
+to expected free memory, the large process was gone. No fix needed beyond
+retry.
+**Retry plan changed, not blindly repeated**: p=0.97's result (sparsity
+0.3111) revealed p=0.95 would land BETWEEN the already-measured p=0.9
+(0.5064) and p=0.97 (0.3111) points — not useful for bracketing the
+target ~0.20-0.24 sparsity region, which needs p even higher than 0.97.
+Queued p=0.99 instead of re-submitting the failed p=0.95 job verbatim.
+
+**First interpolated/extrapolated sharing-tax estimate** (C3 g=1 anchor
+PPL at matched achieved sparsity, linear interpolation between adjacent
+measured anchor points; extrapolation flagged where sparsity falls
+outside the anchor's measured range):
+
+| g | p | C7a sparsity | C7a PPL | anchor PPL (matched sparsity) | ΔPPL (sharing tax) |
+|---|---|---|---|---|---|
+| 16 | 0.9 | 0.2375 | 15.6911 | ~11.03 (extrapolated beyond p=0.97 point) | ~4.66 |
+| 64 | 0.9 | 0.2012 | 15.8210 | ~11.03 (extrapolated) | ~4.79 |
+| 16 | 0.7 | 0.5202 | 33.9006 | ~11.11 (interpolated, in-range) | ~22.79 |
+| 64 | 0.7 | 0.4727 | 32.3566 | ~11.08 (interpolated, in-range) | ~21.28 |
+
+**Interpretation**: the sharing tax is strongly nonlinear in achieved
+sparsity — roughly ΔPPL≈4.7 at sparsity≈0.20-0.24 but ΔPPL≈21-23 at
+sparsity≈0.47-0.52 (a ~4.5-5x jump in absolute PPL cost for roughly a
+2x increase in sparsity). This is consistent with the coactivation
+topic's finding that per-token neuron-set overlap collapses fast as
+sparsity rises (adjacent-token overlap only 3.15x chance at s=0.9) — the
+higher the sparsity, the more a token's individually-important neurons
+diverge from its block-mates', so a block-shared mask increasingly misses
+each token's real needs. The two p=0.9 anchor values are extrapolated
+(target sparsity is below the lowest directly-measured anchor point,
+0.3111 at p=0.97) so are less certain than the p=0.7 pair, which fall
+inside the measured anchor range. Round 4 (`bc-c3-g1-p099`, queued) will
+convert the p=0.9 row from extrapolated to interpolated.
+This is the first quantitative signal for H4 (block-wise compensation
+recovery target): C7/C8 need to close a gap that itself grows sharply
+with target sparsity — Phase 3's C7/C8 sweep should treat the ΔPPL≈21-23
+(higher-sparsity) regime as the harder, more important test of the
+compensation hypothesis, not just the ΔPPL≈4.7 regime.
+
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
 queue-submission rule caps a single batch at 4. Round 2 will fill in

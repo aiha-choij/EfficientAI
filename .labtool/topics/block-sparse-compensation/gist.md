@@ -42,18 +42,24 @@ and is directly motivated by two closed threads:
   1 (C7 at g=1 must bit-match C4). Flagged in spec.md/PR/code docstring;
   unconfirmed against the spec author's actual intent.
 - PR #2 (Phase 1+2 code): https://github.com/aiha-choij/EfficientAI/pull/2
-- **Phase 2 round 1 (2026-07-31, PROVISIONAL — llama3.2-3b-instruct)**:
-  C7a (no compensation) at p=0.9: PPL 15.69 (g=16, s_block=0.2375), 15.82
-  (g=64, s_block=0.2012) — worse with bigger blocks in both PPL and
-  achieved-sparsity direction, as expected. Absolute PPL is far better
-  than coactivation P3's neuron+token bare-block catastrophe (4.5k-24k):
-  token-only mask sharing (no neuron permutation) looks survivable, not
-  catastrophic, at this (g,p). C2 g=1 anchor measured for the first time
-  on this dev model: PPL 11.16 (p=0.9, sparsity 0.459), 12.06 (p=0.7,
-  sparsity 0.704) — but **not yet a clean sharing-tax number**, since C2
-  and C7a use different score families (see Open Questions); round 2 adds
-  the in-family (residual-score) g=1 anchor, oracle C3.
+- **Phase 2 sharing-tax curve, first estimate (2026-07-31, PROVISIONAL —
+  llama3.2-3b-instruct)**: using the in-family (residual-score) g=1
+  anchor (oracle C3) interpolated/extrapolated to the achieved sparsity of
+  each C7a point, the sharing tax (ΔPPL vs the g=1 anchor at matched
+  sparsity) is strongly **nonlinear in sparsity**: ~4.7 PPL points at
+  sparsity≈0.20-0.24 (g=16/64, p=0.9) but ~21-23 PPL points at
+  sparsity≈0.47-0.52 (g=16/64, p=0.7) — roughly a 4.5-5x jump in absolute
+  cost for ~2x more sparsity. Consistent with the coactivation topic's
+  overlap-collapse finding (adjacent-token neuron-set overlap only 3.15x
+  chance at s=0.9): the higher the sparsity, the more a token's important
+  neurons diverge from its block-mates'. The higher-sparsity/higher-tax
+  regime (ΔPPL≈21-23) is the harder test Phase 3's C7/C8 compensation
+  needs to pass, not just the milder one. Absolute C7a PPL (15.7-33.9) is
+  far better than coactivation P3's neuron+token bare-block catastrophe
+  (4.5k-24k) — token-only mask sharing (no neuron permutation) is
+  survivable, not catastrophic, at these settings.
   Journal: journal/2026-07-31_experiment-block-comp-phase2-3b-round1.md
+  (full data table + interpolation method)
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
@@ -97,16 +103,14 @@ C9 (overflow hybrid) is explicitly NOT implemented yet — only promoted if
 Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
 
 ## Active Jobs
-- `block-comp-calib-3b` (050-20260731-164842): DONE.
-- Phase 2 round 1: DONE, all 4 jobs ok (see Key Findings + journal).
-- Phase 2 round 2: DONE (C3 g=1 p=0.9/0.7 anchors landed; C7a g=16/64
-  p=0.7 still running as of this update). Surfaced a second confound
-  (achieved sparsity not matched across g at fixed p) — see Open
-  Questions.
-- Phase 2 round 3 (queued): C3 g=1 at p=0.95/0.97
-  (`bc-c3-g1-p095`, `bc-c3-g1-p097`, 050-20260731-1757{27,31}) to bracket
-  the ~0.20-0.24 sparsity region C7a occupies at p=0.9, enabling a
-  matched-sparsity interpolated comparison next update.
+- `block-comp-calib-3b`, Phase 2 rounds 1-3: all DONE except one retry.
+  `bc-c3-g1-p095` FAILED (CUDA OOM, transient external GPU contention —
+  see journal Notes, not a code bug); superseded by `bc-c3-g1-p099`
+  (queued) rather than a blind retry, since p=0.97's result showed p=0.95
+  wouldn't have helped bracket the target sparsity region anyway.
+- Phase 2 round 4 (queued): `bc-c3-g1-p099` (050-20260731-180037) — will
+  convert the p=0.9 row of the sharing-tax table from extrapolated to
+  interpolated.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first
