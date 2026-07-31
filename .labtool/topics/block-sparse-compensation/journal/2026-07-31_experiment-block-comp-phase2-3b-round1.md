@@ -304,6 +304,22 @@ Per the spec's own Partial-go remediation ("r_sk 증가/비대칭 rank로
 (r_sk=1024=d/8) — if recovery doesn't climb substantially with rank, that
 sharpens the "it's the up/down sketch, not the rank" reading above.
 
+**Correction — rank DOES matter a lot, previous reading was premature**:
+`bc-c8-g16-p07-rsk1024` (r_sk=1024=d/8): PPL 18.8823, sparsity 0.5240.
+recovery = (33.9006-18.8823)/(33.9006-11.11) ≈ **66%** — a big jump from
+r_sk=256's ~27%, and it crosses the spec's 50% Go threshold. This
+revises the earlier "it's not about rank, it's about u being exact"
+framing: rank clearly matters substantially too (256→1024 moved recovery
+from 27%→66%). The right updated picture is probably that BOTH matter —
+u-exactness gives a large one-time jump (C8a's ~99% at the SAME gate rank
+C8 uses) and sketch rank gives a separate, roughly monotonic
+contribution on top for the fully-deployable form. `bc-c8-g16-p07-rsk512`
+(r_sk=512=d/16) still running (~18 min in — CPU SVD of the full 8192x3072
+gate/up/down matrices, done 28x3 times regardless of the requested
+truncation rank, is the likely reason this batch of jobs runs slower than
+pre-fix ones; not a red flag, an expected cost of the memory-safety fix)
+will show whether recovery is monotonic in rank or saturates.
+
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
 queue-submission rule caps a single batch at 4. Round 2 will fill in

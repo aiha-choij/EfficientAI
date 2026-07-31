@@ -74,18 +74,17 @@ and is directly motivated by two closed threads:
   sparsity 0.5317, PPL 28.2506, recovery ≈**25%** (well under the 50% Go
   threshold, far below C8a's ~99%). Matches spec section 5's Partial-go
   pattern exactly.
-- **C8 (deployable) result — H5 refinement**: g=16, p=0.7, r_sk=256 →
-  PPL 27.7207, recovery ≈**27%** — essentially the SAME as C7, NOT
-  C8a's ~99%. Full table: C7a 0% / C7 ~25% / C8 ~27% / C8a ~99% / anchor
-  100%. This means C8a's near-total recovery is NOT mainly about gate
-  (ĝ) estimation quality (C8 uses the same gate-sketch rank and still
-  collapses to C7's level) — the dominant factor looks like keeping **u
-  exact**, not the low-rank gate estimate per se. This sharpens H5 beyond
-  the spec's original statement; a direct test (u-exact-but-gate+down-
-  sketched diagnostic) would disambiguate up-sketch vs down-sketch but
-  isn't implemented. Per spec's Partial-go remediation, queued the rest
-  of the r_sk sweep (512=d/16, 1024=d/8) to check if more rank helps
-  before concluding this is a structural (not just rank-budget) limit.
+- **C8 (deployable) r_sk sweep — rank matters a lot, revising the
+  earlier reading**: r_sk=256 → recovery ~27% (~= C7); r_sk=1024=d/8 →
+  PPL 18.8823, recovery ≈**66%** — crosses the spec's 50% Go threshold.
+  So sketch rank is NOT a secondary factor after all (revising the prior
+  note below) — likely BOTH matter: u-exactness gives a large jump
+  (C8a's ~99% at the same gate rank C8 uses) and sketch rank gives a
+  separate, roughly monotonic contribution for the deployable form.
+  `bc-c8-g16-p07-rsk512` (still running) will show whether the
+  recovery-vs-rank curve is monotonic/smooth or has a threshold.
+  Full table so far: C7a 0% / C7 ~25% / C8(r_sk=256) ~27% /
+  C8(r_sk=1024) ~66% / C8a ~99% / anchor 100%.
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
