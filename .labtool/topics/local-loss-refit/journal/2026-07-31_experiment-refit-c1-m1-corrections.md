@@ -192,17 +192,29 @@ next round (kept this submission batch to <=4 new jobs per the queue
 rule). No PPL-vs-lambda numbers yet.
 `refit-c1-build-8b-s09`/`-s05` (8B extension) still running.
 
-## C2 (lambda sweep) partial results: s=0.9 nearly flat across lambda
+## C2 (lambda sweep) results: mild sensitivity at s=0.9, flat at s=0.5
 | s | lambda | L1 PPL |
 |---|---|---|
 | 0.9 | 0.001 | 16.1553 |
-| 0.9 | 0.01 | 16.1622 (matches the C1 result at the default lambda, as expected) |
-| 0.9 | 0.1 | pending |
-| 0.5 | 0.001/0.01/0.1 | pending (3 eval jobs just queued) |
+| 0.9 | 0.01 | 16.1622 |
+| 0.9 | 0.1 | **16.0359** (best of the three) |
+| 0.5 | 0.001 | 11.2132 |
+| 0.5 | 0.01 | 11.2074 |
+| 0.5 | 0.1 | pending |
 
-At s=0.9, PPL is essentially flat across a 10x lambda change (16.1553 vs
-16.1622, a 0.04% difference) -- with 512x2048 calibration tokens against
-d=8192, G is well-conditioned enough that ridge strength barely matters
-in this range. Whether s=0.5 shows the same flatness (or is more
-lambda-sensitive, being the regime where the anchor matters most) is the
-open question this sweep is actually testing -- not yet answered.
+At s=0.9, lambda=0.1 is mildly better than 0.001/0.01 (16.04 vs ~16.16,
+~0.8% better) -- not perfectly monotonic (0.01 is slightly worse than
+0.001, likely within run-to-run/optimization noise at this scale) but
+the higher-lambda arm is the clear best of the three tested. At s=0.5,
+both lambda values land within 0.05% of each other and within ~0.3% of
+L0/dense -- confirms the "essentially neutral, not lambda-sensitive"
+reading from the C1 recalibration holds across this sweep too, not just
+at the one lambda originally tested. `l1c2_s0.5_g1_lam0.1` eval still
+running -- expect it to land in the same tight neutral band.
+
+**Practical implication for C2's own question**: at s=0.9, a slightly
+higher lambda than the original default (0.01) may be worth adopting
+going forward (0.1 beat both smaller values here) -- not conclusive from
+3 points, but directionally suggestive. At s=0.5, lambda choice doesn't
+matter within this range; the anchor (C1), not the regularization
+strength, is what drove the correction.
