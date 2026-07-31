@@ -74,17 +74,19 @@ and is directly motivated by two closed threads:
   sparsity 0.5317, PPL 28.2506, recovery ≈**25%** (well under the 50% Go
   threshold, far below C8a's ~99%). Matches spec section 5's Partial-go
   pattern exactly.
-- **C8 (deployable) r_sk sweep — rank matters a lot, revising the
-  earlier reading**: r_sk=256 → recovery ~27% (~= C7); r_sk=1024=d/8 →
-  PPL 18.8823, recovery ≈**66%** — crosses the spec's 50% Go threshold.
-  So sketch rank is NOT a secondary factor after all (revising the prior
-  note below) — likely BOTH matter: u-exactness gives a large jump
-  (C8a's ~99% at the same gate rank C8 uses) and sketch rank gives a
-  separate, roughly monotonic contribution for the deployable form.
-  `bc-c8-g16-p07-rsk512` (still running) will show whether the
-  recovery-vs-rank curve is monotonic/smooth or has a threshold.
-  Full table so far: C7a 0% / C7 ~25% / C8(r_sk=256) ~27% /
-  C8(r_sk=1024) ~66% / C8a ~99% / anchor 100%.
+- **C8 r_sk sweep complete (g=16, p=0.7) — rank matters a lot**:
+  recovery 256→~27%, 512→~42%, 1024=d/8→**~66%**, monotonic and mildly
+  accelerating, no saturation within the spec's planned sweep. At d/8,
+  the fully-deployable C8 crosses the 50% Go threshold. Both u-exactness
+  (C8a's ~99% ceiling) and sketch rank matter — not an either/or. Full
+  table: C7a 0% / C7 ~25% / C8(d/32) ~27% / C8(d/16) ~42% /
+  C8(d/8) ~66% / C8a ~99% / anchor 100%.
+  **Caveat**: spec's formal Go gate is defined for 8B at s≈0.9, not 3B at
+  sparsity~0.52 — this is strong dev-model preliminary evidence, not a
+  formal verdict yet.
+- **Phase 3 round 2 (queued)**: same probe at g=64 (C7, C8a@d/32,
+  C8@d/8) to check whether the g=16 pattern generalizes across block
+  size, before committing to an 8B extension.
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
@@ -147,11 +149,11 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   see journal.
 - Phase 3 round 1: all 4 jobs (c7a already had it; c7/c8a/c8) DONE — see
   Key Findings for the full recovery table.
-- Phase 3 round 2 (queued): `bc-c8-g16-p07-rsk512` (r_sk=d/16),
-  `bc-c8-g16-p07-rsk1024` (r_sk=d/8) (050-20260731-1821{10,15}) —
-  finishes the spec's r_sk sweep to check whether more sketch rank closes
-  C8's gap to C8a before concluding it's a structural (up/down-sketch)
-  limit rather than a rank-budget one.
+- Phase 3 round 1: r_sk sweep complete (see Key Findings) — DONE.
+- Phase 3 round 2 (queued 2026-07-31 ~18:42): `bc-c7-g64-p07-r512`,
+  `bc-c8a-g64-p07-rsk256`, `bc-c8-g64-p07-rsk1024`
+  (050-20260731-1842{42,46,51}) — replicate the g=16 recovery pattern at
+  g=64 to check generality before extending to 8B.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first

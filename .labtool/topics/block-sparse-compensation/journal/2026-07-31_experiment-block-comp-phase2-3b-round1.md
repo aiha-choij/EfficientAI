@@ -313,12 +313,34 @@ framing: rank clearly matters substantially too (256→1024 moved recovery
 from 27%→66%). The right updated picture is probably that BOTH matter —
 u-exactness gives a large one-time jump (C8a's ~99% at the SAME gate rank
 C8 uses) and sketch rank gives a separate, roughly monotonic
-contribution on top for the fully-deployable form. `bc-c8-g16-p07-rsk512`
-(r_sk=512=d/16) still running (~18 min in — CPU SVD of the full 8192x3072
-gate/up/down matrices, done 28x3 times regardless of the requested
-truncation rank, is the likely reason this batch of jobs runs slower than
-pre-fix ones; not a red flag, an expected cost of the memory-safety fix)
-will show whether recovery is monotonic in rank or saturates.
+contribution on top for the fully-deployable form.
+
+**r_sk sweep complete** (g=16, p=0.7):
+
+| r_sk | fraction of d=8192 | C8 PPL | recovery |
+|---|---|---|---|
+| 256 | d/32 | 27.7207 | ~27% |
+| 512 | d/16 | 24.4449 | ~42% |
+| 1024 | d/8 | 18.8823 | **~66%** |
+
+Monotonic and mildly accelerating (deltas +14.5pp then +24.5pp per rank
+doubling) — no sign of saturation yet within the spec's planned sweep
+range. At the largest planned rank (d/8), C8 (the fully deployable form)
+crosses the spec's 50% Go threshold at this (g=16, p=0.7, sparsity~0.52)
+point on the 3B dev model. **Caveat**: the spec's actual Go gate is
+defined for 8B at s≈0.9, not 3B at sparsity~0.52 — this is strong,
+encouraging preliminary evidence on the dev model, not yet a formal
+Go verdict.
+
+## Phase 3 round 2 (queued): does the pattern generalize across g?
+To check whether the g=16 pattern (Partial-go at small rank, Go-crossing
+at r_sk=d/8, near-total C8a ceiling) is g=16-specific or general,
+submitted the same probe at g=64 (already have the C7a control from
+Phase 2: PPL 32.3566, sparsity 0.4727): `bc-c7-g64-p07-r512`,
+`bc-c8a-g64-p07-rsk256`, `bc-c8-g64-p07-rsk1024` — C7, C8a (small rank),
+and C8 at the best rank found so far (d/8), skipping the intermediate
+r_sk points at g=64 since round 1 already established the shape of that
+curve at g=16.
 
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
