@@ -98,6 +98,18 @@ and is directly motivated by two closed threads:
   compensation formula, not the selection criterion? Implemented as
   residual-score (see Key Findings) because that's what unit test 1
   requires; not confirmed with the spec author.
+- **Recovery rate has been computed as a PPL-ratio proxy this entire
+  topic, not the spec's literal critical-sparsity-ratio formula**
+  (spec.md §5 지표: recovery = Δcritical_sparsity ratios, where
+  critical_sparsity = oracle spec's "normalized accuracy ≥0.99" max
+  sparsity — an accuracy-sweep quantity, not a PPL-at-one-point
+  quantity). Discovered while re-reading spec.md during the 8B p=0.5
+  round's verdict check; not caught in Phase 2 or the 3B leg. Every
+  recovery number reported so far (Phase 2 tax curve, 3B C7/C8a/C8,
+  8B p=0.5) uses the proxy. Not retroactively recomputed (would require
+  a full accuracy sweep per condition, done nowhere in this topic) —
+  flagged here so the eventual formal verdict is read with this caveat
+  rather than as a literal match to spec's formula.
 - ~~Phase 2 round 1's C2-vs-C7a PPL gap mixed score family + sharing
   tax.~~ RESOLVED: in-family C3 g=1 anchor (score-family fix) +
   interpolation across a 4-point p-sweep (sparsity-matching fix) — see
@@ -130,16 +142,25 @@ compensation) are dead; see `coactivation-block-structure` gist for the
 Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
 (CONFIRMED, cross-g). Remaining, in priority order:
 1. **Phase 3 → 8B extension, IN PROGRESS**: 8B oracle calibration + p-probe
-   DONE (p=0.5 -> sparsity 0.8814, close enough to "s≈0.9"). C7a landed
-   (s_block=0.7337, PPL 49.4909); g=1 anchor bracket landed (sparsity
-   0.7541, PPL 6.7521). Hit the same memory-growth bug class twice more
-   (OOM, then a 35-49min stall) before root-causing it properly as a
-   missing `torch.no_grad()` (see Dead Ends) — fixed (commit `6b80dcf`),
-   stalled jobs killed via `runs -k` and resubmitted as
-   `bc-c7-g16-8b-p05-r896c`/`bc-c8a-g16-8b-p05-rsk448b`/
-   `bc-c8-g16-8b-p05-rsk1792b` (all queued). Once these land, compute the
-   full 8B recovery table and formally declare Go/Partial-go/No-go per
-   spec §5. Journal:
+   DONE. Hit the SVD memory-growth bug class twice more (OOM, then a
+   35-49min stall) before root-causing it properly as a missing
+   `torch.no_grad()` (see Dead Ends) — fixed (commit `6b80dcf`). p=0.5
+   round (g=16) landed clean on the fixed code: C7a s_block=0.7337
+   PPL=49.4909; C7 s_block=0.7500 PPL=16.1227 (~78% recovery); C8
+   (r_sk=d/8) s_block=0.7370 PPL=11.5803 (~89%); C8a s_block=0.7500
+   PPL=7.7136 (~98%) — all comfortably cross the 50% Go bar, much
+   stronger than the 3B leg's C7~18-25%. **Not yet a formal verdict**:
+   (a) achieved sparsity (~0.75) is well short of the spec's literal
+   "s≈0.9" — block aggregation flattens it more than expected at this p
+   — so pushed a p=0.3 round (full C7a/C7/C8a/C8, 4 jobs, queued) to
+   land closer to the actual target sparsity, since the 3B leg showed
+   tax grows steeply/nonlinearly with sparsity and recovery at ~0.9 may
+   look different than at ~0.75; (b) recovery has been computed as a
+   PPL-ratio proxy, not spec's literal critical-sparsity-ratio formula
+   (see Open Questions) — flagging, not re-deriving retroactively. Once
+   the p=0.3 round lands, compute the full recovery table at the actual
+   target sparsity and formally declare Go/Partial-go/No-go per spec §5
+   (with the proxy-metric caveat noted). Journal:
    journal/2026-07-31_experiment-block-comp-phase3-8b.md
 2. **§4 (local-loss-refit honesty corrections, C1/C2/M1) — DONE**,
    confirmed on both 3B and 8B (C1 fixes the s=0.5 "hurts" headline —
@@ -165,12 +186,12 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   Key Findings for the full recovery table.
 - Phase 3 3B round (g∈{16,64}, p=0.7): all 7 jobs done, CONFIRMED (see
   Key Findings + journal for the full table).
-- Phase 3 8B round: C7a done (s_block=0.7337, PPL 49.4909); g=1 anchor
-  bracket done (`bc-c3-g1-8b-p07`, sparsity 0.7541, PPL 6.7521). C7/C8a/C8
-  all stalled on pre-fix code (35-49min, no progress) — killed via
-  `runs -k` after root-causing the real bug (missing torch.no_grad(), see
-  Dead Ends) and resubmitted post-fix as `bc-c7-g16-8b-p05-r896c`,
-  `bc-c8a-g16-8b-p05-rsk448b`, `bc-c8-g16-8b-p05-rsk1792b` — all queued.
+- Phase 3 8B round (p=0.5): all done (see Key Findings for the recovery
+  table). C7/C8a/C8 stalled once on pre-fix code (35-49min, no
+  progress), killed via `runs -k`, resubmitted post-fix and landed clean.
+- Phase 3 8B round (p=0.3, targeting s_block≈0.9): `bc-c7a-g16-8b-p03`,
+  `bc-c7-g16-8b-p03-r896`, `bc-c8a-g16-8b-p03-rsk448`,
+  `bc-c8-g16-8b-p03-rsk1792` — all queued, not landed yet.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first

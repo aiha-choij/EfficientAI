@@ -139,6 +139,66 @@ couldn't be safely stopped) and resubmitted identically as
 `bc-c8-g16-8b-p05-rsk1792b` (all queued, a100-40-2 pinned, 3 jobs in this
 batch).
 
+### p=0.5 round lands clean -- strong recovery, but sparsity target and metric formula both need a caveat
+All 3 resubmitted jobs completed cleanly (git_commit `7524fad`, the
+no_grad-fixed code):
+- C7 (rank=896): s_block=0.7500, **PPL 16.1227**
+- C8a (r_sk=448=d/32): s_block=0.7500, **PPL 7.7136**
+- C8 (r_sk=1792=d/8): s_block=0.7370, **PPL 11.5803**
+
+Using the g=1 anchor from `bc-c3-g1-8b-p07` (PPL 6.7521, sparsity 0.7541
+-- reasonably close to all three conditions' achieved sparsity here,
+unlike some earlier rounds' mismatches) and C7a (PPL 49.4909,
+s_block=0.7337) as the tax baseline, recovery = (C7a_PPL −
+condition_PPL)/(C7a_PPL − anchor_PPL):
+
+| condition | PPL | recovery |
+|---|---|---|
+| C7a (no comp) | 49.4909 | 0% |
+| C7 (mean-gate) | 16.1227 | **~78%** |
+| C8 (deployable, r_sk=d/8) | 11.5803 | **~89%** |
+| C8a (diagnostic) | 7.7136 | **~98%** |
+| g=1 anchor | ~6.75 | 100% |
+
+All three cross the spec's 50% Go bar by a wide margin -- a much
+stronger result than the 3B leg, where C7 recovered only ~18-25% and C8
+needed r_sk=d/8 just to cross 50%. Not accepting this at face value as a
+final verdict, for two reasons:
+
+1. **Achieved sparsity (~0.74-0.75) is well short of the spec's literal
+   "s≈0.9" gate target.** Block aggregation flattens s_block below the
+   g=1 anchor's nominal sparsity (same pattern noted for C7a earlier),
+   and at p=0.5 that flattening is large enough (g=1 anchor 0.8814 at
+   this p → s_block~0.74-0.75) that this round is really testing a
+   ~0.75 regime, not ~0.9. Given the 3B finding that the sharing tax
+   grows steeply and *nonlinearly* with sparsity, recovery at the actual
+   ~0.9 target is not guaranteed to look like this -- could be
+   meaningfully lower. Submitted a p=0.3 round (full C7a/C7/C8a/C8,
+   4 jobs) to land closer to s_block≈0.9 before declaring a formal
+   verdict: `bc-c7a-g16-8b-p03`, `bc-c7-g16-8b-p03-r896`,
+   `bc-c8a-g16-8b-p03-rsk448`, `bc-c8-g16-8b-p03-rsk1792`.
+2. **Recovery here is computed as a PPL-ratio proxy, not the spec's
+   literal formula.** Re-reading spec.md §5's "지표" section during this
+   check: the spec defines recovery rate as a ratio of *critical
+   sparsities* (`normalized accuracy ≥ 0.99` max sparsity per oracle
+   spec's definition), not PPL differences at one matched sparsity point
+   -- i.e. `[critical_sparsity(condition) − critical_sparsity(C7a)] /
+   [critical_sparsity(g=1 anchor) − critical_sparsity(C7a)]`. Every
+   number in this topic since Phase 2 (sharing tax curve, Phase 3 3B,
+   this round) has used the PPL-ratio proxy instead, without previously
+   flagging the discrepancy explicitly -- an interpretation gap, not
+   caught until now. Computing true critical-sparsity would require a
+   full accuracy-sweep per condition (much more expensive, mirrors
+   oracle spec §5's harness), which hasn't been done anywhere in this
+   topic. Flagging this now as an unconfirmed interpretation call (same
+   category as the block-score interpretation call already in Open
+   Questions) rather than re-deriving every existing result under a
+   different metric this late -- the PPL-ratio proxy is a reasonable
+   stand-in for "how much of the tax gap is closed" and preserves
+   comparability with everything measured so far, but the formal
+   Go/Partial-go/No-go declaration should note this is under the proxy
+   metric, not the spec's literal formula.
+
 ### g=1 anchor result: close single-point estimate near C7a's sparsity
 `bc-c3-g1-8b-p07`: p=0.7 -> sparsity 0.7541, PPL 6.7521 -- close to
 (slightly above) C7a's s_block=0.7337, not an exact bracket. Given the
