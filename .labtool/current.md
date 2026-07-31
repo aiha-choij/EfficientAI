@@ -8,9 +8,16 @@
 | larosa-intermediate-sparsity | ✅ done | Per-token Top-K on i=u⊙g confirmed on LLaMA2-7B (50% → +0.047 PPL); closed by pivot, 3-model ext in backlog |
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 | rsparse-repro | 🟢 active | R-Sparse (ICLR25) Llama-2-7B 50% reproduced: 8-task avg 64.59 vs paper 64.06, full baseline exact; matched-protocol PPL vs LaRoSA still open |
+| local-loss-refit | 🟢 active | Isolated effect of refitting down_proj (closed-form ridge) to a frozen C2-score mask, no other repair — L0/L1/L2 ladder x s x token-block g. Picked up oracle-residual-sparsity's paused C2 line as a narrower follow-up. |
 
 ## This Session
-Focus: oracle-residual-sparsity — WRAPPED (user steer). E-W0 double
+Focus: local-loss-refit — new topic (2026-07-31), implementation in
+progress on branch auto/local-loss-refit (refit_mlp.py, unit tests,
+build/eval scripts). No GPU job submitted yet. This is a separate agent
+session from the one that wrapped oracle-residual-sparsity below — that
+topic's own state is left as that session recorded it.
+
+Prior focus (unchanged, recorded by a different session): oracle-residual-sparsity — WRAPPED (user steer). E-W0 double
 negative: (1) diagonal loss-aligned metric failed its gate (Spearman
 identical to plain L2; cannot fix whitening inversion); (2) TIS frontier
 fill-in (5.883/6.155/6.709 at s=0.75/0.8/0.85) strictly dominates every

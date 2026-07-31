@@ -49,12 +49,13 @@ from transformers.utils import (
 )
 from .configuration_llama import LlamaConfig
 from .oracle_mlp import oracle_mlp_forward
+from .refit_mlp import refit_mlp_forward, l1_collect_forward, l2_collect_forward
 
 
 logger = logging.get_logger(__name__)
 
 # Modes in which attention is fully dense and the MLP alone is modified.
-DENSE_ATTN_MODES = ("topk_intermediate", "oracle")
+DENSE_ATTN_MODES = ("topk_intermediate", "oracle", "refit")
 
 _CONFIG_FOR_DOC = "LlamaConfig"
 
@@ -338,6 +339,15 @@ class LlamaMLP(nn.Module):
             # Oracle conditions C0-C5 (top-p on i or on the mean-gate residual,
             # with optional compensation); see inference/oracle_mlp.py.
             down_proj = oracle_mlp_forward(self, x)
+        elif getattr(self, "sparse_mode", "larosa") == "refit":
+            # Local Loss Refit L0/L1/L2 (frozen C2-score mask + closed-form
+            # down_proj refit, no other repair); see inference/refit_mlp.py.
+            if getattr(self, "refit_l2_student", False):
+                down_proj = l2_collect_forward(self, x)
+            elif getattr(self, "refit_collect", False):
+                down_proj = l1_collect_forward(self, x)
+            else:
+                down_proj = refit_mlp_forward(self, x)
         elif getattr(self, "sparse_mode", "larosa") == "topk_intermediate":
             # Intermediate-only mode: dense gate/up on the original-basis x,
             # per-token magnitude Top-K on i = u * g before down_proj.
@@ -837,6 +847,16 @@ class LlamaDecoderLayer(nn.Module):
             self.mlp.oracle_s = getattr(config, 'oracle_s', 0.0)
             self.mlp.oracle_layer_dense = layer_idx in getattr(config, 'oracle_exclude_layers', [])
             self.mlp.oracle_stats_mode = False
+        elif self.sparse_mode == 'refit':
+            # No rotation matrices. mode/s/g come from the config; col_norm
+            # and the refit down_proj weight are attached after
+            # from_pretrained (weights must be loaded first) via
+            # refit_mlp.{attach_col_norms, load_refit_weights}.
+            self.mlp.refit_mode = getattr(config, 'refit_mode', 'l0')
+            self.mlp.refit_s = getattr(config, 'refit_s', 0.0)
+            self.mlp.refit_g = getattr(config, 'refit_g', 1)
+            self.mlp.refit_collect = False
+            self.mlp.refit_l2_student = False
         else:
             self.Q_path = config.Q_path
             self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
