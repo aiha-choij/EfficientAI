@@ -20,7 +20,11 @@ frontier postscript (same artifact URL). Topic paused with reopen criteria;
 next focus = user pick from backlog.
 
 ## Active Jobs
-- (none)
+- (none for tracked topics)
+- NOTE (2026-07-29 sync): three finished jobs on the gateway not tracked by
+  this repo's labtool — `20260731-1553*-refit-harness-{l0,l1}-{s05,s09}-8b`
+  (a100-40-2, 완료). Presumed another project/session; confirm with user
+  before recording or cleaning.
 - NOTE: a6000-2 execution env stays available (venv ~/workspace/venv-larosa,
   sdpa, model /raid/LLM/llama2-7b, stats/factors under ~/workspace/oracle).
 - NOTE: a6000-4 is now also a llama2-capable execution host (venv-larosa +
@@ -45,16 +49,15 @@ topics/oracle-residual-sparsity/journal/2026-07-28_pivot-wrapup-compensation-lin
 3. larosa-intermediate-sparsity backlog: 3-model Top-K PPL extension.
 
 ## Latest
+- 2026-07-29: session sync — wrap of oracle-residual-sparsity confirmed and
+  committed (05ce2f7); no active jobs; next session picks the focus from
+  the backlog candidates below. Untracked refit-harness jobs spotted on the
+  gateway (see Active Jobs note).
 - 2026-07-28: TOPIC WRAPPED (steer) — oracle-residual-sparsity paused.
   E-W0: metric gate failed + TIS frontier dominance (TIS@0.85 6.709 beats
   SLR-B1024@0.9 6.942; TIS@0.75 5.883 beats exact C3 6.638, both
   accountings). Report postscript published. Wrap-up card:
   topics/oracle-residual-sparsity/journal/2026-07-28_pivot-wrapup-compensation-line.md
-- 2026-07-28: critique session — 3 critical findings recorded: (1) SLR trails
-  TIS at s=0.7 too (advantage confined to s=0.9; report+gist corrected);
-  (2) iso-compute TIS-vs-SLR never measured (frontier runs added to E-W0);
-  (3) remaining SLR-approx headroom is only 0.30 PPL vs 1.16 in the
-  mean-gate model itself -> loss-aligned direction prioritized.
 - 2026-07-28: `oracle-llama2-ew0-gradstats` SUBMITTED (050-20260729-062542,
   a6000-2, tag exp/2026-07-28_oracle-llama2-ew0-gradstats) — grad
   sensitivity w, metric validation vs 11 known-PPL variants, TIS frontier.
