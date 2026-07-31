@@ -337,9 +337,15 @@ Go verdict.
 C7a control (g=64,p=0.7: PPL 32.3566, sparsity 0.4727) and the interpolated
 anchor at this sparsity (~11.08): recovery = (32.3566-28.5836)/
 (32.3566-11.08) ≈ **18%** — even lower than g=16's C7 recovery (~25%),
-consistent direction (plain mean-gate compensation stays weak). C8a and
-C8(d/8) at g=64 still running — will show whether the g=16 pattern (C8a
-near-ceiling, C8 crossing 50% at d/8) replicates.
+consistent direction (plain mean-gate compensation stays weak).
+
+`bc-c8a-g64-p07-rsk256`: sparsity 0.4916, PPL 11.5938.
+recovery = (32.3566-11.5938)/(32.3566-11.08) ≈ **98%** — replicates
+g=16's C8a near-total recovery (~99%) almost exactly. The "u-exactness
+gives a near-ceiling recovery regardless of g" finding generalizes.
+`bc-c8-g64-p07-rsk1024` (deployable, full sketch at the best rank found)
+still running — will show whether the g=16 pattern (C8 crossing 50% at
+d/8) also replicates at g=64, completing the cross-g generality check.
 
 ## Phase 3 round 2 (queued): does the pattern generalize across g?
 To check whether the g=16 pattern (Partial-go at small rank, Go-crossing
