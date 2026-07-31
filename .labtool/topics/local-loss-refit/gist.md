@@ -67,7 +67,22 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   5.5210/5.7296/8.1083 (gateway) at s=0.5/0.7/0.9, wikitext-2.
 
 ## Key Findings
-(none yet — implementation in progress)
+- **[MAIN] L0 vs L1 single-point verification (2026-07-31): GO.**
+  llama3.2-3b-instruct (dev-pass stand-in, see Open Questions), s=0.9, g=1,
+  wikitext-2 PPL: L0 21.5859 -> L1 19.9510, ΔL1 = **−1.635 PPL (−7.6%)**,
+  same achieved sparsity (0.9000, mask identical by construction). Far
+  outside any plausible noise floor. Closed-form down_proj refit alone,
+  with NO other repair mechanism, recovers a real share of masking's cost.
+  Proceeds to the reduced-cost matrix (rung 1 of the cost-reduction ladder)
+  on both the dev model and the main model (Llama-3.1-8B, confirmed a real
+  base checkpoint locally, no LLaMA2-7B fallback needed).
+  When relevant: (a) L1 alone is now confirmed non-trivial — the open
+  question shifts to how the effect scales with g (sharing tax) and
+  whether L2 buys more on top of L1; (b) absolute PPL (19-22) is NOT
+  comparable to the LLaMA2-7B anchors (5.5-8.1) — different model/scale/
+  tuning/calibration corpus; only ΔL1 at matched (s,g) is a valid
+  cross-run comparison.
+  Journal: 2026-07-31_experiment-refit-l0l1-validate-3b.md
 
 ## Dead Ends
 (none yet)
@@ -85,16 +100,23 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   harness as a follow-up if missing (per request's fallback clause).
 
 ## Next Experiments
-1. Unit tests (CPU, tiny random model, spec's 5 required checks) — must
-   pass before any GPU submission.
-2. Single verification point: g=1, s=0.9, L0 vs L1, small model, PPL only —
-   confirm the effect exists before the full matrix.
-3. Full matrix: s ∈ {0.5, 0.7, 0.9} × g ∈ {1, 8, 32, 128} × {L0, L1, L2},
-   cost-reduction ladder from the request spec if GPU time is short
-   (restrict g ∈ {8,128} to s=0.9 first; L2 to g ∈ {1,32} first).
+1. ~~Unit tests~~ — done, 5/5 pass (2026-07-31).
+2. ~~Single verification point~~ — done, GO (2026-07-31).
+3. Reduced-cost L0/L1 matrix (rung 1) — SUBMITTED (2026-07-31), both dev
+   and main models, see Active Jobs.
+4. Implement L2 (sequential GPTQ-style refit) — not started. Once back,
+   add to the matrix at g ∈ {1, 32} only (cost-reduction ladder rung 2).
+5. lm-eval-harness zero-shot suite (8 tasks, --limit 1000) once PPL matrix
+   is in and harness availability on the gateway env is confirmed —
+   PPL-first per the request's own fallback clause.
 
 ## Active Jobs
-- (none yet)
+- `050-20260731-104517-refit-l0l1-matrix-3b` (a100-40-2) — reduced-cost L0/L1
+  matrix, llama3.2-3b-instruct (dev)
+- `050-20260731-104521-refit-l0l1-matrix-8b` (a100-40-2) — reduced-cost L0/L1
+  matrix, Llama-3.1-8B (main)
+  Both: g∈{1,32} all s∈{0.5,0.7,0.9}, g∈{8,128} s=0.9 only; script
+  `scripts/refit/run_matrix.sh`.
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
