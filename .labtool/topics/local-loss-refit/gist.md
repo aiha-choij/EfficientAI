@@ -126,16 +126,35 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   both are large relative to any plausible noise floor).
   Journal: 2026-07-31_experiment-refit-l0l1-matrix-3b.md,
   2026-07-31_experiment-refit-l0l1-matrix-8b.md
+- **[PROVISIONAL] L2 single-point verification (2026-07-31): L2 LOSES to
+  both L0 and L1, opposite of the naive expectation.** llama3.2-3b-instruct,
+  s=0.9, g=1, wikitext-2 PPL, calib wikitext103 nsamples=**128** (L2's
+  smaller default, NOT L1's 512): L0 21.586, L1 19.951, **L2 26.901** — L2
+  is worse than plain masking (L0), let alone L1. Two competing
+  explanations, not yet distinguished: (a) calibration-budget confound
+  (128 vs 512 tokens); (b) error compounding inherent to sequential/greedy
+  per-layer fitting (layer L sees layer <L's own imperfect refit output,
+  not the true dense activations L1 always regresses from). A same-budget
+  control run (nsamples=512, reusing L1's exact saved calib tokens,
+  job 050-20260731-151718) is in flight to separate these. The sequential
+  MECHANISM itself is independently verified correct (unit test 8: exact
+  restoration at s=0 across 3 layers, dense/sparse streams agree to
+  1.86e-08) — this is not an implementation bug in the code path being
+  exercised here, only s and scale changed from the passing unit test.
+  When relevant: (a) do not conclude L2 "doesn't work" until the n512
+  control is back; (b) if compounding is confirmed as the driver even at
+  matched budget, that is itself a real, useful negative result — dense-
+  anchored independent fitting (L1) beating sparse-stream-faithful
+  sequential fitting (L2) is informative for the compensation-branch line.
+  Journal: 2026-07-31_experiment-refit-l2-validate-3b.md
 
 ## Dead Ends
 (none yet)
 
 ## Open Questions
-- L2's memory footprint: caching the full-calibration hidden-state tensor
-  between sequential layer steps is O(N·h) per stream; needs a
-  streaming/chunked implementation (planned: host-RAM bf16 cache, GPU only
-  holds one chunk at a time) rather than holding all layers' activations at
-  once (that would be O(L·N·h), too large).
+- L2 vs L1 at s=0.9,g=1: L2 currently loses, confound (calib budget vs
+  compounding error) not yet isolated — see Key Findings, awaiting the
+  n512 control run.
 - ~~Whether llama3.2-3b-instruct is an acceptable dev stand-in~~ → resolved:
   the low-s regression replicated on the base Llama-3.1-8B too, so the dev
   model's instruct tuning was not distorting the qualitative finding
@@ -153,17 +172,21 @@ branch line (oracle-residual-sparsity) rather than refit alone.
 3. ~~Reduced-cost L0/L1 matrix (rung 1)~~ — DONE (2026-07-31), both dev and
    main models. Confirmed finding: refit helps at s=0.9 (more so as g
    grows), hurts at s=0.5, crossover near s=0.7.
-4. Implement L2 (sequential GPTQ-style refit) — not started, next up.
-   Open question it may help answer: does the low-s regression persist
-   when the mask is recomputed against the sparse stream instead of frozen
-   from the dense one? Add to the matrix at g ∈ {1, 32} only (cost-
-   reduction ladder rung 2).
+4. ~~Implement L2~~ — DONE (2026-07-31), unit-tested correct. First
+   real-scale point (s=0.9,g=1) LOSES to L0/L1 — see Key Findings, n512
+   control in flight to isolate calibration-budget vs compounding-error.
+   Do not add L2 to the broader matrix until that's resolved (no point
+   spending GPU time on a matrix for a condition whose single point
+   already needs explaining).
 5. lm-eval-harness zero-shot suite (8 tasks, --limit 1000) once PPL matrix
    is in and harness availability on the gateway env is confirmed —
    PPL-first per the request's own fallback clause.
 
 ## Active Jobs
-- (none)
+- `050-20260731-151718-refit-l2-validate-3b-n512` (a100-40-2) — L2 control
+  run, same (s,g)=(0.9,1) but nsamples=512 (matches L1's budget, reuses
+  L1's exact saved calib tokens) to isolate whether L2's loss to L0/L1 is a
+  calibration-budget artifact or genuine error compounding.
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
