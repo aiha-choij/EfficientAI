@@ -160,13 +160,35 @@ def _accumulate_l1(mlp, i, score, y_star):
 def l1_collect_forward(mlp, x):
     """Used only while refit_collect is set; returns the plain dense output
     (so downstream layers see dense input, matching L1's definition) and
-    accumulates (G, C) for this layer's regression as a side effect."""
+    accumulates (G, C) for this layer's regression as a side effect. Also
+    stashes the dense output as `refit_last_y_star` -- L2's paired
+    teacher/student pass reads this back (see l2_collect_forward) so the
+    student call's (G, C) accumulation can target the SAME chunk's teacher
+    output without a second, separate dense forward."""
     u = mlp.up_proj(x)
     g = mlp.act_fn(mlp.gate_proj(x))
     i, score = score_c2(mlp, u, g)
     y_dense = mlp.down_proj(i)
+    mlp.refit_last_y_star = y_dense.detach()
     _accumulate_l1(mlp, i, score, y_dense)
     return y_dense
+
+
+def l2_collect_forward(mlp, x):
+    """L2's per-layer accumulation pass on the SPARSE stream: x is the
+    sparse stream's actual input at this layer, so mask/score/z are
+    recomputed against it (L2's definition, vs L1's frozen-dense mask).
+    The regression target is the teacher output the paired dense-stream
+    call stashed on this same mlp via l1_collect_forward
+    (`refit_last_y_star`) for the SAME calibration chunk. Returns a
+    throwaway dense-ish value -- the L2 build script discards this pass's
+    output and reruns the layer once more after solving (ordinary
+    refit_mlp_forward, with the now-installed W_tilde_down)."""
+    u = mlp.up_proj(x)
+    g = mlp.act_fn(mlp.gate_proj(x))
+    i, score = score_c2(mlp, u, g)
+    _accumulate_l1(mlp, i, score, mlp.refit_last_y_star)
+    return mlp.down_proj(i)
 
 
 def finalize_l1(model):
@@ -181,6 +203,79 @@ def finalize_l1(model):
             out[layer_idx] = {"G": mlp.refit_G.cpu(), "C": mlp.refit_C.cpu(), "n": mlp.refit_n}
             del mlp.refit_G, mlp.refit_C
         mlp.refit_collect = False
+    return out
+
+
+# ---------------------------------------------------------------------------
+# L2 calibration: sequential (GPTQ-style) refit. Layer ell's calibration
+# input is the SPARSE stream's output from layers < ell (already refit);
+# its regression target is always the ORIGINAL dense model's output at
+# layer ell (never the sparse stream's). Processed strictly in layer order,
+# one layer at a time -- O(L) total layer-equivalent forward passes, not
+# O(L^2): each layer needs only ONE extra pass over the calibration set
+# (the dense "teacher" stream is advanced in that same pass) plus a cheap
+# second pass to install the solved weight, not a full-model replay.
+# ---------------------------------------------------------------------------
+
+def single_layer_forward(model, layer_idx, hidden_states):
+    """Run exactly one decoder layer's forward (attention + MLP + both
+    residual adds) on `hidden_states`, reusing the model's own causal-mask
+    and rotary-position-embedding construction (LlamaModel.forward) instead
+    of re-deriving them by hand. Temporarily shrinks model.model.layers to
+    just this one layer and replaces the final RMSNorm with the identity
+    (that norm belongs only after the true last layer), then restores both.
+    Attention is unaffected by sparse_mode='refit' (DENSE_ATTN_MODES), so
+    this is valid for both the dense and sparse streams."""
+    base = model.model
+    layer = base.layers[layer_idx]
+    orig_layers, orig_norm = base.layers, base.norm
+    base.layers = torch.nn.ModuleList([layer])
+    base.norm = torch.nn.Identity()
+    try:
+        out = base(inputs_embeds=hidden_states, use_cache=False,
+                   output_hidden_states=False, return_dict=True)
+        return out.last_hidden_state
+    finally:
+        base.layers, base.norm = orig_layers, orig_norm
+
+
+def enable_l2_layer_collect(model, layer_idx, s, g):
+    """(G, C) accumulators for exactly ONE layer -- L2 processes layers
+    strictly in sequence, so memory never scales with model depth (unlike
+    L1's need to chunk many simultaneous [d,d] accumulators)."""
+    for idx, mlp in iter_mlps(model):
+        mlp.refit_s = s
+        mlp.refit_g = g
+        mlp.refit_collect = False
+        mlp.refit_l2_student = False
+        if idx == layer_idx:
+            d, h = mlp.intermediate_size, mlp.hidden_size
+            dev = mlp.down_proj.weight.device
+            mlp.refit_G = torch.zeros(d, d, dtype=torch.float32, device=dev)
+            mlp.refit_C = torch.zeros(h, d, dtype=torch.float32, device=dev)
+            mlp.refit_n = 0
+
+
+def set_l2_role(model, layer_idx, role):
+    """role: 'teacher' (dense passthrough via l1_collect_forward, stashes
+    refit_last_y_star) or 'student' (l2_collect_forward: mask/z from the
+    sparse input, accumulates against the stashed teacher output) or
+    'apply' (ordinary refit_mlp_forward, masked eval with whatever
+    down_proj weight is currently installed -- used for L2's pass 2, after
+    solving). Only the named layer's mlp is touched."""
+    assert role in ("teacher", "student", "apply"), role
+    _, mlp = next((idx, m) for idx, m in iter_mlps(model) if idx == layer_idx)
+    mlp.refit_collect = role == "teacher"
+    mlp.refit_l2_student = role == "student"
+
+
+def finalize_l2_layer(model, layer_idx):
+    _, mlp = next((idx, m) for idx, m in iter_mlps(model) if idx == layer_idx)
+    assert mlp.refit_n > 0, "finalize_l2_layer called before any calibration tokens"
+    out = {"G": mlp.refit_G.cpu(), "C": mlp.refit_C.cpu(), "n": mlp.refit_n}
+    del mlp.refit_G, mlp.refit_C
+    mlp.refit_collect = False
+    mlp.refit_l2_student = False
     return out
 
 

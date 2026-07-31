@@ -11,6 +11,13 @@
 #   4. block-rule asserts: mask constant within a block, no cross-sequence
 #      bleed, padding excluded from aggregation
 #   5. seed + calibration token list save/reuse (reproducibility)
+#
+# Additional (not spec-required, added for the L2 implementation):
+#   6. layer-chunked L1 collection == all-at-once (OOM-fix regression)
+#   7. single_layer_forward == the corresponding slice of a full model forward
+#   8. L2 sequential build at s=0 restores every layer's W_down (multi-layer,
+#      validates the teacher/student streaming propagates correctly across
+#      layers, not just layer 0)
 
 import os
 import sys
@@ -232,6 +239,111 @@ def test_5_calib_reproducibility(tmp_path_str):
     print("PASS calibration token reproducibility: seed-determinism + save/load round trip")
 
 
+def _build_multilayer_model(num_layers):
+    torch.manual_seed(30)
+    config = LlamaConfig(
+        vocab_size=VOCAB, hidden_size=H, intermediate_size=D,
+        num_hidden_layers=num_layers, num_attention_heads=4, num_key_value_heads=4,
+        max_position_embeddings=256, use_cache=False,
+    )
+    config._attn_implementation = "eager"
+    config.sparse_mode = "refit"
+    config.refit_mode = "l2"
+    model = LlamaForCausalLM(config).float().eval()
+    refit_mlp.attach_col_norms(model)
+    return model
+
+
+def test_7_single_layer_forward():
+    # single_layer_forward (temporarily shrinking model.model.layers to one
+    # layer + swapping the final norm for Identity) must reproduce EXACTLY
+    # what the real multi-layer forward does at each layer boundary --
+    # this is the load-bearing trick L2's build script relies on to reuse
+    # the model's own causal-mask/rotary-position-embedding construction
+    # instead of hand-replicating it.
+    model = _build_multilayer_model(num_layers=3)
+    refit_mlp.set_condition(model, "l0", s=0.0, g=1)  # dense passthrough (s=0 keeps all)
+    torch.manual_seed(31)
+    ids = torch.randint(0, VOCAB, (2, 20))
+
+    with torch.no_grad():
+        ref_hidden_states = model(ids, output_hidden_states=True).hidden_states
+        # HF convention: hidden_states[0] = embeddings, hidden_states[k+1] =
+        # INPUT to layer k+1 (i.e. RAW output of layer k) for all but the
+        # last entry; the last entry is POST-final-norm (recorded again
+        # after the layer loop, not the raw last-layer output) -- so the
+        # last layer is checked separately, through model.model.norm.
+        h = model.model.embed_tokens(ids)
+        assert torch.allclose(h, ref_hidden_states[0], atol=1e-5)
+        for layer_idx in range(3):
+            h = refit_mlp.single_layer_forward(model, layer_idx, h)
+            if layer_idx < 2:
+                diff = (h - ref_hidden_states[layer_idx + 1]).abs().max().item()
+                assert diff < 1e-4, f"single_layer_forward layer {layer_idx}: max diff {diff}"
+        diff_last = (model.model.norm(h) - ref_hidden_states[-1]).abs().max().item()
+        assert diff_last < 1e-4, f"single_layer_forward last layer (post-norm): max diff {diff_last}"
+    print("PASS single_layer_forward matches the real multi-layer forward at every layer boundary")
+
+
+def test_8_l2_s0_restoration_multilayer():
+    # L2's sequential build, run at s=0 (mask keeps everything) with a tiny
+    # lambda: since z == i exactly (no masking) at every layer, the sparse
+    # stream should track the dense stream almost exactly throughout, and
+    # EVERY layer's solved W_tilde_down should recover that layer's
+    # original W_down -- not just layer 0, which is the case a bug in the
+    # teacher/student streaming (e.g. accidentally reusing layer 0's cache
+    # for layer 1) would NOT be able to fake.
+    num_layers = 3
+    model = _build_multilayer_model(num_layers)
+    torch.manual_seed(32)
+    nsamples, seqlen = 6, 24
+    tokens = torch.randint(0, VOCAB, (nsamples, seqlen))
+    chunk = 2
+
+    with torch.no_grad():
+        embeds = model.model.embed_tokens(tokens)
+        dense_hidden, sparse_hidden = embeds, embeds.clone()
+        w_before = [model.model.layers[l].mlp.down_proj.weight.detach().clone()
+                    for l in range(num_layers)]
+
+        for layer_idx in range(num_layers):
+            refit_mlp.enable_l2_layer_collect(model, layer_idx, s=0.0, g=1)
+            dense_next = torch.empty_like(dense_hidden)
+
+            # teacher and student MUST alternate per chunk (not two separate
+            # full loops) -- refit_last_y_star holds only the most recent
+            # teacher call's output, so a student call has to immediately
+            # follow the teacher call for the SAME chunk or it accumulates
+            # against the wrong (stale) target.
+            for i in range(0, nsamples, chunk):
+                refit_mlp.set_l2_role(model, layer_idx, "teacher")
+                dense_next[i:i + chunk] = refit_mlp.single_layer_forward(
+                    model, layer_idx, dense_hidden[i:i + chunk])
+                refit_mlp.set_l2_role(model, layer_idx, "student")
+                refit_mlp.single_layer_forward(model, layer_idx, sparse_hidden[i:i + chunk])
+
+            stats = refit_mlp.finalize_l2_layer(model, layer_idx)
+            w_tilde = refit_mlp.solve_refit(stats["G"], stats["C"], lam=1e-6)
+            mlp = model.model.layers[layer_idx].mlp
+            mlp.down_proj.weight.data.copy_(w_tilde)
+
+            rel = (w_tilde - w_before[layer_idx]).abs().max().item() / w_before[layer_idx].abs().max().item()
+            assert rel < 1e-2, f"L2 layer {layer_idx}: s=0 refit vs W_down max rel diff {rel:.4e}"
+            print(f"PASS L2 s=0 restoration layer {layer_idx}: max rel diff {rel:.2e}")
+
+            refit_mlp.set_l2_role(model, layer_idx, "apply")
+            sparse_next = torch.empty_like(sparse_hidden)
+            for i in range(0, nsamples, chunk):
+                sparse_next[i:i + chunk] = refit_mlp.single_layer_forward(
+                    model, layer_idx, sparse_hidden[i:i + chunk])
+
+            dense_hidden, sparse_hidden = dense_next, sparse_next
+
+        stream_diff = (dense_hidden - sparse_hidden).abs().max().item()
+        assert stream_diff < 1e-2, f"dense/sparse streams diverged at s=0: max diff {stream_diff}"
+        print(f"PASS L2 dense/sparse stream agreement at s=0: max diff {stream_diff:.2e}")
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -243,4 +355,6 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as td:
         test_5_calib_reproducibility(td)
     test_6_layer_chunked_collect_matches_all_at_once()
+    test_7_single_layer_forward()
+    test_8_l2_s0_restoration_multilayer()
     print("ALL REFIT UNIT TESTS PASSED")

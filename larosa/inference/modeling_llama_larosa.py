@@ -49,7 +49,7 @@ from transformers.utils import (
 )
 from .configuration_llama import LlamaConfig
 from .oracle_mlp import oracle_mlp_forward
-from .refit_mlp import refit_mlp_forward, l1_collect_forward
+from .refit_mlp import refit_mlp_forward, l1_collect_forward, l2_collect_forward
 
 
 logger = logging.get_logger(__name__)
@@ -342,7 +342,9 @@ class LlamaMLP(nn.Module):
         elif getattr(self, "sparse_mode", "larosa") == "refit":
             # Local Loss Refit L0/L1/L2 (frozen C2-score mask + closed-form
             # down_proj refit, no other repair); see inference/refit_mlp.py.
-            if getattr(self, "refit_collect", False):
+            if getattr(self, "refit_l2_student", False):
+                down_proj = l2_collect_forward(self, x)
+            elif getattr(self, "refit_collect", False):
                 down_proj = l1_collect_forward(self, x)
             else:
                 down_proj = refit_mlp_forward(self, x)
@@ -854,6 +856,7 @@ class LlamaDecoderLayer(nn.Module):
             self.mlp.refit_s = getattr(config, 'refit_s', 0.0)
             self.mlp.refit_g = getattr(config, 'refit_g', 1)
             self.mlp.refit_collect = False
+            self.mlp.refit_l2_student = False
         else:
             self.Q_path = config.Q_path
             self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
