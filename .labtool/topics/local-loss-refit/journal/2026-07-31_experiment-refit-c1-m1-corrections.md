@@ -243,3 +243,17 @@ builds now done; both eval jobs (`refit-c1-eval-8b-s09`,
 `refit-c1-eval-8b-s05`) submitted. Neither PPL landed yet -- this is the
 last open number needed to confirm or refute whether the 3B C1
 correction generalizes to the main model.
+
+## 8B s=0.9 result: the C1 improvement generalizes to the main model too
+`refit-c1-eval-8b-s09`: PPL = **9.1473**. Against L0 (12.9347):
+
+| model | s | L0 | old L1 | new L1 | old ΔL1 | new ΔL1 |
+|---|---|---|---|---|---|---|
+| 3B | 0.9 | 21.5859 | 19.9510 | 16.1622 | -7.6% | -25.1% |
+| 8B | 0.9 | 12.9347 | 10.3305 | **9.1473** | -20.1% | **-29.3%** |
+
+Same direction, same magnitude of correction as 3B: the C1 fix makes the
+already-confirmed s=0.9 Go result substantially bigger on the MAIN model
+too (-29.3% vs the old -20.1%), not just the dev model. This is not a
+3B-specific artifact. s=0.5's 8B result (still running) is the last
+piece needed to confirm the s=0.5 flip also generalizes.
