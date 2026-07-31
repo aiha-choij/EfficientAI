@@ -77,9 +77,30 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
   RB-Sparse) — budget must go through top-m block selection, expect large
   PPL damage without residual compensation, and treat L31 separately.
   Journal: journal/2026-07-25_experiment-coact-llama2-p2-blocks.md
+- **P3 block-mask oracle PPL: bare shared mask is catastrophic regardless of
+  clustering (2026-07-25, CONFIRMED)**: both P3 jobs completed (STATUS=ok).
+  Clustered blocks beat random 2–3× in 3/4 (B,g) settings (structure does
+  transfer to function — informative failure mode (i) rejected), but
+  **absolute PPL is 4.5k–24k vs the 8.11 per-token anchor** in every arm —
+  the pre-registered success gate (ΔPPL ≤ +1.0) is missed by 3–4 orders of
+  magnitude. Root cause: P2's 0.20–0.36 per-layer top-m coverage compounds
+  multiplicatively across all 32 masked layers. B=64,g=64 clustered≈random
+  (near-tie) because g=64 groups already sit at 92–95% of union saturation
+  (P1) — no partition can discriminate blocks there.
+  When relevant: **block mask alone (no compensation) is a dead end as a
+  deployable mechanism** — but the clustered partitions themselves
+  (`llama2_p3_partitions_s09.pt`) remain a reusable asset. This is the
+  empirical baseline that any input-dependent block compensation scheme
+  must beat; see topic `block-sparse-compensation` (C7a/C7/C8a/C8), whose
+  Phase 4 (P3′) reruns this exact setup with compensation added.
+  Journal: journal/2026-07-25_experiment-coact-llama2-p3-blocks.md
 
 ## Dead Ends
-(none yet)
+- **Bare shared block mask (no compensation) as a standalone mechanism
+  (2026-07-25)**: P3 confirmed PPL 4.5k–24k at s=0.9 regardless of
+  clustering quality — unusable without a recovery term. Clustering itself
+  is NOT a dead end (2–3× real gain over random); only "mask alone, no
+  compensation" is closed. Superseded by `block-sparse-compensation`.
 
 ## Open Questions
 - Which normalization (PMI vs Jaccard) is the better clustering substrate?
@@ -92,27 +113,20 @@ priority moves to shared-backbone + residual (Idea A) / learned predictor
   s=0.9) — finalize after first numbers, per house convention.
 
 ## Next Experiments
-1. **P3 — block-mask oracle PPL** (approved 2026-07-25, user chose P3 over
-   axis rejection / P2 strengthening). Two jobs on a6000-4:
-   (prep) all-32-layer A collection (A only, no windows) + PPMI spectral
-   clustering for B ∈ {64, 256} + 1 random control partition per (layer, B);
-   (eval) PPL with group-shared budgeted block masks — per group of g
-   contiguous tokens, block score Σ_{t∈group} Σ_{j∈b} ‖W_d[:,j]‖·|i_tj|
-   (gauge-fixed, shared with oracle H2), top-m blocks (m = round(K/B)),
-   all tokens in the group masked to those blocks. Arms: dense, per-token
-   top-K (in-protocol anchor), clustered blocks, random blocks; sweep
-   s = 0.9, g ∈ {16, 64}, B ∈ {64, 256}. Success gate (provisional, spec):
-   clear PPL gain vs random control + gap vs per-token anchor small enough
-   to look compensable (e.g. ΔPPL ≤ +1.0 vs anchor); finalize after first
-   numbers. Expectation set low by P2 coverage (0.2–0.36 mid layers).
-2. (contingent on P3) blocks + residual compensation hybrid (Idea A) or
-   per-layer strategy (fixed L31 blocks); else pivot to Idea D.
+1. ~~P3 — block-mask oracle PPL~~ DONE (both jobs STATUS=ok, 2026-07-25) —
+   see Key Findings + Dead Ends above.
+2. **Blocks + compensation (Idea A hybrid), contingent on P3's outcome,
+   now underway as topic `block-sparse-compensation`** — P3's "clustered
+   beats random but both catastrophic" result triggered exactly the
+   "add compensation" branch of this line, not the "pivot to Idea D"
+   branch. That topic's Phase 4 (P3′) reuses this topic's P2 partitions
+   (`a6000-4:~/workspace/analysis/llama2_p3_partitions_s09.pt`, LLaMA2-7B)
+   layered under the C7/C8 input-dependent block compensation. Track
+   further progress there, not in this topic.
 
 ## Active Jobs
-- `20260725-033520-coact-llama2-p3-prep` (P3 prep: all-layer A + clustering,
-  a6000-4, PENDING) — card:
-  journal/2026-07-25_experiment-coact-llama2-p3-blocks.md; eval job
-  (`coact-llama2-p3-ppl`) submitted after prep completes.
+(none — P3 jobs both completed; this topic's active experimental thread has
+moved to `block-sparse-compensation` topic Phase 4/P3′.)
 
 ## Boundaries / coordination
 - RB-Sparse (Dowon Kim) owns block-shared masks *on top of rotation*; this

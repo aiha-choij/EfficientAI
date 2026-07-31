@@ -1,6 +1,6 @@
 # Experiment: coact-llama2-p3-blocks (P3 — block-mask oracle PPL, 2 jobs)
 
-Status: PENDING
+Status: CONFIRMED
 Date: 2026-07-25
 
 ## Hypothesis tested
@@ -114,3 +114,42 @@ Block-mask oracle PPL @ s=0.9, all 32 layers masked:
   the model is effectively destroyed.
 
 ### Interpretation
+- **Root cause is multiplicative compounding across 32 layers, not weak
+  clustering.** P2 measured per-layer top-m coverage of only 0.20–0.36 in mid
+  layers. All-layer masking (this experiment's protocol, matching how the
+  per-token anchor applies top-K everywhere) compounds that loss
+  independently at every layer — even at the generous end (0.36 per layer)
+  the fraction of a token's true per-token-important path that survives 32
+  layers is astronomically small. PPL landing at 4.5k–24k (vs the 8.11
+  per-token anchor, itself already a real s=0.9 penalty over dense 5.47) is
+  exactly what P2's coverage numbers predicted — not a surprise, and not an
+  implementation bug (sanity anchors reproduced to 4 decimals).
+- **Clustering is directionally real, not noise.** Clustered beats random by
+  2–3× in 3/4 settings — pre-registered informative failure mode (i) ("P2
+  structure doesn't transfer to function → reject the permutation axis")
+  did **not** occur. PMI-based block structure captures genuine co-activation
+  signal that survives all the way to PPL.
+- **But failure mode (ii) did occur**: both arms are catastrophically worse
+  than the per-token anchor regardless of clustering quality. At this budget
+  regime (s=0.9, m=round(K/B), all 32 layers), a bare shared block mask —
+  clustered or not — is unusable as a standalone replacement mechanism.
+- **The B=64,g=64 near-tie is expected, not anomalous**: P1's union-tax
+  finding already showed g=64 groups touch 92–95% of saturation (~10.1–10.4k
+  of 11008 neurons) — a 64-token group is already close to dense *before* any
+  block partition is applied, so no partition (clustered or random) can
+  discriminate blocks meaningfully at that specific (B,g) combination.
+- **Conclusion — dead end for "block mask alone", not for the permutation
+  axis itself.** The clustered-vs-random gap is a real, reusable asset (the
+  PPMI partitions in `llama2_p3_partitions_s09.pt` are worth keeping); what's
+  dead is using bare shared-mask compute with no recovery term as a
+  deployable mechanism. This is the empirical grounding for why sharing-tax
+  recovery matters: any compensation scheme (input-dependent, per-block) must
+  beat a baseline this bad, and the gap it needs to close is enormous (orders
+  of magnitude in PPL, not percent). This finding directly motivates and is
+  superseded by topic `block-sparse-compensation` (spec conditions C7a/C7/
+  C8a/C8), whose Phase 4 (P3′) reruns this exact clustered-block setup with
+  compensation layered on top instead of bare masking — same partitions,
+  same model, added recovery term.
+- **Status update**: this card is now CONFIRMED (results + interpretation
+  complete); no further P3 work planned under bare block-masking. See
+  `block-sparse-compensation` topic for the follow-on compensation work.

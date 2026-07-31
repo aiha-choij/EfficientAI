@@ -8,9 +8,19 @@
 | larosa-intermediate-sparsity | ✅ done | Per-token Top-K on i=u⊙g confirmed on LLaMA2-7B (50% → +0.047 PPL); closed by pivot, 3-model ext in backlog |
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 | rsparse-repro | 🟢 active | R-Sparse (ICLR25) Llama-2-7B 50% reproduced: 8-task avg 64.59 vs paper 64.06, full baseline exact; matched-protocol PPL vs LaRoSA still open |
+| local-loss-refit | 🟢 active (PR #1, unmerged, branch `auto/local-loss-refit`) | Closed-form W_down refit to a frozen mask helps only at s=0.9 (8B PPL -20.1%); s=0.5/0.7 worse. Not visible on this branch until PR #1 merges. |
+| block-sparse-compensation | 🟢 active (this branch) | Recover block-shared-mask sharing tax via input-dependent compensation (C7/C8) + coactivation neuron-cluster permutation (Phase 4/P3'). See topic spec.md (verbatim request spec) + gist.md. |
 
 ## This Session
-Focus: oracle-residual-sparsity — WRAPPED (user steer). E-W0 double
+Focus: block-sparse-compensation — new topic (2026-07-31), branch
+`auto/block-sparse-compensation` off main. Closed out
+coactivation-block-structure's P3 journal Interpretation + gist staleness
+as prep, then labtool-init'd this topic. Phase 1 implementation (block
+conditions C7a/C7/C8a/C8 + unit tests) next. Separate parallel thread (§4
+refit-honesty corrections) tracked on a branch stacked on
+`auto/local-loss-refit`, not this one.
+
+Prior focus (unchanged, recorded by a different session): oracle-residual-sparsity — WRAPPED (user steer). E-W0 double
 negative: (1) diagonal loss-aligned metric failed its gate (Spearman
 identical to plain L2; cannot fix whitening inversion); (2) TIS frontier
 fill-in (5.883/6.155/6.709 at s=0.75/0.8/0.85) strictly dominates every
@@ -44,8 +54,8 @@ topics/oracle-residual-sparsity/journal/2026-07-28_pivot-wrapup-compensation-lin
 ## Next Experiments (focus topic needed — backlog candidates)
 1. rsparse-repro: matched-protocol PPL head-to-head vs LaRoSA (seqlen 2048,
    prefill-dense removed) — small job, closes the fairness caveat.
-2. coactivation-block-structure: P3 result recorded as catastrophic with
-   interpretation still pending — close it out (result card a0c5cb2).
+2. ~~coactivation-block-structure: P3 closeout~~ DONE 2026-07-31 — see
+   block-sparse-compensation topic for the follow-on.
 3. larosa-intermediate-sparsity backlog: 3-model Top-K PPL extension.
 
 ## Latest
