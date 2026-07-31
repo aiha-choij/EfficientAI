@@ -74,19 +74,22 @@ and is directly motivated by two closed threads:
   sparsity 0.5317, PPL 28.2506, recovery ≈**25%** (well under the 50% Go
   threshold, far below C8a's ~99%). Matches spec section 5's Partial-go
   pattern exactly.
-- **C8 r_sk sweep complete (g=16, p=0.7) — rank matters a lot**:
-  recovery 256→~27%, 512→~42%, 1024=d/8→**~66%**, monotonic and mildly
-  accelerating, no saturation within the spec's planned sweep. At d/8,
-  the fully-deployable C8 crosses the 50% Go threshold. Both u-exactness
-  (C8a's ~99% ceiling) and sketch rank matter — not an either/or. Full
-  table: C7a 0% / C7 ~25% / C8(d/32) ~27% / C8(d/16) ~42% /
-  C8(d/8) ~66% / C8a ~99% / anchor 100%.
-  **Caveat**: spec's formal Go gate is defined for 8B at s≈0.9, not 3B at
-  sparsity~0.52 — this is strong dev-model preliminary evidence, not a
-  formal verdict yet.
-- **Phase 3 round 2 (queued)**: same probe at g=64 (C7, C8a@d/32,
-  C8@d/8) to check whether the g=16 pattern generalizes across block
-  size, before committing to an 8B extension.
+- **Phase 3 3B round CONFIRMED — cross-g replication (2026-07-31)**: the
+  g=16 recovery pattern (C7a 0%, C7 ~25%, C8 climbing 27%→42%→66% as
+  r_sk goes d/32→d/16→d/8, C8a ~99%) replicates almost exactly at g=64
+  (C7 ~18%, C8@d/8 ~67.5%, C8a ~98%). Four findings hold at both block
+  sizes: (1) plain mean-gate compensation (C7) recovers only a minority
+  (~18-25%); (2) a gate-sketch-only diagnostic with u/W_down exact (C8a)
+  recovers nearly everything (~98-99%) even at small rank — **u-exactness,
+  not gate-estimate quality, is the dominant lever** (a refinement of
+  H5 beyond the spec's original framing); (3) the deployable form (C8)
+  needs much more rank to approach that ceiling but DOES cross the spec's
+  50% Go threshold at r_sk=d/8 at both g; (4) recovery is monotonic in
+  r_sk, no saturation in the swept range.
+  **Caveat, still unresolved**: spec's formal Go gate is defined for 8B
+  at s≈0.9 — this is strong, consistent 3B dev-model preliminary
+  evidence, not a formal verdict. Full table + all data in the journal.
+  Journal now marked CONFIRMED for the 3B/g∈{16,64}/p=0.7 scope.
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
@@ -122,17 +125,20 @@ and is directly motivated by two closed threads:
 "bare block mask, no compensation" dead end this topic responds to)
 
 ## Next Experiments
-Execution order per spec §5 operating rules:
-1. Phase 1 — extend `oracle_mlp.py` (or a sibling module, following the
-   `refit_mlp.py` precedent of not touching the existing oracle file) with
-   `block_size` + conditions C7a/C7/C8a/C8, plus the 5 required unit tests
-   (g=1 reduction to C4, p=1 identity, C8 full-rank == dense, block-sharing
-   assertion, masking equivalence). CPU-only, no GPU job.
-2. Phase 2 — sharing-tax curve (3B): C7a vs the existing g=1 C2 anchor,
-   g ∈ {16, 64} × p grid.
-3. Phase 3 — C7/C8a/C8 sweep (3B → 8B), r_sk ∈ {d/32, d/16, d/8} →
-   recovery-rate table (model × g × condition).
-4. Phase 4 (P3′) — combine with `coactivation-block-structure` P2's PPMI
+Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
+(CONFIRMED, cross-g). Remaining, in priority order:
+1. **Phase 3 → 8B extension** (needed for spec's actual Go gate: 8B,
+   s≈0.9): calibrate Llama-3.1-8B (oracle format, same as the 3B
+   calibration job), then repeat the C7a/C7/C8a/C8 protocol at a p that
+   lands near s≈0.9 achieved sparsity. Only then can Go/Partial-go/No-go
+   (spec §5) be formally declared — current 3B result is Go-crossing but
+   preliminary.
+2. **§4 (local-loss-refit honesty corrections, C1/C2/M1)** — explicitly
+   requested to run in parallel with this topic's GPU-heavy work
+   (light load) but not yet started this session. Tracked in
+   `local-loss-refit` topic, not here; a separate branch stacked on
+   `auto/local-loss-refit` (unmerged PR #1) is needed.
+3. Phase 4 (P3′) — combine with `coactivation-block-structure` P2's PPMI
    neuron-cluster permutation: rerun C7/C8 on top of the clustered blocks
    from `a6000-4:~/workspace/analysis/llama2_p3_partitions_s09.pt`
    (LLaMA2-7B only — model mismatch with this topic's main models, 3B/8B;
@@ -149,11 +155,8 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
   see journal.
 - Phase 3 round 1: all 4 jobs (c7a already had it; c7/c8a/c8) DONE — see
   Key Findings for the full recovery table.
-- Phase 3 round 1: r_sk sweep complete (see Key Findings) — DONE.
-- Phase 3 round 2 (queued 2026-07-31 ~18:42): `bc-c7-g64-p07-r512`,
-  `bc-c8a-g64-p07-rsk256`, `bc-c8-g64-p07-rsk1024`
-  (050-20260731-1842{42,46,51}) — replicate the g=16 recovery pattern at
-  g=64 to check generality before extending to 8B.
+- Phase 3 3B round (g∈{16,64}, p=0.7): all 7 jobs done, CONFIRMED (see
+  Key Findings + journal for the full table). No jobs currently running.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first

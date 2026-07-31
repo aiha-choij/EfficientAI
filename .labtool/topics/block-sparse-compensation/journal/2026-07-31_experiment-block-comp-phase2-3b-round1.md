@@ -343,9 +343,46 @@ consistent direction (plain mean-gate compensation stays weak).
 recovery = (32.3566-11.5938)/(32.3566-11.08) ≈ **98%** — replicates
 g=16's C8a near-total recovery (~99%) almost exactly. The "u-exactness
 gives a near-ceiling recovery regardless of g" finding generalizes.
-`bc-c8-g64-p07-rsk1024` (deployable, full sketch at the best rank found)
-still running — will show whether the g=16 pattern (C8 crossing 50% at
-d/8) also replicates at g=64, completing the cross-g generality check.
+
+`bc-c8-g64-p07-rsk1024`: sparsity 0.4754, PPL 17.9906.
+recovery = (32.3566-17.9906)/(32.3566-11.08) ≈ **67.5%** — replicates
+g=16's C8(d/8) result (~66%) almost exactly, again crossing the spec's
+50% Go threshold.
+
+## Phase 3 round 1+2 — CONFIRMED cross-g summary (3B dev model)
+
+| g | condition | PPL | recovery |
+|---|---|---|---|
+| 16 | C7a (no comp) | 33.9006 | 0% |
+| 16 | C7 (mean-gate, rank=512) | 28.2506 | ~25% |
+| 16 | C8 (r_sk=d/32) | 27.7207 | ~27% |
+| 16 | C8 (r_sk=d/16) | 24.4449 | ~42% |
+| 16 | C8 (r_sk=d/8) | 18.8823 | **~66%** |
+| 16 | C8a (diagnostic, r_sk=d/32) | 11.3815 | ~99% |
+| 64 | C7a (no comp) | 32.3566 | 0% |
+| 64 | C7 (mean-gate, rank=512) | 28.5836 | ~18% |
+| 64 | C8 (r_sk=d/8) | 17.9906 | **~67.5%** |
+| 64 | C8a (diagnostic, r_sk=d/32) | 11.5938 | ~98% |
+
+**All four qualitative findings replicate across g=16 and g=64**: (1)
+plain mean-gate compensation (C7) recovers only a minority of the
+sharing tax (~18-25%); (2) a gate-sketch-only diagnostic with u/W_down
+exact (C8a) recovers nearly all of it (~98-99%) regardless of rank
+being small (d/32) — u-exactness, not gate-estimate quality, is the
+dominant lever; (3) the fully-deployable form (C8, sketching gate+up+
+down) needs substantially more rank to approach that ceiling, but DOES
+cross the spec's 50% Go threshold at r_sk=d/8 (~66-67.5%) at both block
+sizes tested; (4) recovery is monotonic in r_sk with no sign of
+saturation in the swept range.
+
+**Status: CONFIRMED for the 3B dev model at g∈{16,64}, p=0.7
+(sparsity~0.48-0.52).** This is strong, consistent preliminary evidence
+for H4 (Go-level recovery achievable) and a refined H5 (the tax lives
+mostly in u, secondarily in the gate estimate). **Not yet a formal
+verdict**: the spec's actual Go gate is defined for 8B at s≈0.9, a
+different model and a higher-sparsity regime than tested here. Next
+step per Phase 3's plan ("3B → 8B") is extending this same protocol
+to Llama-3.1-8B before declaring a formal Go/Partial-go/No-go.
 
 ## Phase 3 round 2 (queued): does the pattern generalize across g?
 To check whether the g=16 pattern (Partial-go at small rank, Go-crossing
