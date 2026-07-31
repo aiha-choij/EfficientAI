@@ -1,6 +1,6 @@
 # Experiment: refit-c1-m1-corrections (section 4 honesty corrections: C1 ridge anchor, M1 log-PPL + dense anchor)
 
-Status: PENDING (code done, GPU jobs in flight)
+Status: CONFIRMED — C1 was a real, substantial bug, not a minor artifact
 Date: 2026-07-31
 
 ## Hypothesis tested
@@ -96,6 +96,49 @@ original `l1_s{s}_g1_lam0.01` artifacts for audit). Eval jobs
 (`refit-c1-eval-3b-s09`, `refit-c1-eval-3b-s05`) queued immediately after
 -- PPL numbers not yet in, no verdict yet on whether s=0.5's "refit
 hurts" finding survives the anchored ridge.
+
+## C1 eval results — the s=0.5 "hurts" conclusion was substantially a ridge-prior artifact
+
+Both eval jobs landed. llama3.2-3b-instruct, g=1, wikitext-2 PPL:
+
+| s | L0 (mask only) | old L1 (0-anchor ridge) | new L1 (W_down-anchor ridge, C1 fix) | old ΔL1 | new ΔL1 |
+|---|---|---|---|---|---|
+| 0.9 | 21.5859 | 19.9510 | **16.1622** | -7.57% | **-25.13%** |
+| 0.5 | 11.2104 | 13.26 (~+18%) | **11.2074** | +18.3% | **-0.03%** |
+
+**Two findings, both large:**
+1. **s=0.5: the "refit hurts" headline does NOT survive the C1 fix.**
+   New L1 PPL (11.2074) is statistically indistinguishable from L0
+   (11.2104, -0.03%) and nearly exactly the dense anchor (11.0489). The
+   original +18% "hurts" conclusion was, in large part, an artifact of
+   the 0-shrinkage ridge prior actively pulling weak-evidence columns
+   toward zero at low sparsity (exactly the mechanism C1 flagged as a
+   candidate explanation) -- not a real bias-variance property of refit
+   itself. **The topic-closing headline ("refit hurts at s=0.5, s=0.7 is
+   a crossover zone") is now WRONG as stated and needs correction.**
+2. **s=0.9: the Go result gets substantially STRONGER, not just
+   unaffected.** New ΔL1 is -25.13%, more than 3x the old -7.57%. C1 was
+   not a low-sparsity-only bug -- the 0-anchor prior was leaving real
+   performance on the table at s=0.9 too.
+
+**Per the request's own conditional instruction ("3B에서 판별 후 뒤집히는
+경우에만 8B 확장")**: the s=0.5 result DID flip (hurts -> neutral), so
+8B verification is now in scope, not merely optional.
+
+**Explicitly out of this request's scope (per its own text), recorded as
+an observation only**: this reopens L2 (sequential refit, Dead End) as a
+candidate for re-examination (M3) -- L2 also used the buggy 0-anchor
+ridge, and if error compounding was partly masked by an unrelated
+ridge-prior handicap on L1's side, the L1-vs-L2 comparison might look
+different with both using the anchored ridge. NOT investigating this now
+-- flagged for a future request only.
+
+**Also flagged, not yet acted on**: the harness (accuracy-axis)
+confirmation of "s=0.5 hurts" (Δacc -1.19%p average) was run against the
+OLD buggy-ridge L1 weights too. Whether that accuracy-axis finding also
+reverses with the fixed ridge is an open question this experiment does
+not answer (would need a new harness run against the new weights) --
+not fabricating an assumption either way.
 
 ## M1 results: dense anchors (both landed, no anomaly)
 - 3B (llama3.2-3b-instruct): dense PPL = **11.0489**. Against s=0.9,g=1

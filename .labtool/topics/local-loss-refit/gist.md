@@ -67,7 +67,37 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   5.5210/5.7296/8.1083 (gateway) at s=0.5/0.7/0.9, wikitext-2.
 
 ## Key Findings
-- **[MAIN, TOPIC-CLOSING] Both halves of the core question CONFIRMED with
+- **[CORRECTION, SUPERSEDES THE TOPIC-CLOSING ENTRY BELOW, 2026-07-31] C1
+  fix: the "refit hurts at s=0.5" headline was substantially a
+  ridge-prior artifact, and s=0.9 is a much bigger Go than previously
+  measured.** All entries below this one used `solve_refit`'s ORIGINAL
+  0-shrinkage-prior ridge (pulls weak-evidence columns toward the
+  all-zero row). Fixed to anchor toward the original W_down instead (see
+  `refit_mlp.solve_refit` on branch `auto/refit-honesty-corrections`).
+  Recalibrated llama3.2-3b-instruct, g=1, s∈{0.9,0.5} (same calibration
+  tokens as the original runs, fair like-for-like):
+
+  | s | L0 | old L1 (0-anchor) | new L1 (W_down-anchor) | old ΔL1 | new ΔL1 |
+  |---|---|---|---|---|---|
+  | 0.9 | 21.5859 | 19.9510 | **16.1622** | -7.6% | **-25.1%** |
+  | 0.5 | 11.2104 | 13.26 | **11.2074** | +18.3% | **-0.03%** |
+
+  **s=0.5 verdict flips from "hurts" to "no meaningful effect"** (new L1
+  is within 0.03% of L0 and nearly exactly the dense anchor, 11.0489).
+  **s=0.9's Go result more than triples in size** (-25.1% vs -7.6%) — C1
+  was suppressing real signal at high sparsity too, not just adding noise
+  at low sparsity. Per the request's own rule ("3B에서 판별 후 뒤집히는
+  경우에만 8B 확장"), the flip at s=0.5 puts 8B verification back in
+  scope. Out of scope for now, recorded as an observation only: this
+  reopens L2 (Dead End below) as a candidate for re-examination, since it
+  also used the buggy ridge; and the harness accuracy-axis "s=0.5 hurts"
+  confirmation was likewise measured against the old weights and has not
+  been re-checked. Journal:
+  2026-07-31_experiment-refit-c1-m1-corrections.md
+- **[SUPERSEDED BY THE CORRECTION ABOVE — kept for the historical record,
+  do not cite the s=0.5/s=0.7 "hurts" direction from here without reading
+  the correction first] [MAIN, TOPIC-CLOSING] Both halves of the core
+  question CONFIRMED with
   two independent metrics (2026-07-31).** Llama-3.1-8B, lm-eval-harness
   (7 tasks, piqa dropped -- see Open Questions), g=1:
   - **s=0.9: Go, on both metrics.** PPL ΔL1 -20.1% relative; accuracy
@@ -106,7 +136,10 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   tuning/calibration corpus; only ΔL1 at matched (s,g) is a valid
   cross-run comparison.
   Journal: 2026-07-31_experiment-refit-l0l1-validate-3b.md
-- **[MAIN, CONFIRMED on 2 models] L1 refit is a HIGH-SPARSITY tool, not a
+- **[SUPERSEDED — the s=0.5/0.7 "hurts" direction in this entry used the
+  buggy 0-anchor ridge; see the C1 correction entry above. The s=0.9
+  direction is qualitatively right but understates the effect size.]
+  [MAIN, CONFIRMED on 2 models] L1 refit is a HIGH-SPARSITY tool, not a
   uniform fix — it HURTS at s=0.5/0.7 and helps big at s=0.9, growing
   strongly with g.** Reduced-cost matrix (2026-07-31) on BOTH
   llama3.2-3b-instruct (dev) and Llama-3.1-8B (main, base pretrained), same
@@ -271,21 +304,35 @@ branch line (oracle-residual-sparsity) rather than refit alone.
    hurts -1.19%p avg). Request's core Go/No-go question answered on two
    independent metrics.
 
-**Request's core experimental question is now answered** (see Key
-Findings, topic-closing entry). Backlog, not required for the request:
+6. ~~C1 fix + 3B recalibration (s=0.9, s=0.5, g=1)~~ — DONE (2026-07-31),
+   CONFIRMED: s=0.5 flips from "hurts" to "no meaningful effect", s=0.9
+   Go more than triples in size. See the C1 correction entry in Key
+   Findings.
+7. **NOW IN SCOPE per the request's own conditional rule** ("뒤집히는
+   경우에만 8B 확장" — it flipped): extend C1's recalibration to
+   Llama-3.1-8B, s∈{0.9,0.5}, g=1, to confirm the correction isn't a
+   3B/dev-model artifact. Not started yet.
+8. C2 (lambda sweep {0.001, 0.01, 0.1}) on the NEW anchored ridge, one
+   point each at s=0.9 and s=0.5 — not started yet, script already
+   supports `--lambdas`.
+9. M2 (low priority, optional): corpus-mismatch (wt103 calib vs wt2 eval)
+   re-check with calib=c4 — not started.
+
+**Request's ORIGINAL core experimental question was answered** (Go at
+s=0.9, topic-closing entry) but its s=0.5 characterization was wrong as
+stated — see the C1 correction. Backlog, not required for the request:
 full g-sweep on the harness (only g=1 tested for accuracy so far, PPL
-matrix covered g up to 128); a true dense (s=0) harness baseline for
-framing "how much does masking cost, how much does refit recover" in
-absolute terms; matching `piqa` (env-specific, low priority); L2 lambda/
-partial-sequential variants (flagged as ideas in its Dead-End card, not
-started).
+matrix covered g up to 128); a harness re-run against the NEW anchored-
+ridge weights (the old accuracy-axis "s=0.5 hurts" confirmation used the
+buggy weights, not yet re-checked); matching `piqa` (env-specific, low
+priority); L2 lambda/partial-sequential variants AND L2's basic
+re-examination with the fixed ridge (M3, reopened by the C1 flip but out
+of this request's scope).
 
 ## Active Jobs
-- M1 dense anchors: DONE (`refit-dense-anchor-3b`, `refit-dense-anchor-8b`
-  — see Key Findings).
-- C1 recalibration: `refit-c1-build-3b-s09`, `refit-c1-build-3b-s05`
-  running (a100-40-2, builds only so far — eval jobs to follow once
-  these land). C2 (lambda sweep) queued for after C1's verdict is in.
+- M1 (dense anchors) and C1 (3B recalibration + eval, s=0.9/0.5, g=1):
+  all DONE, CONFIRMED — see Key Findings. No jobs currently running.
+- Next up (not yet submitted): C1 8B extension, C2 lambda sweep.
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
