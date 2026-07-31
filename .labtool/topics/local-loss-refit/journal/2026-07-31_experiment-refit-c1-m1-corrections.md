@@ -163,3 +163,21 @@ not fabricating an assumption either way.
 - Dense anchor jobs cost nothing extra in code (reuse of `mode=l0, s=0.0`,
   which the existing unit tests already show is an exact dense-forward
   identity) -- purely a "run it once and record the number" gap-fill.
+
+## PR #3 opened
+https://github.com/aiha-choij/EfficientAI/pull/3 (stacked on `auto/local-
+loss-refit` PR #1, unmerged) -- includes the C1 code fix, M1 corrections,
+and the 3B recalibration results above.
+
+## Follow-on jobs queued (8B extension + C2 lambda sweep)
+Per the request's rule ("3B에서 판별 후 뒤집히는 경우에만 8B 확장") the
+s=0.5 flip puts 8B verification in scope. Queued:
+- `refit-c1-build-8b-s09`, `refit-c1-build-8b-s05` (Llama-3.1-8B, same
+  anchored-ridge recalibration as 3B, g=1) -- confirms/refutes whether
+  the 3B correction generalizes to the main model.
+- `refit-c2-sweep-3b-s09`, `refit-c2-sweep-3b-s05` (llama3.2-3b-instruct,
+  `--lambdas 0.001 0.01 0.1` in one job each, using the already-supported
+  multi-lambda loop in `01_build_l1.py` -- one recalibration sweep,
+  three solved weight sets, no new code) -- C2's lambda sweep on top of
+  the now-fixed anchored ridge.
+None landed yet as of this update.

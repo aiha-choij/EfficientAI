@@ -331,8 +331,11 @@ of this request's scope).
 
 ## Active Jobs
 - M1 (dense anchors) and C1 (3B recalibration + eval, s=0.9/0.5, g=1):
-  all DONE, CONFIRMED — see Key Findings. No jobs currently running.
-- Next up (not yet submitted): C1 8B extension, C2 lambda sweep.
+  all DONE, CONFIRMED — see Key Findings. PR #3 opened.
+- Running: `refit-c1-build-8b-s09`, `refit-c1-build-8b-s05` (8B
+  extension, per the request's flip-triggers-8B rule), `refit-c2-sweep-
+  3b-s09`, `refit-c2-sweep-3b-s05` (lambda sweep {0.001,0.01,0.1} on the
+  new anchored ridge, one job each s point). None landed yet.
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
