@@ -2,9 +2,10 @@
 
 Date: 2026-07-31
 
-Status: STRONG POSITIVE SIGNAL at (g=16, B=64) — C8/C8a recover ~99% of
-P3's catastrophic tax (in-family anchor confirmed). Replicating at B=256
-before declaring full CONFIRMED.
+Status: CONFIRMED — C8/C8a recover ~99% of P3's catastrophic tax at
+LLaMA2-7B, s=0.9, g=16, replicated across both B=64 and B=256. 8B
+extension deferred (worthwhile per spec's own criterion, but requires a
+new coactivation P1/P2 data-collection pass, not just an eval script).
 
 ## Why now
 Phase 3's spec §5 gate is now formally GO (8B, g=16, s≈0.9 — see
@@ -240,3 +241,47 @@ before declaring CONFIRMED): submitted a second validation batch at
 B=256 (g=16 unchanged, same rank/r_sk fractions -- C7a/C7/C8a/C8) to
 check the ~99% recovery pattern holds at the partition file's other
 available granularity, not just B=64.
+
+## B=256 replication lands — CONFIRMED
+All 4 landed clean, s_block=0.9070 (m=4, budget 4*256/11008=0.0931 kept
+-- matches `coactivation-block-structure` P3's own B=256 budget exactly,
+including its "-7% vs K" note). Using the same anchor interpolation
+(evaluated at this slightly different achieved sparsity, PPL 7.075):
+
+| condition | PPL (B=64) | recovery (B=64) | PPL (B=256) | recovery (B=256) |
+|---|---|---|---|---|
+| C7a (no comp) | 6874.22 | 0% | **11122.89** | 0% |
+| C7 (mean-gate) | 4952.39 | 28.0% | 6460.61 | 41.9%* |
+| C8 (r_sk=d/8) | 48.89 | 99.4% | 135.42 | 98.9% |
+| C8a (r_sk=d/32) | 37.17 | 99.6% | 55.96 | **99.6%** |
+
+*C7's higher recovery-RATIO at B=256 is a ratio-metric artifact, not
+better absolute compensation -- C7a's own baseline is more catastrophic
+at B=256 (11122 vs 6874, matching P3's own finding that coarser neuron
+blocks are worse for bare masking), which inflates the ratio denominator
+even though C7's absolute ΔPPL (+6453) is actually larger than at B=64
+(+4945). Same caveat noted for the 8B round's H5 discussion.
+
+**Result replicates robustly across both available neuron-block
+granularities.** C8a is essentially unchanged (99.6% at both B); C8
+degrades slightly (99.4%->98.9%) but still crosses the 50% bar by a wide
+margin -- plausible mechanism: coarser neuron blocks mean the down/up
+sketches must reconstruct larger "lumps" of dropped neurons per block,
+giving sketch error more room to compound, though C7's own compensation
+(no sketch, just mean-gate) doesn't show this pattern, so this is a
+tentative read, not confirmed further.
+
+**Formal status: CONFIRMED.** Phase 4's motivating question (does
+compensation + PPMI neuron-clustering combined recover the catastrophic
+tax P3 found unrecoverable by masking alone?) has a clear, robust YES at
+LLaMA2-7B, s=0.9, g=16, across both B=64 and B=256. Per spec's own
+guidance ("extend to 8B only if the llama2-7b result looks directionally
+worthwhile"), this result is unambiguously worthwhile -- but a full 8B
+extension requires a NEW coactivation P1/P2 data-collection pass (not
+just a new eval script; recollecting PPMI co-activation stats and
+re-clustering on 8B is a substantial, expensive undertaking in its own
+right, the same caveat the coactivation topic itself always carried).
+Deferring that extension as an explicit judgment call rather than
+launching it unprompted -- recording it here as the natural next step if
+the user/advisor wants the main model (8B) covered, not silently
+skipped.

@@ -1,9 +1,16 @@
 # block-sparse-compensation — Can input-dependent compensation recover the sharing tax of a block-shared mask?
 
 ## Status
-Phase 1-3 CONFIRMED, **Phase 3's formal spec §5 gate MET: GO** (8B, g=16,
-s≈0.9 — see Key Findings for the recovery table and caveats). Phase 4
-(coactivation combination on LLaMA2-7B) not yet started — next up.
+**ALL PHASES CONFIRMED (2026-08-01).** Phase 1-3: CONFIRMED, spec §5's
+formal Go gate MET (8B, g=16, s≈0.9). Phase 4 (coactivation combination,
+LLaMA2-7B): CONFIRMED, replicated across B=64 and B=256 — see Key
+Findings for both recovery tables and caveats. 8B extension of Phase 4
+deferred as an explicit judgment call (worthwhile per spec's own
+criterion, but needs a new coactivation data-collection pass, not just
+an eval script) — not pursued unprompted. This topic's main thread (A/B)
+is complete; §4 (local-loss-refit corrections, tracked in that topic)
+was already CONFIRMED earlier. C9 (overflow hybrid) correctly never
+built (Phase 3 landed GO, not Partial-go/No-go).
 Started 2026-07-31 from spec (full spec preserved verbatim in
 `spec.md`; see there for the authoritative math). Continues the
 `oracle-residual-sparsity` C0–C6 numbering (paused, kept active as anchor)
@@ -142,8 +149,10 @@ compensation) are dead; see `coactivation-block-structure` gist for the
 "bare block mask, no compensation" dead end this topic responds to.
 
 ## Next Experiments
-Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
-(CONFIRMED, cross-g). Remaining, in priority order:
+Status: **all phases DONE** (Phase 1-3 CONFIRMED/GO, Phase 4 CONFIRMED,
+§4 CONFIRMED). Nothing outstanding unless the user/advisor asks for the
+8B Phase 4 extension (see item 3's closing note). Kept below for the
+historical record:
 1. **Phase 3 → 8B extension, DONE — formal GO verdict (2026-07-31)**: 8B
    oracle calibration + p-probe done. Hit the SVD memory-growth bug class
    twice more (OOM, then a 35-49min stall) before root-causing it
@@ -200,11 +209,22 @@ Status: Phase 1 DONE, Phase 2 DONE (CONFIRMED), Phase 3 3B leg DONE
    neuron-block sharing at s=0.9 (exactly the regime P3 showed was
    catastrophic and unrecoverable by masking alone), gate/up-sketch
    compensation closes ~99% of the gap — directly confirms this topic's
-   core thesis extends to the 2D-tile setting. Not yet declaring full
-   CONFIRMED off one (g,B) point (mirrors Phase 3's own cross-g
-   replication precedent) — a second batch at B=256 (same g=16, same
-   rank fractions) is queued to check the pattern generalizes across
-   neuron-block granularity, not just B=64.
+   core thesis extends to the 2D-tile setting. **B=256 replication
+   confirms it (2026-08-01)**: C7a 11122.89 (0%, even more catastrophic
+   than B=64 — coarser blocks are worse for bare masking, matching P3's
+   own finding), C7 6460.61 (41.9%, a ratio-metric artifact — C7a's own
+   baseline being more catastrophic inflates the denominator even though
+   C7's absolute ΔPPL is larger than at B=64; see journal), C8 135.42
+   (98.9%), **C8a 55.96 (99.6%, essentially unchanged from B=64)**. C8
+   degrades slightly with coarser B (99.4%→98.9%, tentatively: sketches
+   must reconstruct larger neuron-lumps per block) but still clears 50%
+   by a wide margin. **Formal status: CONFIRMED** — the ~99% recovery
+   result is robust across both available neuron-block granularities,
+   not a single lucky point. An 8B extension is worthwhile per spec's
+   own criterion ("extend only if llama2-7b looks directionally
+   worthwhile") but needs a full new coactivation P1/P2 data-collection
+   pass (expensive, not just an eval script) — deferred as an explicit
+   documented decision, not pursued unprompted.
 C9 (overflow hybrid) is explicitly NOT implemented — Phase 3 landed on
 GO, not Partial-go/No-go, so C9 is not promoted per spec's own rule.
 
@@ -225,9 +245,9 @@ GO, not Partial-go/No-go, so C9 is not promoted per spec's own rule.
 - Phase 3 8B leg: DONE.
 - Phase 4 (P3′) first validation batch: all 4 landed (see Key Findings).
 - Phase 4 in-family anchor probes: both landed (see Key Findings).
-- Phase 4 B=256 replication batch: `p3prime-c7a-g16-B256`,
-  `p3prime-c7-g16-B256-r688`, `p3prime-c8a-g16-B256-rsk344`,
-  `p3prime-c8-g16-B256-rsk1376` — queued, not landed yet.
+- Phase 4 B=256 replication batch: all 4 landed (see Key Findings).
+- **This topic's main thread (A/B) is complete.** No further jobs
+  planned unless the user/advisor asks for an 8B Phase 4 extension.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first
