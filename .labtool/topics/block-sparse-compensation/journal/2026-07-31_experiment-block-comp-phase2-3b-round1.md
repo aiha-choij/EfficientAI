@@ -257,6 +257,21 @@ already capture. C7 and C8 (the two resubmitted jobs) will show whether
 the *deployable* forms (7's mean-gate-only compensation, 8's fully
 sketched compensation) come anywhere close to this ceiling.
 
+**C7 (resubmitted, fixed code) result — H4 Partial-go signal**: g=16,
+p=0.7, rank=512 → sparsity 0.5317, PPL 28.2506.
+recovery = (33.9006-28.2506)/(33.9006-11.11) ≈ **25%** — well under the
+spec's 50% Go threshold, and far below C8a's ~99%. This is exactly the
+spec section 5 "Partial-go" signature (C8a recovers, C7/plain mean-gate
+does not): the static mean-gate ḡ compensation (oracle C4's own
+mechanism, generalized to blocks) captures only a quarter of the tax at
+this regime, while a per-token gate estimate (even from a small rank-256
+sketch, C8a) captures nearly all of it. This is strong, direct evidence
+for H5 (sharing-tax neurons are the ones whose gate deviates most from
+ḡ — a mean-gate compensation structurally cannot chase that deviation,
+a per-token gate estimate can). The open question is whether C8
+(deployable, u also sketched) keeps C8a's ~99% or regresses toward C7's
+~25% once u is no longer exact — still running.
+
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
 queue-submission rule caps a single batch at 4. Round 2 will fill in

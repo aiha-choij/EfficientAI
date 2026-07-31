@@ -69,8 +69,16 @@ and is directly motivated by two closed threads:
   sharing tax vs C7a's PPL 33.9006 at this regime (anchor ~11.1). Strong
   early evidence for H4/H5: most of the sharing tax is captured by a
   low-rank *gate* estimate alone (u, W_down still exact in this
-  diagnostic condition). C7/C8 (deployable forms, resubmitted) will show
-  whether that ceiling survives full sketching.
+  diagnostic condition).
+- **C7 result — H4 Partial-go signature**: g=16, p=0.7, rank=512 →
+  sparsity 0.5317, PPL 28.2506, recovery ≈**25%** (well under the 50% Go
+  threshold, far below C8a's ~99%). Matches spec section 5's Partial-go
+  pattern exactly (C8a recovers, plain mean-gate compensation doesn't) —
+  direct evidence for H5: the static mean-gate ḡ term (oracle C4's own
+  mechanism) can't chase the per-token gate deviation that actually
+  drives the tax; a per-token gate estimate (even a small rank-256
+  sketch) nearly can. C8 (deployable, u also sketched — still running)
+  will show whether that holds once u stops being exact.
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
