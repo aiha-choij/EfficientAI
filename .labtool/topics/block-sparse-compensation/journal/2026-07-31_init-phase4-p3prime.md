@@ -148,3 +148,54 @@ catastrophic ballpark P3 found), `p3prime-c7-g16-B64-r688` (rank=d/16),
 `p3prime-c8a-g16-B64-rsk344` (r_sk=d/32), `p3prime-c8-g16-B64-rsk1376`
 (r_sk=d/8) — rank fractions chosen to match Phase 3's own convention.
 All 4 queued/running, none landed yet.
+
+## First validation batch results (2026-08-01) — striking positive signal
+All 4 landed clean, achieved s_block=0.9012 (matches the K=1101, m=17
+budget exactly: 17*64/11008=0.0988 kept -> 0.9012 dropped):
+
+| condition | PPL |
+|---|---|
+| C7a (no comp, control) | **6874.22** |
+| C7 (mean-gate, rank=d/16) | 4952.39 |
+| C8a (diagnostic, r_sk=d/32) | 37.17 |
+| C8 (deployable, r_sk=d/8) | 48.89 |
+
+C7a's PPL (6874) lands in the same catastrophic ballpark
+`coactivation-block-structure`'s own P3 found for bare clustered/random
+neuron-block masking (4.5k-24k at comparable settings) -- a reasonable
+pipeline sanity check, even though the exact score function differs (P3
+uses `|i|*col_norm`, this uses the residual score, an interpretation
+choice already on record from Phase 1 -- not expected to match P3's
+numbers bit-for-bit, just land in the same regime, which it does).
+
+**Preliminary recovery** (using `coactivation-block-structure`'s own
+per-token/topk_intermediate anchor at s=0.9, PPL 8.11, as a stand-in --
+flagging this is cross-score-family, not this topic's own in-family g=1
+C3 anchor, which hasn't been measured yet for llama2-7b; two probe jobs
+submitted to get the proper anchor: `p3prime-c3-g1-llama2-p05`,
+`p3prime-c3-g1-llama2-p03`):
+
+| condition | recovery (preliminary) |
+|---|---|
+| C7 | ~28% |
+| C8a | **~99.6%** |
+| C8 | **~99.4%** |
+
+**This is the strongest result in the whole topic so far**: even under
+the much harder Phase 4 setting (BOTH token-block AND neuron-block
+sharing simultaneously, at s=0.9 -- the exact regime P3 showed was
+catastrophic and unrecoverable by masking alone), C8/C8a compensation
+closes ~99% of the gap, while plain mean-gate compensation (C7) alone
+remains weak (~28%, consistent with every earlier round's finding that
+gate/up-sketch quality -- not mean-gate -- is the dominant lever). This
+directly answers Phase 4's motivating question from P3: yes, adding
+block_comp's per-token-block compensation on top of the PPMI-clustered
+partition closes the catastrophic gap the same way it closed the
+token-only sharing tax in Phase 3, even though masking alone (P3's own
+finding) could not.
+
+Not yet a final verdict for the same reason as the 8B round: the
+recovery number above uses a stand-in anchor from a different score
+family. Once the in-family probe lands, will interpolate a proper
+matched-sparsity anchor (same log-PPL-interpolation method as the 8B
+round) and recompute.
