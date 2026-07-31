@@ -62,15 +62,21 @@ Design questions from the kickoff context (§4), in order:
    predictor coupling.
 
 ## Next Experiments
-1. Resolve design questions 1–2 (method definition) — session analysis,
-   no GPU.
-2. Single-layer proof of concept on LLaMA2-7B (e.g. layer 16): local
-   tuning with the ℓ2,1-augmented reconstruction loss on calibration data;
-   measure within-group C(δ≤g), union tax, and block reconstruction error
-   before vs after tuning; λ_g sweep incl. λ_g=0 sanity anchor.
+1. ~~Resolve design questions 1–2~~ — DONE 2026-07-31: IRLS (reweighted-ℓ2,
+   quadratic per iteration) over ISTA; limited W_up update (option a) with
+   W_gate frozen + score gauge-fixed to original W_down; PoC objective =
+   dense reconstruction + penalty (design A). Rationale in the experiment
+   card 2026-07-31_experiment-flocking-poc-l16.md.
+2. ~~Single-layer PoC~~ — SUBMITTED (see Active Jobs).
+3. (queued, contingent on PoC) design-B arm: frozen group-mask
+   reconstruction objective; ISTA fallback if IRLS under-sparsifies;
+   layer-wise λ_g schedule; multi-layer + PPL ladder.
 
 ## Active Jobs
-- (none)
+- `050-20260731-171738-flocking-poc-l16` (a6000-4 pinned, PENDING) —
+  single-layer ℓ2,1 IRLS PoC, LLaMA2-7B layer 16, s=0.9,
+  g∈{16,64} × λ_rel∈{0,1e-3,1e-2,1e-1,1}. Card:
+  journal/2026-07-31_experiment-flocking-poc-l16.md
 
 ## Boundaries (do not duplicate)
 - Idea C (co-activation neuron permutation/blocking): separate topic

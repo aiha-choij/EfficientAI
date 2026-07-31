@@ -25,7 +25,9 @@ frontier postscript (same artifact URL). Topic paused with reopen criteria;
 next focus = user pick from backlog.
 
 ## Active Jobs
-- (none for tracked topics)
+- `050-20260731-171738-flocking-poc-l16` (groupwise-flocking-tuning,
+  a6000-4, PENDING) — single-layer ℓ2,1 IRLS PoC, LLaMA2-7B layer 16;
+  card: topics/groupwise-flocking-tuning/journal/2026-07-31_experiment-flocking-poc-l16.md
 - NOTE (2026-07-29 sync): three finished jobs on the gateway not tracked by
   this repo's labtool — `20260731-1553*-refit-harness-{l0,l1}-{s05,s09}-8b`
   (a100-40-2, 완료). Presumed another project/session; confirm with user
@@ -54,6 +56,9 @@ topics/oracle-residual-sparsity/journal/2026-07-28_pivot-wrapup-compensation-lin
 3. larosa-intermediate-sparsity backlog: 3-model Top-K PPL extension.
 
 ## Latest
+- 2026-07-31: flocking-poc-l16 SUBMITTED (050-20260731-171738, a6000-4,
+  tag exp/2026-07-31_flocking-poc-l16) — first groupwise-flocking-tuning
+  experiment; design Q1-2 resolved (IRLS + limited W_up update, design A).
 - 2026-07-29: session sync — wrap of oracle-residual-sparsity confirmed and
   committed (05ce2f7); no active jobs; next session picks the focus from
   the backlog candidates below. Untracked refit-harness jobs spotted on the
