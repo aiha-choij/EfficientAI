@@ -42,24 +42,25 @@ and is directly motivated by two closed threads:
   1 (C7 at g=1 must bit-match C4). Flagged in spec.md/PR/code docstring;
   unconfirmed against the spec author's actual intent.
 - PR #2 (Phase 1+2 code): https://github.com/aiha-choij/EfficientAI/pull/2
-- **Phase 2 sharing-tax curve, first estimate (2026-07-31, PROVISIONAL —
-  llama3.2-3b-instruct)**: using the in-family (residual-score) g=1
-  anchor (oracle C3) interpolated/extrapolated to the achieved sparsity of
-  each C7a point, the sharing tax (ΔPPL vs the g=1 anchor at matched
-  sparsity) is strongly **nonlinear in sparsity**: ~4.7 PPL points at
-  sparsity≈0.20-0.24 (g=16/64, p=0.9) but ~21-23 PPL points at
-  sparsity≈0.47-0.52 (g=16/64, p=0.7) — roughly a 4.5-5x jump in absolute
+- **Phase 2 gate met (2026-07-31, CONFIRMED — llama3.2-3b-instruct)**:
+  fully interpolated sharing-tax curve (in-family residual-score g=1
+  anchor bracketed from both sides for every C7a point, no extrapolation
+  left). Sharing tax (ΔPPL vs the g=1 anchor at matched achieved
+  sparsity) is strongly **nonlinear in sparsity**: ΔPPL=4.64 (g=16) /
+  4.77 (g=64) at sparsity≈0.20-0.24 (p=0.9), vs ΔPPL≈22.79 (g=16) / 21.28
+  (g=64) at sparsity≈0.47-0.52 (p=0.7) — a 4.5-5x jump in absolute PPL
   cost for ~2x more sparsity. Consistent with the coactivation topic's
   overlap-collapse finding (adjacent-token neuron-set overlap only 3.15x
-  chance at s=0.9): the higher the sparsity, the more a token's important
-  neurons diverge from its block-mates'. The higher-sparsity/higher-tax
-  regime (ΔPPL≈21-23) is the harder test Phase 3's C7/C8 compensation
-  needs to pass, not just the milder one. Absolute C7a PPL (15.7-33.9) is
-  far better than coactivation P3's neuron+token bare-block catastrophe
-  (4.5k-24k) — token-only mask sharing (no neuron permutation) is
-  survivable, not catastrophic, at these settings.
+  chance at s=0.9). The higher-sparsity/higher-tax regime (ΔPPL≈21-23) is
+  the harder test for Phase 3's C7/C8 compensation, not the milder one.
+  Absolute C7a PPL (15.7-33.9) is far better than coactivation P3's
+  neuron+token bare-block catastrophe (4.5k-24k) — token-only mask
+  sharing (no neuron permutation) is survivable, not catastrophic.
   Journal: journal/2026-07-31_experiment-block-comp-phase2-3b-round1.md
   (full data table + interpolation method)
+- **Phase 3 kicked off (2026-07-31)**: first C7/C8a/C8 data point queued
+  at the harder regime above (g=16, p=0.7, rank=512, r_sk=256=d/32) to
+  test H4's recovery-rate gate (≥50%) where the tax is biggest.
 
 ## Open Questions
 - Is the block score for C7/C8 really meant to be the C3/C4/C5 residual
@@ -68,14 +69,10 @@ and is directly motivated by two closed threads:
   compensation formula, not the selection criterion? Implemented as
   residual-score (see Key Findings) because that's what unit test 1
   requires; not confirmed with the spec author.
-- (resolved by round 2, new confound found) Phase 2 round 1's C2-vs-C7a
-  PPL gap mixed score family + sharing tax. Round 2 (in-family C3 g=1
-  anchor) fixed the score-family confound but surfaced a second one:
-  achieved sparsity is not matched across g even at the same p (g=1,p=0.9
-  → sparsity 0.506; g=16,p=0.9 → only 0.2375). A fair sharing-tax read
-  needs PPL compared at matched achieved sparsity (interpolated p-sweep
-  per g), not raw PPL at matched p. Round 3 (queued) brackets the target
-  sparsity region for interpolation.
+- ~~Phase 2 round 1's C2-vs-C7a PPL gap mixed score family + sharing
+  tax.~~ RESOLVED: in-family C3 g=1 anchor (score-family fix) +
+  interpolation across a 4-point p-sweep (sparsity-matching fix) — see
+  Key Findings for the final table.
 
 ## Dead Ends
 (none yet in this topic; see `coactivation-block-structure` gist for the
@@ -103,14 +100,14 @@ C9 (overflow hybrid) is explicitly NOT implemented yet — only promoted if
 Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
 
 ## Active Jobs
-- `block-comp-calib-3b`, Phase 2 rounds 1-3: all DONE except one retry.
-  `bc-c3-g1-p095` FAILED (CUDA OOM, transient external GPU contention —
-  see journal Notes, not a code bug); superseded by `bc-c3-g1-p099`
-  (queued) rather than a blind retry, since p=0.97's result showed p=0.95
-  wouldn't have helped bracket the target sparsity region anyway.
-- Phase 2 round 4 (queued): `bc-c3-g1-p099` (050-20260731-180037) — will
-  convert the p=0.9 row of the sharing-tax table from extrapolated to
-  interpolated.
+- Phase 2 (calibration + 4 rounds of eval): all DONE. One transient
+  failure (`bc-c3-g1-p095`, CUDA OOM, shared-cluster contention) worked
+  around by submitting a more useful point instead of a blind retry —
+  see journal.
+- Phase 3 round 1 (queued 2026-07-31 ~18:04): `bc-c7-g16-p07-r512`,
+  `bc-c8a-g16-p07-rsk256`, `bc-c8-g16-p07-rsk256`
+  (050-20260731-1804{03,04,07}) — C7/C8a/C8 at (g=16,p=0.7,sparsity~0.52),
+  the harder sharing-tax regime Phase 2 identified.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first

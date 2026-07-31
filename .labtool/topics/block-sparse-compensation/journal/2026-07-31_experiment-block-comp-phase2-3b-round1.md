@@ -1,6 +1,6 @@
 # Experiment: block-comp-phase2-3b-round1 (Phase 2 — sharing-tax curve, first pass)
 
-Status: PROVISIONAL (results in, gate not yet reached -- round 2 needed)
+Status: CONFIRMED (Phase 2 gate met; see Round 4 for the final table)
 Date: 2026-07-31
 
 ## Hypothesis tested
@@ -188,6 +188,38 @@ recovery target): C7/C8 need to close a gap that itself grows sharply
 with target sparsity — Phase 3's C7/C8 sweep should treat the ΔPPL≈21-23
 (higher-sparsity) regime as the harder, more important test of the
 compensation hypothesis, not just the ΔPPL≈4.7 regime.
+
+## Round 4 (final anchor point) + tightened sharing-tax numbers
+`bc-c3-g1-p099` (050-20260731-180037): C3 g=1, p=0.99 → sparsity 0.1949,
+PPL 11.0508. Together with p=0.97 (sparsity 0.3111, PPL 11.0504), this
+brackets BOTH C7a p=0.9 points (0.2375, 0.2012) from inside the measured
+range — the p=0.9 row of the sharing-tax table is now interpolated, not
+extrapolated. The anchor curve is very flat here (PPL 11.0504-11.0508
+across sparsity 0.19-0.31), so the correction versus the earlier
+extrapolate-based estimate is negligible:
+
+| g | p | C7a sparsity | C7a PPL | anchor PPL (interpolated, in-range) | ΔPPL (sharing tax) |
+|---|---|---|---|---|---|
+| 16 | 0.9 | 0.2375 | 15.6911 | 11.0507 | **4.64** |
+| 64 | 0.9 | 0.2012 | 15.8210 | 11.0508 | **4.77** |
+| 16 | 0.7 | 0.5202 | 33.9006 | ~11.11 | **~22.79** |
+| 64 | 0.7 | 0.4727 | 32.3566 | ~11.08 | **~21.28** |
+
+**Phase 2 gate met.** The curve is fully interpolated (no more
+extrapolation caveats), confirms the nonlinear-in-sparsity sharing tax
+(4.5-5x PPL cost for ~2x sparsity), and is directionally consistent with
+the coactivation topic's overlap-collapse measurement. Status: CONFIRMED.
+
+## Phase 3 kickoff (same session)
+First C7/C8a/C8 data point queued at the harder regime this round
+identified (g=16, p=0.7, sparsity~0.52, sharing tax ΔPPL≈22.79 — the
+bigger test of H4/H5 than the milder p=0.9 regime): rank=512 (C7's
+comp_lr, oracle-C4-style) and r_sk=256=d/32 (C8/C8a's gate/up/down
+sketch, smallest of the spec's sweep {d/32,d/16,d/8}). Jobs:
+`bc-c7-g16-p07-r512`, `bc-c8a-g16-p07-rsk256`, `bc-c8-g16-p07-rsk256`
+(050-20260731-1804{03,04,07} area). Recovery rate (H4 gate: >=50%) will
+be computable once these land: recovery = (C7a_PPL - condition_PPL) /
+(C7a_PPL - anchor_PPL) = (33.90 - condition_PPL) / (33.90 - 11.11).
 
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
