@@ -1,6 +1,6 @@
 # Experiment: refit-l2-validate-3b
 
-Status: DONE, interpretation PENDING a control run (2026-07-31)
+Status: DONE, interpretation CONFIRMED by control run (2026-07-31)
 Date: 2026-07-31
 
 ## Hypothesis tested
@@ -62,36 +62,40 @@ working as intended) vs wildly different (bug) vs consistently worse
   this card's update once it returns.
 
 ### Results
-(artifact: job log at ~/workspace/runs/20260731-150816-refit-l2-validate-3b/log;
-result JSON: ~/workspace/refit/llama3.2-3b-instruct/results/l2_s0.9_g1_lam0.01.json)
+(artifacts: job logs at ~/workspace/runs/20260731-150816-refit-l2-validate-3b/log
+and ~/workspace/runs/20260731-151718-refit-l2-validate-3b-n512/log; result
+JSONs under ~/workspace/refit/llama3.2-3b-instruct/results/)
 
-| condition | s | g | PPL | achieved sparsity |
-|---|---|---|---|---|
-| L0 | 0.9 | 1 | 21.5859 | 0.9000 |
-| L1 | 0.9 | 1 | 19.9510 | 0.9000 |
-| **L2** | 0.9 | 1 | **26.9013** | 0.9000 |
+| condition | s | g | nsamples | PPL | achieved sparsity |
+|---|---|---|---|---|---|
+| L0 | 0.9 | 1 | — | 21.5859 | 0.9000 |
+| L1 | 0.9 | 1 | 512 | 19.9510 | 0.9000 |
+| L2 | 0.9 | 1 | 128 | 26.9013 | 0.9000 |
+| **L2 (control)** | 0.9 | 1 | **512** (matches L1, same calib_tokens.pt) | **26.3277** | 0.9000 |
 
-**L2 is WORSE than both L0 (mask-only) and L1** at this (s, g) -- the
-opposite of what "a more faithful, sequentially-corrected mask" would
-naively suggest. ΔL2 vs L1 = +6.95 PPL (+34.9% relative); ΔL2 vs L0 = +5.32
-PPL (+24.6% relative, i.e. L2 doesn't even beat plain masking here).
+**Control run confirms the calibration-budget confound is NOT the driver.**
+4x the calibration data (128 -> 512, reusing L1's own saved token set for a
+fully apples-to-apples comparison) moved PPL by only −0.57 (26.90 -> 26.33,
+≈2% relative) — nowhere near closing the ~6-7 PPL gap to L1. **L2 is WORSE
+than both L0 (mask-only) and L1 at this (s, g), and that is not a
+calibration-starvation artifact.**
 
 ### Interpretation
-**PROVISIONAL -- do not treat as final.** Leading hypotheses, not yet
-distinguished:
-1. **Calibration-budget confound**: 128 vs L1's 512 samples. Ridge
-   regression with less data (same d=8192) could simply be a worse fit,
-   independent of anything sequential-specific. The n512 control run
-   isolates this.
+**CONFIRMED (not a calibration artifact).** Two hypotheses were raised;
+one is now ruled out:
+1. ~~Calibration-budget confound~~ -- RULED OUT. 4x the data barely moved
+   the result (26.90 -> 26.33). Whatever is happening, more calibration
+   tokens at this scale does not fix it.
 2. **Error compounding (a real property of sequential/greedy calibration,
-   not a bug)**: unlike L1, where every layer regresses from the TRUE
-   dense activations, L2's layer L sees the OUTPUT of layers <L's own
-   (imperfect, regularized) refit -- any approximation error at layer 0
-   propagates and can compound through the stack. GPTQ-style quantization
-   methods have the same structural risk; it doesn't always net out
-   favorably relative to independent per-layer fitting, especially when
-   dense-anchored (L1-style) fitting is cheap and available as an
-   alternative (unlike GPTQ, which doesn't have a "just use the original
+   not a bug) -- now the leading and only remaining explanation.** Unlike
+   L1, where every layer regresses from the TRUE dense activations, L2's
+   layer L sees the OUTPUT of layers <L's own (imperfect, regularized)
+   refit -- any approximation error at layer 0 propagates and compounds
+   through the stack. GPTQ-style quantization methods carry the same
+   structural risk; it doesn't always net out favorably relative to
+   independent per-layer fitting, especially when dense-anchored (L1-style)
+   fitting is cheap and available as an alternative (unlike GPTQ, which
+   doesn't have a "just use the original
    weights" option since the weights themselves are being quantized).
 3. (Ruled out, not the cause) Implementation bug in the sequential
    mechanism itself -- test_8 already exercises the exact same code path
@@ -101,20 +105,34 @@ distinguished:
    scale (tiny random model -> real 3B), neither of which touches the
    mechanism test_8 validated.
 
-If the n512 control still shows L2 clearly losing to L1: this is a real,
-reportable negative result for L2's specific formulation (recompute-mask +
-sequential-fit), NOT for local-loss-refit generally (L1 remains solidly
-confirmed at s=0.9). Report as such, per the request's own instruction to
-report null/negative results plainly -- this would be useful information
-for the compensation-branch line (oracle-residual-sparsity): dense-anchored
-independent fitting beats trying to be "faithful" to the sparse stream.
+This IS a real, reportable negative result for L2's specific formulation
+(recompute-mask-against-sparse-stream + sequential-fit), NOT for local-loss-
+refit generally -- L1 remains solidly confirmed at s=0.9 on two models
+(gist Key Findings). Reporting as such, per the request's own instruction
+to report null/negative results plainly: **dense-anchored independent
+fitting (L1) beats trying to be "faithful" to the sparse stream (L2), at
+least at this (s, g, lambda) and this calibration scale.** This is useful
+information for the compensation-branch line (oracle-residual-sparsity)
+too -- it echoes that line's own experience that metrics/objectives which
+sound more "faithful" to the deployed condition don't automatically win
+(e.g. the whitening round's input-L2-vs-downstream-loss mismatch).
 
 ## Next
-- Await 050-20260731-151718-refit-l2-validate-3b-n512 (same calibration
-  budget as L1) before drawing a conclusion.
-- If compounding is confirmed as the driver (not just calibration size):
-  consider, only if the user wants to pursue it further, whether a smaller
-  regularization lambda helps or hurts (more aggressive fitting could
-  compound error faster, not slower) -- flag as an idea, do not implement
-  unprompted; this topic's scope is measuring refit's effect, not
-  re-engineering L2 into a third variant.
+- Do NOT add L2 to the broader (s,g) matrix -- it already clearly loses at
+  the one point tested, matched-budget, mechanism-verified-correct. Spending
+  more GPU time on a losing condition isn't justified without a new idea
+  for why it might turn around elsewhere in the grid (no such idea exists
+  right now).
+- Not run (flag only, do not implement unprompted -- this topic's scope is
+  measuring refit's effect, not re-engineering L2 into a third variant):
+  (a) whether a LARGER lambda (more regularization) tempers the error
+  compounding, since compounding plausibly comes from each layer's fit
+  being aggressive/overconfident given only that layer's own local
+  objective; (b) whether excluding the first few layers from L2's
+  sequential treatment (dense-anchored there, sequential only later) caps
+  how much compounding can accumulate.
+- lm-eval-harness (0.4.3) confirmed installed in the gateway conda env
+  (`~/miniconda3/envs/larosa`) -- the "unconfirmed" open question from
+  init is resolved. Next natural step for the CONFIRMED L0/L1 finding is
+  the 8-task zero-shot suite at --limit 1000, PPL-first groundwork already
+  done.

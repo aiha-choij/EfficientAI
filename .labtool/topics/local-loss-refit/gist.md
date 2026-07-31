@@ -126,45 +126,53 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   both are large relative to any plausible noise floor).
   Journal: 2026-07-31_experiment-refit-l0l1-matrix-3b.md,
   2026-07-31_experiment-refit-l0l1-matrix-8b.md
-- **[PROVISIONAL] L2 single-point verification (2026-07-31): L2 LOSES to
-  both L0 and L1, opposite of the naive expectation.** llama3.2-3b-instruct,
-  s=0.9, g=1, wikitext-2 PPL, calib wikitext103 nsamples=**128** (L2's
-  smaller default, NOT L1's 512): L0 21.586, L1 19.951, **L2 26.901** — L2
-  is worse than plain masking (L0), let alone L1. Two competing
-  explanations, not yet distinguished: (a) calibration-budget confound
-  (128 vs 512 tokens); (b) error compounding inherent to sequential/greedy
-  per-layer fitting (layer L sees layer <L's own imperfect refit output,
-  not the true dense activations L1 always regresses from). A same-budget
-  control run (nsamples=512, reusing L1's exact saved calib tokens,
-  job 050-20260731-151718) is in flight to separate these. The sequential
-  MECHANISM itself is independently verified correct (unit test 8: exact
-  restoration at s=0 across 3 layers, dense/sparse streams agree to
-  1.86e-08) — this is not an implementation bug in the code path being
-  exercised here, only s and scale changed from the passing unit test.
-  When relevant: (a) do not conclude L2 "doesn't work" until the n512
-  control is back; (b) if compounding is confirmed as the driver even at
-  matched budget, that is itself a real, useful negative result — dense-
-  anchored independent fitting (L1) beating sparse-stream-faithful
-  sequential fitting (L2) is informative for the compensation-branch line.
+- **[CONFIRMED] L2 LOSES to both L0 and L1 — a real property, NOT a
+  calibration-budget artifact.** llama3.2-3b-instruct, s=0.9, g=1,
+  wikitext-2 PPL, calib wikitext103: L0 21.586, L1 19.951, L2(n=128) 26.901,
+  **L2(n=512, matched to L1's exact budget) 26.328** — 4x the calibration
+  data moved PPL by only −0.57 (≈2%), nowhere near closing the ~6-7 PPL gap
+  to L1. The sequential MECHANISM is independently verified correct (unit
+  test 8: exact multi-layer restoration at s=0, dense/sparse streams agree
+  to 1.86e-08), so this isn't an implementation bug — it's **error
+  compounding**: L1 always regresses from the TRUE dense activations at
+  every layer, while L2's layer L sees layer <L's own imperfect refit
+  output, so approximation error accumulates through the stack. Same
+  structural risk GPTQ-style quantization carries, and here it loses to the
+  simpler dense-anchored alternative (L1), which is always available since
+  refit doesn't require sequential treatment the way weight quantization
+  does.
+  When relevant: (a) do NOT add L2 to the broader (s,g) matrix — it already
+  clearly loses at the one point tested, matched-budget, mechanism-
+  verified; (b) this is informative for the compensation-branch line
+  (oracle-residual-sparsity) too — matches that line's own experience that
+  "more faithful to the deployed condition" objectives don't automatically
+  win (whitening round's input-L2-vs-downstream-loss mismatch is the same
+  shape of lesson); (c) L1 remains the confirmed, deployable form of this
+  topic's method.
   Journal: 2026-07-31_experiment-refit-l2-validate-3b.md
 
 ## Dead Ends
-(none yet)
+- 2026-07-31 — **L2 (sequential/GPTQ-style refit against the sparse
+  stream)**: loses to both L0 and L1 at s=0.9,g=1 on llama3.2-3b-instruct,
+  confirmed not a calibration-budget artifact (4x data barely moved it).
+  Root cause: error compounding through the sequential layer chain — L1's
+  dense-anchored independent-per-layer fitting doesn't have this problem
+  and is simpler. Not pursuing further (no broader matrix, no lambda/
+  partial-sequential variants) without a new idea for why it would turn
+  around, and none is in hand. Journal:
+  2026-07-31_experiment-refit-l2-validate-3b.md
 
 ## Open Questions
-- L2 vs L1 at s=0.9,g=1: L2 currently loses, confound (calib budget vs
-  compounding error) not yet isolated — see Key Findings, awaiting the
-  n512 control run.
-- ~~Whether llama3.2-3b-instruct is an acceptable dev stand-in~~ → resolved:
-  the low-s regression replicated on the base Llama-3.1-8B too, so the dev
-  model's instruct tuning was not distorting the qualitative finding
-  (magnitudes differ some, direction/pattern doesn't).
 - Exact s/g crossover point where ΔL1 flips sign looks model-dependent
   (3B: still negative at s=0.7,g=32; 8B: ~neutral there) — not pinned down,
   not blocking (s=0.9 Go stands either way), but relevant if this method
   is ever gated by a threshold rule.
-- lm-eval-harness availability on the gateway env — unconfirmed; PPL-first,
-  harness as a follow-up if missing (per request's fallback clause).
+- ~~Whether llama3.2-3b-instruct is an acceptable dev stand-in~~ → resolved:
+  the low-s regression replicated on the base Llama-3.1-8B too, so the dev
+  model's instruct tuning was not distorting the qualitative finding
+  (magnitudes differ some, direction/pattern doesn't).
+- ~~lm-eval-harness availability~~ → resolved: 0.4.3 confirmed installed in
+  the gateway conda env (`~/miniconda3/envs/larosa`).
 
 ## Next Experiments
 1. ~~Unit tests~~ — done, 5/5 pass (2026-07-31).
@@ -172,21 +180,17 @@ branch line (oracle-residual-sparsity) rather than refit alone.
 3. ~~Reduced-cost L0/L1 matrix (rung 1)~~ — DONE (2026-07-31), both dev and
    main models. Confirmed finding: refit helps at s=0.9 (more so as g
    grows), hurts at s=0.5, crossover near s=0.7.
-4. ~~Implement L2~~ — DONE (2026-07-31), unit-tested correct. First
-   real-scale point (s=0.9,g=1) LOSES to L0/L1 — see Key Findings, n512
-   control in flight to isolate calibration-budget vs compounding-error.
-   Do not add L2 to the broader matrix until that's resolved (no point
-   spending GPU time on a matrix for a condition whose single point
-   already needs explaining).
-5. lm-eval-harness zero-shot suite (8 tasks, --limit 1000) once PPL matrix
-   is in and harness availability on the gateway env is confirmed —
-   PPL-first per the request's own fallback clause.
+4. ~~Implement + validate L2~~ — DONE (2026-07-31), unit-tested correct,
+   CONFIRMED to lose to L0/L1 at s=0.9,g=1 (not a calibration artifact —
+   see Dead Ends). Not extending to the broader matrix.
+5. lm-eval-harness zero-shot suite (8 tasks, --limit 1000) — availability
+   confirmed (0.4.3). This is the next open item: L0/L1's PPL story is
+   solid on two models, but the request's judgment criteria are framed
+   around accuracy (normalized zero-shot), with PPL as a secondary signal.
+   Not yet run.
 
 ## Active Jobs
-- `050-20260731-151718-refit-l2-validate-3b-n512` (a100-40-2) — L2 control
-  run, same (s,g)=(0.9,1) but nsamples=512 (matches L1's budget, reuses
-  L1's exact saved calib tokens) to isolate whether L2's loss to L0/L1 is a
-  calibration-budget artifact or genuine error compounding.
+- (none)
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
