@@ -283,14 +283,28 @@ def finalize_l2_layer(model, layer_idx):
 # closed-form solve + weight I/O
 # ---------------------------------------------------------------------------
 
-def solve_refit(G, C, lam=0.01):
-    """W_tilde = C (G + lambda * mean(diag(G)) * I)^-1, via Cholesky. G:
-    [d,d] fp32 (symmetric PSD), C: [h,d] fp32. Returns [h,d] fp32."""
+def solve_refit(G, C, W_anchor, lam=0.01):
+    """W_tilde = (C + lambda*diag_mean*W_anchor) (G + lambda*diag_mean*I)^-1,
+    via Cholesky. G: [d,d] fp32 (symmetric PSD), C: [h,d] fp32, W_anchor:
+    [h,d] fp32 (the ORIGINAL, never-refit down_proj weight -- same anchor
+    used for the C2 score, anti-circularity applies here too).
+
+    C1 fix: the original ridge (anchor 0, i.e. W_anchor=0 recovers it
+    exactly) is a 0-shrinkage prior -- when a column has little
+    calibration evidence (G's corresponding diagonal small), it pulls
+    W_tilde toward the all-zero row instead of toward "trust the original
+    weight." At low sparsity (s=0.5/0.7) masking barely changes activations,
+    so there is little true bias for refit to correct, and the 0-anchor
+    ridge was adding pure shrinkage-toward-zero noise -- the master
+    design's fix anchors to W_anchor instead, so "no evidence" means
+    "keep the original weight," not "shrink to zero." Reduces to the
+    original formula when W_anchor is the zero matrix."""
     d = G.shape[0]
     diag_mean = torch.diagonal(G).mean()
     reg = G + lam * diag_mean * torch.eye(d, dtype=G.dtype, device=G.device)
+    rhs = C + lam * diag_mean * W_anchor.to(C.dtype)
     L = torch.linalg.cholesky(reg)
-    X = torch.cholesky_solve(C.T.contiguous(), L)  # [d, h] = reg^-1 C^T
+    X = torch.cholesky_solve(rhs.T.contiguous(), L)  # [d, h] = reg^-1 rhs^T
     return X.T.contiguous()  # [h, d]
 
 

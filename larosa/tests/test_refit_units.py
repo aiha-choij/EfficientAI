@@ -61,8 +61,8 @@ def test_1_s0_restoration(model):
     stats = refit_mlp.finalize_l1(model)
     for layer_idx, mlp in oracle_mlp.iter_mlps(model):
         st = stats[layer_idx]
-        w_tilde = refit_mlp.solve_refit(st["G"], st["C"], lam=1e-6)
         w_orig = mlp.down_proj.weight.detach()
+        w_tilde = refit_mlp.solve_refit(st["G"], st["C"], w_orig.float(), lam=1e-6)
         diff = (w_tilde - w_orig).abs()
         rel = diff.max().item() / w_orig.abs().max().item()
         assert torch.allclose(w_tilde, w_orig, rtol=1e-2, atol=1e-2), \
@@ -104,7 +104,8 @@ def test_3_l1_beats_l0_insample(model):
     stats = refit_mlp.finalize_l1(model)
     for layer_idx, mlp in oracle_mlp.iter_mlps(model):
         st = stats[layer_idx]
-        w_tilde = refit_mlp.solve_refit(st["G"], st["C"], lam=0.01)
+        w_orig = mlp.down_proj.weight.detach().float()
+        w_tilde = refit_mlp.solve_refit(st["G"], st["C"], w_orig, lam=0.01)
         # recompute z, y* for the same calibration set to score in-sample MSE
         mse_l0, mse_l1, n = 0.0, 0.0, 0
         with torch.no_grad():
@@ -116,7 +117,6 @@ def test_3_l1_beats_l0_insample(model):
                 # in-sample MSE = sum||y*||^2 - 2 tr(W C^T) + tr(W G W^T)).
                 pass
         G, C, n = st["G"], st["C"], st["n"]
-        w_orig = mlp.down_proj.weight.detach().float()
 
         def in_sample_sse(W):
             # sum_t ||y*_t - W z_t||^2 = sum||y*||^2 - 2 tr(W C^T) + tr(W G W^T)
@@ -323,7 +323,7 @@ def test_8_l2_s0_restoration_multilayer():
                 refit_mlp.single_layer_forward(model, layer_idx, sparse_hidden[i:i + chunk])
 
             stats = refit_mlp.finalize_l2_layer(model, layer_idx)
-            w_tilde = refit_mlp.solve_refit(stats["G"], stats["C"], lam=1e-6)
+            w_tilde = refit_mlp.solve_refit(stats["G"], stats["C"], w_before[layer_idx], lam=1e-6)
             mlp = model.model.layers[layer_idx].mlp
             mlp.down_proj.weight.data.copy_(w_tilde)
 

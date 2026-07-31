@@ -84,6 +84,12 @@ if __name__ == "__main__":
         print(f"saved calibration tokens: {tok_path}")
 
     refit_mlp.attach_col_norms(model)
+    # C1 anchor: capture EVERY layer's original weight before the sequential
+    # loop starts -- L2 overwrites down_proj.weight in place layer-by-layer,
+    # so grabbing this lazily inside the loop would see already-refit
+    # weights for earlier layers.
+    w_anchors = {layer_idx: mlp.down_proj.weight.detach().float().cpu()
+                 for layer_idx, mlp in oracle_mlp.iter_mlps(model)}
 
     device = model.model.embed_tokens.weight.device
     num_layers = model.config.num_hidden_layers
@@ -115,7 +121,7 @@ if __name__ == "__main__":
                 refit_mlp.single_layer_forward(model, layer_idx, sparse_chunk)  # side effect only
 
             stats = refit_mlp.finalize_l2_layer(model, layer_idx)
-            w_tilde = refit_mlp.solve_refit(stats["G"], stats["C"], lam=args.lam)
+            w_tilde = refit_mlp.solve_refit(stats["G"], stats["C"], w_anchors[layer_idx].to(device), lam=args.lam)
             mlp = model.model.layers[layer_idx].mlp
             mlp.down_proj.weight.data.copy_(w_tilde.to(mlp.down_proj.weight.dtype))
             torch.save({"W_down": w_tilde.cpu()}, os.path.join(out_dir_lam, f"layer_{layer_idx}.pt"))

@@ -49,6 +49,9 @@ if __name__ == "__main__":
                          "accumulators under ~12GiB total.")
     ap.add_argument("--out_dir", type=str, required=True,
                     help="base dir; per-lambda weights go in {out_dir}_lam{L}")
+    ap.add_argument("--stats_out", type=str, default=None,
+                    help="if given, save the raw (G,C,n) per layer here -- "
+                         "makes future lambda/prior re-solves free (no recalibration)")
     args = ap.parse_args()
 
     config = transformers.AutoConfig.from_pretrained(args.model_name, trust_remote_code=True)
@@ -73,6 +76,11 @@ if __name__ == "__main__":
         print(f"saved calibration tokens: {tok_path}")
 
     refit_mlp.attach_col_norms(model)
+    # C1 anchor: the ORIGINAL (never-refit) down_proj weight, captured before
+    # any refit weight is solved/loaded -- same anti-circularity discipline
+    # as the col_norm score.
+    w_anchors = {layer_idx: mlp.down_proj.weight.detach().float().cpu()
+                 for layer_idx, mlp in oracle_mlp.iter_mlps(model)}
 
     num_layers = model.config.num_hidden_layers
     d, h = model.config.intermediate_size, model.config.hidden_size
@@ -97,8 +105,15 @@ if __name__ == "__main__":
                           f"calib sample {i}/{args.nsamples}", flush=True)
         stats.update(refit_mlp.finalize_l1(model))
 
+    if args.stats_out:
+        os.makedirs(args.stats_out, exist_ok=True)
+        for layer_idx, st in stats.items():
+            torch.save(st, os.path.join(args.stats_out, f"layer_{layer_idx}.pt"))
+        print(f"saved raw (G,C,n) stats to {args.stats_out} "
+              f"(future lambda/prior re-solves need no recalibration)")
+
     for lam in args.lambdas:
-        weights = {layer_idx: refit_mlp.solve_refit(st["G"], st["C"], lam=lam)
+        weights = {layer_idx: refit_mlp.solve_refit(st["G"], st["C"], w_anchors[layer_idx].to(st["G"].device), lam=lam)
                    for layer_idx, st in stats.items()}
         out_dir_lam = f"{args.out_dir}_lam{lam}"
         meta = {
