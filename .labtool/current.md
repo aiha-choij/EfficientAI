@@ -8,8 +8,13 @@
 | larosa-intermediate-sparsity | ✅ done | Per-token Top-K on i=u⊙g confirmed on LLaMA2-7B (50% → +0.047 PPL); closed by pivot, 3-model ext in backlog |
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 | rsparse-repro | 🟢 active | R-Sparse (ICLR25) Llama-2-7B 50% reproduced: 8-task avg 64.59 vs paper 64.06, full baseline exact; matched-protocol PPL vs LaRoSA still open |
+| groupwise-flocking-tuning | 🟢 active | Idea D (CLS-aware Sparse-BRECQ): group×neuron ℓ2,1 in the local reconstruction loss to LEARN within-group neuron-selection overlap; design → single-layer PoC (LLaMA2-7B) |
 
 ## This Session
+Focus (2026-07-31, QCom host session): groupwise-flocking-tuning — NEW
+topic (Idea D kickoff). Resolving design Q1–2, then single-layer PoC.
+Previous focus below kept for context.
+
 Focus: oracle-residual-sparsity — WRAPPED (user steer). E-W0 double
 negative: (1) diagonal loss-aligned metric failed its gate (Spearman
 identical to plain L2; cannot fix whitening inversion); (2) TIS frontier
