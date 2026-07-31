@@ -67,6 +67,17 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   5.5210/5.7296/8.1083 (gateway) at s=0.5/0.7/0.9, wikitext-2.
 
 ## Key Findings
+- **[MAIN] s=0.9 Go CONFIRMED on the accuracy axis too (2026-07-31).**
+  Llama-3.1-8B, lm-eval-harness (7 tasks, piqa dropped -- see Open
+  Questions), s=0.9, g=1: L1 beats L0 on 5/7 tasks by acc (arc_easy +6.0%p,
+  boolq +12.5%p, winogrande +3.3%p, sciq +3.7%p, lambada_openai +4.0%p),
+  ties/slightly-worse on 2 (arc_challenge -1.2%p, hellaswag -0.5%p acc);
+  average Δacc = **+3.97%p**. Independently confirms the PPL-based finding
+  (ΔL1 -20.1% relative at this (s,g) on the same model) using the request
+  spec's own primary judgment metric. s=0.5 contrast in flight (job
+  050-20260731-155342/155351) to check whether the "hurts at low s"
+  pattern also replicates on accuracy.
+  Journal: 2026-07-31_experiment-refit-harness-8b.md
 - **[MAIN] L0 vs L1 single-point verification (2026-07-31): GO.**
   llama3.2-3b-instruct (dev-pass stand-in, see Open Questions), s=0.9, g=1,
   wikitext-2 PPL: L0 21.5859 -> L1 19.9510, ΔL1 = **−1.635 PPL (−7.6%)**,
