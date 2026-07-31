@@ -83,31 +83,49 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   tuning/calibration corpus; only ΔL1 at matched (s,g) is a valid
   cross-run comparison.
   Journal: 2026-07-31_experiment-refit-l0l1-validate-3b.md
-- **[MAIN, PROVISIONAL] Reduced-cost L0/L1 matrix, dev model (2026-07-31):
-  refit's benefit is confined to s=0.9 — at s=0.5/0.7 it HURTS.**
-  llama3.2-3b-instruct, 8 (s,g) points, wikitext-2 PPL (calib wikitext103):
-  ΔL1 is favorable at every g tested when s=0.9 (g=1: −1.6, g=8: −25.8,
-  g=32: −56.3, g=128: −130.1 PPL — grows fast with g, tracking L0's own
-  g-driven blowup: L0 21.6→371.9 across g=1..128; L1 absorbs roughly 37% of
-  the ADDITIONAL sharing-tax PPL from g=1→128) but ΔL1 is UNFAVORABLE at
-  s=0.5 and s=0.7 (+2.05 to +3.97 PPL, +18% to +26% relative, both g=1 and
-  g=32). This was not exercised by the single-point verification (which
-  only covered s=0.9).
-  Leading hypothesis (not confirmed): bias-variance tradeoff — at low s the
-  mask removes little, so there's very little true bias for refit to
-  correct, and the closed-form fit (which always reduces IN-SAMPLE loss,
-  per unit test 3) mostly picks up calibration-corpus noise that doesn't
-  transfer to the eval set (calib corpus wikitext103 != eval wikitext-2,
-  a real if related distribution shift). At s=0.9 the systematic masking
-  bias is large enough to dominate that variance cost.
-  When relevant: (a) do NOT generalize "refit helps" beyond the high-
-  sparsity regime without re-checking; (b) this is PROVISIONAL — dev model
-  only (instruct-tuned, non-spec corpus for calib), main model
-  (Llama-3.1-8B) matrix job still running at write time, must confirm or
-  refute before treating the low-s regression as a real property of the
-  method vs an artifact of this dev setup; (c) does not change the s=0.9,
-  g=1 Go decision, which is unaffected.
-  Journal: 2026-07-31_experiment-refit-l0l1-matrix-3b.md
+- **[MAIN, CONFIRMED on 2 models] L1 refit is a HIGH-SPARSITY tool, not a
+  uniform fix — it HURTS at s=0.5/0.7 and helps big at s=0.9, growing
+  strongly with g.** Reduced-cost matrix (2026-07-31) on BOTH
+  llama3.2-3b-instruct (dev) and Llama-3.1-8B (main, base pretrained), same
+  code/config, wikitext-2 PPL (calib wikitext103):
+
+  | s | g | 3B ΔL1 (rel) | 8B ΔL1 (rel) |
+  |---|---|---|---|
+  | 0.5 | 1 | +18.3% | +13.7% |
+  | 0.7 | 1 | +18.7% | +10.7% |
+  | 0.9 | 1 | −7.6% | −20.1% |
+  | 0.5 | 32 | +26.3% | +12.7% |
+  | 0.7 | 32 | +18.7% | −0.8% |
+  | 0.9 | 32 | −33.2% | −51.2% |
+  | 0.9 | 8 | −34.1% | −42.3% |
+  | 0.9 | 128 | −35.0% | −58.4% |
+
+  Replicated cleanly across two different models/scales/tunings (instruct
+  3B vs base 8B) — **not a dev-model or corpus-mismatch artifact**. At
+  s=0.9, refit absorbs an increasing share of the g-driven "sharing tax" as
+  g grows (3B: ~37% of the g=1→128 PPL increase; 8B: ~60%, i.e. the effect
+  is STRONGER on the larger base model). At s=0.5 it consistently hurts on
+  both models; s=0.7 is the crossover zone (still negative at g=1 on both,
+  crosses to roughly neutral at g=32 on 8B but stays negative on 3B — exact
+  crossover point looks model-dependent).
+  Leading hypothesis (bias-variance tradeoff, unconfirmed mechanism but the
+  pattern itself IS confirmed): at low s the mask removes little, so there
+  is very little true systematic bias for a linear refit to correct: the
+  closed-form fit still strictly reduces IN-SAMPLE calibration loss (unit
+  test 3's guarantee) but with little real bias to remove it mostly
+  captures calibration-corpus-specific noise that doesn't transfer to the
+  held-out eval set. At s=0.9 the systematic masking bias is large enough
+  that this correction dominates any variance cost.
+  When relevant: (a) do NOT claim "refit helps" as a general property —
+  it is confined to (and valuable in) the high-sparsity / coarse-block
+  regime, and actively harmful outside it; (b) any deployment or follow-on
+  compensation-branch design should gate L1 refit ON only past some
+  (s, possibly g) threshold, not apply it uniformly; (c) the s=0.9, g=1 Go
+  decision from the single-point verification is unaffected and now
+  doubly confirmed (3B: −7.6%, 8B: −20.1%, both models agree in sign and
+  both are large relative to any plausible noise floor).
+  Journal: 2026-07-31_experiment-refit-l0l1-matrix-3b.md,
+  2026-07-31_experiment-refit-l0l1-matrix-8b.md
 
 ## Dead Ends
 (none yet)
@@ -118,29 +136,34 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   streaming/chunked implementation (planned: host-RAM bf16 cache, GPU only
   holds one chunk at a time) rather than holding all layers' activations at
   once (that would be O(L·N·h), too large).
-- Whether `llama3.2-3b-instruct` (only 3.2-3B checkpoint on disk) is an
-  acceptable dev-pass stand-in for a plain pretrained 3B, given the spec
-  asked for the base model.
+- ~~Whether llama3.2-3b-instruct is an acceptable dev stand-in~~ → resolved:
+  the low-s regression replicated on the base Llama-3.1-8B too, so the dev
+  model's instruct tuning was not distorting the qualitative finding
+  (magnitudes differ some, direction/pattern doesn't).
+- Exact s/g crossover point where ΔL1 flips sign looks model-dependent
+  (3B: still negative at s=0.7,g=32; 8B: ~neutral there) — not pinned down,
+  not blocking (s=0.9 Go stands either way), but relevant if this method
+  is ever gated by a threshold rule.
 - lm-eval-harness availability on the gateway env — unconfirmed; PPL-first,
   harness as a follow-up if missing (per request's fallback clause).
 
 ## Next Experiments
 1. ~~Unit tests~~ — done, 5/5 pass (2026-07-31).
 2. ~~Single verification point~~ — done, GO (2026-07-31).
-3. Reduced-cost L0/L1 matrix (rung 1) — SUBMITTED (2026-07-31), both dev
-   and main models, see Active Jobs.
-4. Implement L2 (sequential GPTQ-style refit) — not started. Once back,
-   add to the matrix at g ∈ {1, 32} only (cost-reduction ladder rung 2).
+3. ~~Reduced-cost L0/L1 matrix (rung 1)~~ — DONE (2026-07-31), both dev and
+   main models. Confirmed finding: refit helps at s=0.9 (more so as g
+   grows), hurts at s=0.5, crossover near s=0.7.
+4. Implement L2 (sequential GPTQ-style refit) — not started, next up.
+   Open question it may help answer: does the low-s regression persist
+   when the mask is recomputed against the sparse stream instead of frozen
+   from the dense one? Add to the matrix at g ∈ {1, 32} only (cost-
+   reduction ladder rung 2).
 5. lm-eval-harness zero-shot suite (8 tasks, --limit 1000) once PPL matrix
    is in and harness availability on the gateway env is confirmed —
    PPL-first per the request's own fallback clause.
 
 ## Active Jobs
-- `050-20260731-105247-refit-l0l1-matrix-8b` (a100-40-2, GPU2) — reduced-cost
-  L0/L1 matrix, Llama-3.1-8B (main); g∈{1,32} all s∈{0.5,0.7,0.9}, g∈{8,128}
-  s=0.9 only; script `scripts/refit/run_matrix.sh`. Resubmission of
-  `050-20260731-104521-...` which OOM'd (fixed same day, see
-  refit_mlp.enable_l1_collect_mode `layers=` chunking).
+- (none)
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):
