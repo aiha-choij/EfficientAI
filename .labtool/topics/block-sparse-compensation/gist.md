@@ -62,9 +62,14 @@ and is directly motivated by two closed threads:
   compensation formula, not the selection criterion? Implemented as
   residual-score (see Key Findings) because that's what unit test 1
   requires; not confirmed with the spec author.
-- Phase 2 round 1's C2-vs-C7a PPL gap mixes two effects (score family +
-  sharing tax) — resolved by round 2's in-family anchor (C3 g=1), not yet
-  landed.
+- (resolved by round 2, new confound found) Phase 2 round 1's C2-vs-C7a
+  PPL gap mixed score family + sharing tax. Round 2 (in-family C3 g=1
+  anchor) fixed the score-family confound but surfaced a second one:
+  achieved sparsity is not matched across g even at the same p (g=1,p=0.9
+  → sparsity 0.506; g=16,p=0.9 → only 0.2375). A fair sharing-tax read
+  needs PPL compared at matched achieved sparsity (interpolated p-sweep
+  per g), not raw PPL at matched p. Round 3 (queued) brackets the target
+  sparsity region for interpolation.
 
 ## Dead Ends
 (none yet in this topic; see `coactivation-block-structure` gist for the
@@ -94,11 +99,14 @@ Phase 3's Go/Partial-go/No-go gate (spec §5) lands on Partial-go/No-go.
 ## Active Jobs
 - `block-comp-calib-3b` (050-20260731-164842): DONE.
 - Phase 2 round 1: DONE, all 4 jobs ok (see Key Findings + journal).
-- Phase 2 round 2 (queued 2026-07-31 ~18:0x): oracle C3 (residual score,
-  g=1, in-family anchor) at p∈{0.7,0.9}, C7a at (g=16,p=0.7) and
-  (g=64,p=0.7) — fills in the p=0.7 point and gives the proper in-family
-  anchor round 1 was missing. Names kept dot-free per the Dead End below
-  (`bc-c3-g1-p09`, `bc-c3-g1-p07`, `bc-c7a-g16-p07`, `bc-c7a-g64-p07`).
+- Phase 2 round 2: DONE (C3 g=1 p=0.9/0.7 anchors landed; C7a g=16/64
+  p=0.7 still running as of this update). Surfaced a second confound
+  (achieved sparsity not matched across g at fixed p) — see Open
+  Questions.
+- Phase 2 round 3 (queued): C3 g=1 at p=0.95/0.97
+  (`bc-c3-g1-p095`, `bc-c3-g1-p097`, 050-20260731-1757{27,31}) to bracket
+  the ~0.20-0.24 sparsity region C7a occupies at p=0.9, enabling a
+  matched-sparsity interpolated comparison next update.
 
 ## Dead Ends
 - **qsub job names must not contain `.` (2026-07-31)**: named the first

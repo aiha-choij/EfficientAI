@@ -109,6 +109,29 @@ with "larger token block = more sharing tax."
   consistent with the coactivation overlap measurement (C(1)=0.316 at
   s=0.9) per the Phase 2 completion gate. Round 2 queued for both.
 
+## Round 2 results (in-family anchor, oracle C3 g=1)
+| condition | g | p | achieved sparsity | PPL |
+|---|---|---|---|---|
+| C3 (residual score, in-family anchor) | 1 | 0.9 | 0.5064 | 11.0900 |
+| C3 (residual score, in-family anchor) | 1 | 0.7 | 0.7555 | 11.4875 |
+| C7a (block, residual score) | 16 | 0.9 | 0.2375 | 15.6911 |
+| C7a (block, residual score) | 64 | 0.9 | 0.2012 | 15.8210 |
+
+**New confound found, not yet resolved**: even within the SAME score
+family (residual), achieved sparsity is not matched across g at fixed p —
+g=1,p=0.9 gives sparsity 0.506, but g=16,p=0.9 gives only 0.2375 (larger
+blocks flatten the aggregated score across more diverse per-token peaks,
+so the same cumulative-mass fraction keeps more neurons). This means the
+naive PPL gap at matched p (11.09 vs 15.69) still mixes "sharing tax" with
+"different achieved sparsity," exactly the trap spec section 8 pitfall 5
+warns about ("달성 sparsity는 블록 단위 정의로 보고 — per-token 정의와 섞으면
+회수율이 왜곡"). A fair reading needs PPL compared at MATCHED achieved
+sparsity, which requires interpolating a p-sweep within each g to a common
+sparsity axis (essentially the spec's own critical-sparsity machinery).
+Queued 2 more C3 g=1 points (p=0.95, p=0.97) to bracket the ~0.20-0.24
+sparsity region C7a occupies at p=0.9, so the next update can interpolate
+a same-sparsity anchor value instead of comparing raw PPL at matched p.
+
 ## Notes
 Narrow first pass (4 jobs: 2 anchor p-points, 2 C7a (g,p) points) —
 queue-submission rule caps a single batch at 4. Round 2 will fill in
