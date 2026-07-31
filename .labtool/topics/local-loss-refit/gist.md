@@ -67,16 +67,28 @@ branch line (oracle-residual-sparsity) rather than refit alone.
   5.5210/5.7296/8.1083 (gateway) at s=0.5/0.7/0.9, wikitext-2.
 
 ## Key Findings
-- **[MAIN] s=0.9 Go CONFIRMED on the accuracy axis too (2026-07-31).**
-  Llama-3.1-8B, lm-eval-harness (7 tasks, piqa dropped -- see Open
-  Questions), s=0.9, g=1: L1 beats L0 on 5/7 tasks by acc (arc_easy +6.0%p,
-  boolq +12.5%p, winogrande +3.3%p, sciq +3.7%p, lambada_openai +4.0%p),
-  ties/slightly-worse on 2 (arc_challenge -1.2%p, hellaswag -0.5%p acc);
-  average Δacc = **+3.97%p**. Independently confirms the PPL-based finding
-  (ΔL1 -20.1% relative at this (s,g) on the same model) using the request
-  spec's own primary judgment metric. s=0.5 contrast in flight (job
-  050-20260731-155342/155351) to check whether the "hurts at low s"
-  pattern also replicates on accuracy.
+- **[MAIN, TOPIC-CLOSING] Both halves of the core question CONFIRMED with
+  two independent metrics (2026-07-31).** Llama-3.1-8B, lm-eval-harness
+  (7 tasks, piqa dropped -- see Open Questions), g=1:
+  - **s=0.9: Go, on both metrics.** PPL ΔL1 -20.1% relative; accuracy
+    L1 beats L0 on 5/7 tasks (arc_easy +6.0%p, boolq +12.5%p, winogrande
+    +3.3%p, sciq +3.7%p, lambada_openai +4.0%p; ties/slight-loss on
+    arc_challenge -1.2%p, hellaswag -0.5%p), **average Δacc +3.97%p** --
+    meets the request's own stated Go example ("accuracy +3%p") almost
+    exactly.
+  - **s=0.5: confirmed hurts, on both metrics.** PPL ΔL1 +13.7% relative;
+    accuracy L1 loses to L0 on 6/7 tasks, **average Δacc -1.19%p** (only
+    boolq improves, +1.6%p -- interesting that boolq is also the single
+    biggest s=0.9 winner, an asymmetry not investigated further).
+  This closes the loop the PPL-only matrix (3B+8B, 8 points each) couldn't
+  close alone: the request's PRIMARY judgment metric is accuracy, and it
+  now tells the same story as PPL on the main model. **The request's core
+  question is answered: refit alone recovers a real, large share of
+  masking's accuracy cost, but ONLY in the high-sparsity/coarse-block
+  regime -- it is not a universal fix and actively hurts outside that
+  regime.** No further harness runs are required to answer the stated
+  Go/No-go question; remaining extensions (full g-sweep on harness, a
+  true dense s=0 baseline for framing) are backlog, not blockers.
   Journal: 2026-07-31_experiment-refit-harness-8b.md
 - **[MAIN] L0 vs L1 single-point verification (2026-07-31): GO.**
   llama3.2-3b-instruct (dev-pass stand-in, see Open Questions), s=0.9, g=1,
@@ -203,20 +215,24 @@ branch line (oracle-residual-sparsity) rather than refit alone.
 4. ~~Implement + validate L2~~ — DONE (2026-07-31), unit-tested correct,
    CONFIRMED to lose to L0/L1 at s=0.9,g=1 (not a calibration artifact —
    see Dead Ends). Not extending to the broader matrix.
-5. lm-eval-harness zero-shot suite — SUBMITTED (2026-07-31), 4 jobs:
-   Llama-3.1-8B, L0 vs L1 x s∈{0.9 (confirmed-helps), 0.5 (confirmed-hurts)}
-   x g=1, 7 tasks (piqa dropped, see Open Questions), --limit 1000. Checks
-   whether the PPL-based finding (refit helps at s=0.9, hurts at s=0.5)
-   holds on the accuracy axis the request's own judgment criteria are
-   framed around.
+5. ~~lm-eval-harness zero-shot suite~~ — DONE (2026-07-31), 4 jobs:
+   Llama-3.1-8B, L0 vs L1 x s∈{0.9, 0.5} x g=1, 7 tasks (piqa dropped, see
+   Open Questions), --limit 1000. CONFIRMS the PPL-based finding on the
+   accuracy axis at both sparsity levels (s=0.9 Go +3.97%p avg; s=0.5
+   hurts -1.19%p avg). Request's core Go/No-go question answered on two
+   independent metrics.
+
+**Request's core experimental question is now answered** (see Key
+Findings, topic-closing entry). Backlog, not required for the request:
+full g-sweep on the harness (only g=1 tested for accuracy so far, PPL
+matrix covered g up to 128); a true dense (s=0) harness baseline for
+framing "how much does masking cost, how much does refit recover" in
+absolute terms; matching `piqa` (env-specific, low priority); L2 lambda/
+partial-sequential variants (flagged as ideas in its Dead-End card, not
+started).
 
 ## Active Jobs
-- `050-20260731-155329-refit-harness-l0-s09-8b`
-- `050-20260731-155334-refit-harness-l1-s09-8b`
-- `050-20260731-155342-refit-harness-l0-s05-8b`
-- `050-20260731-155351-refit-harness-l1-s05-8b`
-  All: Llama-3.1-8B, g=1, 7 tasks (arc_easy/arc_challenge/boolq/hellaswag/
-  winogrande/sciq/lambada_openai), --limit 1000, a100-40-2.
+- (none)
 
 ## Pointers
 - Request spec (self-contained, inlined the host wiki doc):

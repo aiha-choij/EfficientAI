@@ -1,6 +1,6 @@
 # Experiment: refit-harness-*-8b (lm-eval zero-shot, L0/L1 x s in {0.9,0.5})
 
-Status: IN PROGRESS (2026-07-31)
+Status: DONE, hypothesis CONFIRMED (2026-07-31)
 Date: 2026-07-31
 
 ## Hypothesis tested
@@ -57,14 +57,44 @@ HFLM's HF-Hub metadata lookup on an already-loaded model instance; "fatal:
 not a git repository" from lm_eval's own provenance logging) do not affect
 results, confirmed during the smoke tests and again here.
 
-### Results: s=0.5 (contrast)
-L0 s=0.5 and L1 s=0.5 still running -- awaiting both before computing/
-interpreting the s=0.5 delta. Do not assume it will mirror the PPL
-finding (+13.7% relative PPL, i.e. hurts) until both are in.
+### Results: s=0.5 (contrast, both conditions in)
+(artifacts: ~/workspace/runs/20260731-1553[42|51]-refit-harness-l[01]-s05-8b/log;
+result JSONs: ~/workspace/refit/Llama-3.1-8B/results/harness_l[01]_s0.5_g1.json)
 
-## Next
-- Await the s=0.5 pair, then finalize this card's Interpretation with the
-  full 2x2. If s=0.5 accuracy also degrades under L1 (matching PPL): the
-  request's core question is now answered on both PPL and accuracy, on
-  both models, and this topic's experimental phase can reasonably be
-  considered complete pending user review.
+| task | L0 acc | L1 acc | Δacc | L0 acc_norm | L1 acc_norm | Δacc_norm |
+|---|---|---|---|---|---|---|
+| arc_easy | 0.809 | 0.795 | -1.4%p | 0.795 | 0.771 | -2.4%p |
+| arc_challenge | 0.509 | 0.481 | -2.8%p | 0.527 | 0.500 | -2.7%p |
+| boolq | 0.804 | 0.820 | +1.6%p | — | — | — |
+| hellaswag | 0.518 | 0.491 | -2.7%p | 0.683 | 0.660 | -2.3%p |
+| winogrande | 0.728 | 0.717 | -1.1%p | — | — | — |
+| sciq | 0.962 | 0.960 | -0.2%p | 0.942 | 0.941 | -0.1%p |
+| lambada_openai | 0.759 | 0.742 | -1.7%p | (ppl 3.18 -> 3.24, also worse) | | |
+
+**L1 loses to L0 on 6/7 tasks at s=0.5**, average Δacc = **-1.19%p**
+(only boolq improves, +1.6%p -- the same task that showed the single
+biggest s=0.9 gain, +12.5%p, an interesting asymmetry not investigated
+further here). This CONFIRMS the PPL-based s=0.5 finding (+13.7% relative,
+hurts) on the accuracy axis too.
+
+## Interpretation
+**Both halves of the request's core question are now answered with two
+independent metrics, cross-validated:**
+- s=0.9, g=1: L1 clearly beats L0 on BOTH PPL (-20.1% relative) and
+  zero-shot accuracy (+3.97%p average, 5/7 tasks) -- **Go**, per the
+  request's own stated example threshold ("accuracy +3%p"), met almost
+  exactly on the nose.
+- s=0.5, g=1: L1 clearly loses to L0 on BOTH PPL (+13.7% relative) and
+  zero-shot accuracy (-1.19%p average, 6/7 tasks) -- confirms refit is not
+  a universal fix, consistent with the bias-variance framing from the PPL
+  matrix cards (little true bias to correct at low s -> the fit mostly
+  captures calibration noise that doesn't transfer).
+
+This closes the loop the PPL-only matrix results (3B + 8B, 8 (s,g) points
+each) could not close alone: the request spec's PRIMARY judgment metric is
+accuracy, with PPL as a secondary/continuous signal, and both metrics now
+tell the same story on the main model. No further harness runs are
+strictly required to answer the request's stated Go/No-go question --
+remaining extensions (full g-sweep on the harness, a true dense s=0
+baseline for framing, matching piqa via a different lm_eval version) are
+backlog items, not blockers.
