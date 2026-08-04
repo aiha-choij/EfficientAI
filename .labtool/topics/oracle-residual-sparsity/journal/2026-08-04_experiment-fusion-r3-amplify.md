@@ -128,3 +128,18 @@ Round 2's fusion gain was dominated by the W_d refit (joint B-refit added
     of the gate-estimate value.
 
 ### Interpretation
+(user-confirmed 2026-08-04, plain-language form) Adding token-wise
+estimated-tail features to the refit (r4) reached 5.946 — below the
+MEASURED ceiling of any linear compensation (6.150) — but only in the
+high-sparsity regime (s=0.9; neutral at 0.7). In the fair compute-matched
+rematch (refit applied to BOTH sides), the compensation family and the
+plain-mask family are now TIED (6.195 vs 6.183); the old "plain mask
+strictly dominates" verdict softens to parity, not a reversal. r4's win
+holds only under an externally pinned sparsity (s=0.9) — which is this
+research line's actual target setting — and its measured compute (~0.80
+of dense FFN, after the W_tail accounting correction) makes sketch-rank
+reduction mandatory, not optional. Next: (1) shrink the token-wise
+estimate's rank r_sk (d/8 -> d/16, d/32) incl. a truncated-tail-output
+deployable form; (2) port the validated refit+sketch-tail combination to
+the token-block-shared mask setting (g=16), where the sharing tax is
+larger and so is the headroom.
