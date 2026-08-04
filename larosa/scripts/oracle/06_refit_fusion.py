@@ -403,26 +403,33 @@ def main():
         sp_log = []
         for li, layer in enumerate(layers):
             mlp = layer.mlp
-            Wg, Wu, Wd = layer_tensors(mlp)
             gb = g_bars[li]
             A, B, Rres, _ = [t.to(dev) for t in ctx["slr"][li]]
-            cn = Wd.pow(2).sum(0).sqrt()
+            # col norms without keeping an fp32 W_d copy resident
+            cn = mlp.down_proj.weight.detach().float().pow(2).sum(0).sqrt()
             K = int(round((1 - s) * d))
+            # gate/up projections reuse the module's own bf16 weights at
+            # eval time (round-3 OOM fix: fp32 clones held by 32 closures
+            # cost 11.5GB; bf16 module matmul matches deployed numerics)
+            def proj_g(x, mlp=mlp):
+                return act(mlp.gate_proj(x.to(mlp.gate_proj.weight.dtype)).float())
+            def proj_u(x, mlp=mlp):
+                return mlp.up_proj(x.to(mlp.up_proj.weight.dtype)).float()
 
             if arm == "r5":
                 (W5,) = [t.to(dev) for t in solved[("r5", li, s, lam)]]
 
-                def body(x, Wg=Wg, Wu=Wu, W5=W5, K=K):
-                    i_full = (x @ Wu.T) * act(x @ Wg.T)
+                def body(x, pg=proj_g, pu=proj_u, W5=W5, K=K):
+                    i_full = pu(x) * pg(x)
                     m = topk_mask(i_full.abs(), K)
                     return (i_full * m) @ W5.T, 1.0 - m.float().mean().item()
             elif arm in ("r3full", "r3trunc"):
                 Wd3, T, A3, B3, R3 = [t.to(dev) for t in solved[("r3", li, s, lam)]]
 
-                def body(x, Wg=Wg, Wu=Wu, gb=gb, cn=cn, K=K, Wd3=Wd3, T=T,
+                def body(x, pg=proj_g, pu=proj_u, gb=gb, cn=cn, K=K, Wd3=Wd3, T=T,
                          A3=A3, B3=B3, R3=R3, full=(arm == "r3full")):
-                    g_ = act(x @ Wg.T)
-                    r_ = (x @ Wu.T) * (g_ - gb)
+                    g_ = pg(x)
+                    r_ = pu(x) * (g_ - gb)
                     m = topk_mask(r_.abs() * cn, K)
                     base = (r_ * m) @ Wd3.T
                     comp = x @ T.T if full else \
@@ -436,10 +443,10 @@ def main():
                     Wdu, Bu_, Wtail = [t.to(dev) for t in solved[("r4", li, s, lam)]]
                     Ag, Bg, Au, Buu = [t.to(dev) for t in ctx["sk"][li]]
 
-                def body(x, Wg=Wg, Wu=Wu, gb=gb, cn=cn, K=K, A=A, Rres=Rres,
+                def body(x, pg=proj_g, pu=proj_u, gb=gb, cn=cn, K=K, A=A, Rres=Rres,
                          Wdu=Wdu, Bu_=Bu_, Wtail=Wtail, Ag=Ag, Bg=Bg, Au=Au, Buu=Buu):
-                    g_ = act(x @ Wg.T)
-                    r_ = (x @ Wu.T) * (g_ - gb)
+                    g_ = pg(x)
+                    r_ = pu(x) * (g_ - gb)
                     m = topk_mask(r_.abs() * cn, K)
                     y = (r_ * m) @ Wdu.T + (x @ A.T) @ Bu_.T + sparse_comp(x, Rres, args.input_k)
                     if Wtail is not None:
