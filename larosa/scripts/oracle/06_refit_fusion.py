@@ -311,6 +311,38 @@ def selftest():
     mb = block_topk_mask(sc, 5, 8)
     assert (mb.view(8, 8, 16)[:, 0:1] == mb.view(8, 8, 16)).all(), "block uniformity"
     assert (mb.sum(-1) == 5).all(), "K kept per token under block sharing"
+    # 7) ALS low-rank tail: in-sample loss <= post-hoc truncation's
+    rt = 2
+    ThA_full = solve_anchored(GA, CtA, torch.cat([Wd, B, Wd], -1), 0.01)
+    Wt_full = ThA_full[:, d + r:]
+    At0, Bt0 = svd_lr(Wt_full, rt)
+
+    def insample(W1_, B1_, Wt_):
+        Thc = torch.cat([W1_, B1_, Wt_], -1)
+        return (torch.einsum("ij,jk,ik->", Thc, GA, Thc)
+                - 2 * torch.einsum("ij,ij->", Thc, CtA)).item()
+
+    base = insample(ThA_full[:, :d], ThA_full[:, d:d + r], Bt0 @ At0)
+    i1, i2, i3 = slice(0, d), slice(d, d + r), slice(d + r, None)
+    Ad0s, Bd0s = svd_lr(Wd, rt)
+    W1s, B1s, Ats, Bts = ThA_full[:, :d], ThA_full[:, d:d + r], At0, Bt0
+    for _ in range(4):
+        AtT = Ats.T
+        Gr = torch.cat([
+            torch.cat([GA[i1, i1], GA[i1, i2], GA[i1, i3] @ AtT], 1),
+            torch.cat([GA[i2, i1], GA[i2, i2], GA[i2, i3] @ AtT], 1),
+            torch.cat([Ats @ GA[i3, i1], Ats @ GA[i3, i2],
+                       Ats @ GA[i3, i3] @ AtT], 1)], 0)
+        Ctr = torch.cat([CtA[:, i1], CtA[:, i2], CtA[:, i3] @ AtT], 1)
+        Thr = solve_anchored(Gr, Ctr, torch.cat([Wd, B, Bd0s], -1), 0.01)
+        W1s, B1s, Bts = Thr[:, :d], Thr[:, d:d + r], Thr[:, d + r:]
+        Ce = CtA[:, i3] - W1s @ GA[i1, i3] - B1s @ GA[i2, i3]
+        P = Bts.T @ Bts + 1e-6 * torch.eye(rt)
+        Dp = GA[i3, i3].diagonal().mean()
+        reg = GA[i3, i3] + 0.01 * Dp * torch.eye(d)
+        Ats = torch.linalg.solve(P, torch.linalg.solve(reg, (Bts.T @ Ce + 0.01 * Dp * (P @ Ad0s)).T).T)
+    final = insample(W1s, B1s, Bts @ Ats)
+    assert final <= base + 1e-4 * abs(base), f"ALS must not lose to post-hoc trunc ({final:.4f} vs {base:.4f})"
     print("selftest OK")
 
 
@@ -322,6 +354,8 @@ def main():
     ap.add_argument("--rank", type=int, default=256)
     ap.add_argument("--input_k", type=int, default=1536)
     ap.add_argument("--r_sk", default="0", help="comma list of sketch ranks for r4 (0 -> d//8)")
+    ap.add_argument("--als_iters", type=int, default=3,
+                    help="alternating-least-squares rounds for r4lr")
     ap.add_argument("--group_size", type=int, default=1,
                     help="token-block mask sharing g (1 = per-token)")
     ap.add_argument("--s_list", default="0.7,0.9")
@@ -346,7 +380,7 @@ def main():
     lambdas = [float(v) for v in args.lambdas.split(",")]
     arms = args.arms.split(",")
     fams = set()
-    if {"r2", "r4", "r4trunc"} & set(arms):
+    if {"r2", "r4", "r4trunc", "r4lr"} & set(arms):
         fams.add("A")
     if {"r3full", "r3trunc"} & set(arms):
         fams.add("B")
@@ -402,6 +436,43 @@ def main():
                     At, Bt = svd_lr(Wtail, rsk)   # deployable truncated tail output
                     solved[("r4trunc", li, s, lam, rsk)] = tuple(
                         t.cpu() for t in (Th[:, :d], Th[:, d:d + args.rank], At, Bt))
+                    # r4lr: learn the tail map low-rank FROM THE START by
+                    # alternating least squares on the factored form
+                    # Bt·At (r_t = rsk), reusing the SAME famA Gram blocks.
+                    # Warm start = the post-hoc truncation above; anchor of
+                    # the composite tail map = best rank-r_t approx of W_d
+                    # (the "exact-estimate => W_d" logic of r4's anchor).
+                    rk = args.rank
+                    i1, i2, i3 = slice(0, d), slice(d, d + rk), slice(d + rk, None)
+                    Ad0, Bd0 = svd_lr(Wd, rsk)
+                    W1, B1 = Th[:, :d].clone(), Th[:, d:d + rk].clone()
+                    At_l, Bt_l = At.clone(), Bt.clone()
+                    Dpsi = G[i3, i3].diagonal().mean()
+                    for _als in range(args.als_iters):
+                        # (i) fix At: reduced features [m*r; Ax; At psi]
+                        AtT = At_l.T
+                        Gr = torch.cat([
+                            torch.cat([G[i1, i1], G[i1, i2], G[i1, i3] @ AtT], 1),
+                            torch.cat([G[i2, i1], G[i2, i2], G[i2, i3] @ AtT], 1),
+                            torch.cat([At_l @ G[i3, i1], At_l @ G[i3, i2],
+                                       At_l @ G[i3, i3] @ AtT], 1)], 0)
+                        Ctr = torch.cat([Ct[:, i1], Ct[:, i2], Ct[:, i3] @ AtT], 1)
+                        Thr = solve_anchored(Gr, Ctr,
+                                             torch.cat([Wd, B, Bd0], -1), lam)
+                        W1, B1 = Thr[:, :d], Thr[:, d:d + rk]
+                        Bt_l = Thr[:, d + rk:]
+                        # (ii) fix (W1,B1,Bt): closed-form At
+                        Ce = Ct[:, i3] - W1 @ G[i1, i3] - B1 @ G[i2, i3]
+                        P = Bt_l.T @ Bt_l
+                        P = P + (1e-6 * P.diagonal().mean()) * torch.eye(
+                            P.shape[0], device=P.device)
+                        reg = G[i3, i3] + lam * Dpsi * torch.eye(
+                            d, device=G.device)
+                        rhs = Bt_l.T @ Ce + lam * Dpsi * (P @ Ad0)
+                        At_l = torch.linalg.solve(P, torch.linalg.solve(
+                            reg, rhs.T).T)
+                    solved[("r4lr", li, s, lam, rsk)] = tuple(
+                        t.cpu() for t in (W1, B1, At_l, Bt_l))
                     if rsk == rsks[0]:
                         sub = sub_solve(G, Ct, d + args.rank, torch.cat([Wd, B], -1), lam)
                         solved[("r2", li, s, lam, 0)] = (sub[:, :d].cpu(), sub[:, d:].cpu())
@@ -488,8 +559,8 @@ def main():
                 elif arm == "r4":
                     Wdu, Bu_, Wtail = [t.to(dev) for t in solved[("r4", li, s, lam, rsk)]]
                     Ag, Bg, Au, Buu = [t.to(dev) for t in ctx["sk"][(li, rsk)]]
-                else:               # r4trunc: low-rank tail output (deploy cost)
-                    Wdu, Bu_, At_, Bt_ = [t.to(dev) for t in solved[("r4trunc", li, s, lam, rsk)]]
+                else:               # r4trunc / r4lr: low-rank tail output
+                    Wdu, Bu_, At_, Bt_ = [t.to(dev) for t in solved[(arm, li, s, lam, rsk)]]
                     Wtail = None
                     Ag, Bg, Au, Buu = [t.to(dev) for t in ctx["sk"][(li, rsk)]]
 
@@ -513,7 +584,7 @@ def main():
 
     for arm in arms:
         ss = r5_s if arm == "r5" else s_list
-        arm_rsks = rsks if arm in ("r4", "r4trunc") else [0]
+        arm_rsks = rsks if arm in ("r4", "r4trunc", "r4lr") else [0]
         for s in ss:
             for lam in lambdas:
                 for rsk in arm_rsks:
