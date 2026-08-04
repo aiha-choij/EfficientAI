@@ -98,4 +98,30 @@ Round 2's fusion gain was dominated by the W_d refit (joint B-refit added
   requires signals nonlinear in x — exactly what r4's token-wise gate
   sketch features test next.
 
+- **Round B (050-20260804-190813, r4/r5): STATUS=ok.** Source:
+  a100-40-2:~/workspace/fusion/llama2-7b-r4r5/fusion3_results.json.
+  bf16-projection eval path (~1e-3 protocol shift vs rounds above).
+
+  | arm | s | PPL | note |
+  |---|---|---|---|
+  | r4 (sketch-tail features, r_sk=1376=d/8) | 0.7 | 5.6803 | vs R2 5.6495: +0.031 (neutral-to-slightly-worse) |
+  | r4 | 0.9 | **5.9458** | vs R2 6.1954 (-4.0%); **breaks the linear-in-x ceiling 6.1501** |
+  | r5 (refit-TIS control, plain-mask+refit) | 0.85 | 6.1830 | vs unrefit TIS@0.85 6.7088 (-7.8%) |
+  | r5 | 0.90 | 6.6832 | vs unrefit TIS@0.9 8.11 (-17.6%); beats unrefit SLR 6.78 at 60% of its compute |
+
+  - r4 @ s=0.9 closes ~33% of the remaining log-PPL gap to dense (5.4735):
+    0.124 -> 0.083 nats. Token-wise gate-sketch signal IS valuable inside
+    the closed form — but only in the high-sparsity regime (s=0.7 neutral),
+    repeating the house pattern.
+  - Frontier accounting (FFN-compute fractions: TIS@0.85 = 0.15; SLR-path
+    r2@0.9 ~ 0.162; r4 adds the sketch path 2*r_sk*(h+d)/(3hd) = +0.307 ->
+    ~0.47): (a) at SLR-level compute the fair contest is a TIE — r5@0.85
+    6.1830 vs r2@0.9 6.1954; refit lifts both sides almost equally, E-W0's
+    "TIS strictly dominates" softens to parity. (b) r4's PPL win is NOT a
+    FLOP-frontier win: at matched ~0.47 compute, refit-TIS at s~0.5 (~5.5)
+    would dominate. r4's claim is the PINNED-SPARSITY one: best deployable
+    form at s=0.9 measured to date. (c) obvious next knob: r_sk=d/32 (=344,
+    +7.7% compute) — block-comp's C8a suggests small sketches retain most
+    of the gate-estimate value.
+
 ### Interpretation
