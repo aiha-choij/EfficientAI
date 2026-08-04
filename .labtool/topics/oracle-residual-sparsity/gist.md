@@ -10,8 +10,12 @@ journal/2026-08-04_reopen-refit-fusion.md (R0/R1/R2 ladder; thresholds
 6.9417 SLR / 6.7088 TIS@0.85 / 6.6381 exact C3).
 
 ## Active Jobs (reopen)
-- `050-20260804-121113-fusion-mgr-refit-llama2` (a100-40-2, PENDING) --
-  MGR x refit fusion ladder, card: journal/2026-08-04_reopen-refit-fusion.md
+- `050-20260804-165432-fusion-r3-llama2` (a100-40-2, PENDING) — round 3
+  amplification: r3 regression-first / r4 refit x C8 sketch-tail /
+  r5 refit-TIS frontier control. Card:
+  journal/2026-08-04_experiment-fusion-r3-amplify.md
+- (done) 050-20260804-130635 round 2 — R2 6.1954 @ s=0.9, all thresholds
+  passed; card: journal/2026-08-04_reopen-refit-fusion.md
 
 ## Authoritative spec
 `spec.md` in this topic (preserved verbatim, 2026-07-22). This gist is the
