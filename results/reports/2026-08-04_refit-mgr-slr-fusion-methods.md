@@ -428,6 +428,113 @@ compute-matched terms the compensation family and the plain-mask family
 are at parity, and the fusion's clear win is under *pinned* sparsity
 (s = 0.9), which is this research line's target regime.
 
+### 5.5 The amplification arms: r3full, r3trunc, r4
+
+All three arms are instances of one recipe. Any output of the form
+"(unknown matrices) x (computable vectors) + (fixed vector)" can be
+folded, by the block-matrix identity
+
+$$
+A_1 v_1 + A_2 v_2 \;=\; [\, A_1 \,|\, A_2 \,]
+\begin{bmatrix} v_1 \\ v_2 \end{bmatrix},
+$$
+
+into a SINGLE matrix times a SINGLE stacked feature vector, after which
+the anchored closed form of §2.2 applies verbatim. The arms differ only
+in which computable vectors enter the stack.
+
+**r3full — the ceiling of linear compensation.** In R2 the compensation
+is B(Ax) = (BA)x: a fixed h×h map of rank at most 256, constrained
+further by the frozen SVD basis A. Remove both constraints by letting an
+unconstrained T ∈ R^{h×h} play the compensation role:
+
+$$
+\hat{y} = \widetilde{W}_d (m \odot r) + \widetilde{T} x,
+\qquad
+\varphi = \begin{bmatrix} m \odot r \\ x \end{bmatrix},\;
+\Theta = [\, \widetilde{W}_d \,|\, \widetilde{T} \,],\;
+\Theta_0 = [\, W_d^0 \,|\, M \,].
+$$
+
+Every deployable linear structure (low-rank, sparse, or both) is a
+special case of some fixed T, so the optimally fit T̃ upper-bounds what
+any compensation of the form "fixed matrix times x" can achieve.
+Measured: 6.150 at s = 0.9 — only 0.045 below R2, so linear-in-x
+compensation is essentially exhausted. (T costs h² per token:
+diagnostic only.)
+
+**r3trunc — projecting T̃ onto the deployment budget.** Split the
+learned T̃ by truncated SVD, T̃ = B₃A₃ + R₃ with rank(B₃A₃) = 256, and
+deploy exactly like SLR:
+ŷ = W̃_d(m⊙r) + B₃(A₃x) + R₃(m_x⊙x). Same runtime cost as SLR.
+Measured 6.206 ≈ R2: the small regression-first gain does not survive
+the rank-plus-sparse budget, completing the refutation of "the frozen
+SVD basis was the bottleneck".
+
+**r4 — injecting a nonlinear, token-wise signal.** The error left by
+any linear compensation is dominated by the dropped neurons' actual
+contribution W_d((1−m)⊙u⊙g), which is nonlinear in x through
+g = σ(W_g x). r4 therefore *estimates* this quantity cheaply and adds
+the estimate as a third feature block. Offline, sketch the weights by
+truncated SVD, W_g ≈ B_g A_g and W_u ≈ B_u A_u (rank r_sk); per token,
+
+$$
+\hat{g} = \sigma\big(B_g (A_g x)\big), \quad
+\hat{u} = B_u (A_u x), \quad
+\psi(x) = (1-m) \odot (\hat{g} \odot \hat{u}) \in \mathbb{R}^{d},
+$$
+
+$$
+\varphi = \begin{bmatrix} m \odot r \\ A x \\ \psi(x) \end{bmatrix},\;
+\Theta = [\, \widetilde{W}_d \,|\, \widetilde{B} \,|\, \widetilde{W}_{tail} \,],\;
+\Theta_0 = [\, W_d^0 \,|\, B^0 \,|\, W_d^0 \,].
+$$
+
+W_tail is anchored at W_d⁰ because, were the estimate exact
+(ψ = (1−m)⊙i), the correct output map would be exactly W_d. The
+regression learns, direction by direction, how far to trust the sketch.
+ψ is the only nonlinear-in-x entry in φ — which is why r4 alone can
+pass the r3full ceiling.
+
+### 5.6 Rank sweep and the token-block port (round-4 results)
+
+**Sketch-rank sweep (per-token masks, s = 0.9).** References:
+r4 at r_sk = d/8 is 5.946; R2 = 6.195; linear ceiling = 6.150.
+
+| arm | r_sk = 344 (d/32) | r_sk = 688 (d/16) | r_sk = 1376 (d/8) |
+|---|---|---|---|
+| r4 (full learned tail map) | 6.168 | 6.099 | 5.946 |
+| r4trunc (tail map SVD-truncated to r_sk) | 6.532 | 6.434 | — |
+
+Quality degrades gracefully with rank (still under the linear ceiling
+at d/16), but post-hoc truncation of the LEARNED tail map destroys most
+of the gain: the nonlinear benefit does not concentrate in a low-rank
+subspace that SVD can find after the fact. The deployable form must be
+learned low-rank from the start (next experiment).
+
+**Token-block port (g = 16 consecutive tokens share one mask,
+s = 0.9 — the kernel-efficiency target regime).** Recovery = share of
+the log-PPL gap between the mask-only control and the per-token r4
+anchor (5.946) that the arm closes.
+
+| arm | PPL | recovery |
+|---|---|---|
+| block mask only (control) | 84.47 | 0% |
+| plain-magnitude mask + refit | 14.44 | 67% |
+| SLR compensation, no refit | 11.55 | 75% |
+| SLR + refit | 11.40 | 76% |
+| + token-wise sketch features, truncated map | 7.238 | 93% |
+| **+ token-wise sketch features, full map (r4)** | **6.266** | **98%** |
+
+Two findings. First, in the block regime refit alone is nearly inert
+(−1.3%, vs −8.6% per-token): static linear repair saturates near 75%
+recovery. Second, the token-wise sketch features are decisive
+(11.40 → 6.266): with them, 16-token-shared masks land within +5.4%
+PPL of the per-token anchor. This confirms, at the fusion level, the
+line's central hypothesis — the sharing tax IS token-idiosyncratic
+gate information, and only a per-token (nonlinear) estimate restores
+it. The open problem is the deployable form of the tail map.
+
 **Where the remaining headroom is.** A follow-up arm that solves the
 most general *linear* compensation (a full h×h map T by the same
 template) measures the ceiling of any linear-in-x method at 6.150 —
