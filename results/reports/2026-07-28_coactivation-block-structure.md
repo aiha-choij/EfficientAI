@@ -158,6 +158,24 @@ When a group of g tokens shares a mask, the most permissive choice is the **unio
 1. **Naive union sharing is not viable.** At g = 64, layers 0–24 reach 92–95 % of the saturation bound: the union mask is nearly dense, so the sparse computation would save almost nothing. Even at the small group size g = 16 the budget inflates six-fold. Consequently, any surviving design must impose a **fixed budget** and select *within* it (top-m selection), rather than activating everything the group touches. This observation dictated the design of P3.
 2. **Layer 31 is an outlier** (U(64) = 6.62 vs. 9.1–9.4 elsewhere), consistent with the prior finding that only this layer exhibits concentrated neuron usage (Gini coefficient 0.705). This accumulates evidence for layer-wise strategies (e.g., a fixed neuron set for the last layer).
 
+### 4.6 Qualitative view: how differently do neighbouring tokens select?
+
+Union inflation is an aggregate. To make the underlying phenomenon directly visible — and to show how it worsens with sparsity — we additionally dumped the raw survival pattern `sel[t, j]` for the first 256 tokens of one WikiText-2 sequence at s = 0.5, 0.7 and 0.9 (job `20260804-224920-coact-selection-slice`, 1 min; layers 0, 16 and 31 recorded, layer 16 shown here as a representative middle layer).
+
+![Figure 5](figs/fig5_selection_raster.png)
+
+**How to read Figure 5.** Each panel is one sparsity level. Rows are 24 consecutive tokens (top to bottom, in reading order); columns are a window of 320 consecutive neuron indices — the window is arbitrary, since neuron order carries no meaning (Section 1.2). A cell is coloured when that token selected that neuron: **blue** if the *previous* token also selected it, **orange** if the token selected it anew. Pale cells are unselected. The panel headings give the fraction of each token's selection that is inherited from its neighbour versus newly chosen. Reading left to right, the colour balance inverts: at s = 0.5 a majority of each token's selection is shared with its predecessor (blue-dominated), whereas at s = 0.9 most of it is new (orange-dominated), even though the neurons are physically adjacent in the same window. In other words, tokens that are next to each other in the text largely disagree about which neurons matter, and they disagree more as the budget shrinks.
+
+![Figure 6](figs/fig6_overlap_matrix.png)
+
+**How to read Figure 6.** Each panel shows a 48 × 48 matrix over 48 consecutive tokens; both axes are token position, and cell (t, t′) is the overlap between the two tokens' selected-neuron sets, i.e. the number of neurons chosen by both divided by K. Darker means more agreement, and the colour scale (0 to 1) is shared across the three panels, so they can be compared directly; the diagonal is 1 by construction. Two observations follow. First, the matrix fades uniformly as sparsity increases: mean pairwise overlap drops from 0.53 (s = 0.5) to 0.36 (s = 0.7) to 0.19 (s = 0.9). Second, there is no pronounced dark band along the diagonal — adjacent tokens (0.57 / 0.42 / 0.29) are only modestly above the all-pairs average, which is precisely why grouping *consecutive* tokens buys so little.
+
+Both effects are quantified in Figure 7, which uses the full 32-layer measurement from the preceding overlap study.
+
+![Figure 7](figs/fig7_overlap_vs_sparsity.png)
+
+**How to read Figure 7.** The x-axis is the sparsity level; the y-axis is the mean overlap between two tokens' selected-neuron sets, as a fraction of the budget K. The four solid lines correspond to token pairs at increasing separation — adjacent, 16 apart (the span of a g = 16 group), 64 apart (a g = 64 group), and randomly paired within the sequence. The red dashed line is the chance level K/d expected if the two selections were statistically independent. Adjacent tokens keep a visible margin above chance at every sparsity (0.57 vs. 0.50, 0.43 vs. 0.30, 0.32 vs. 0.10 — a *relative* advantage that in fact grows with s, reaching 3.2× chance), yet in *absolute* terms the agreement falls steadily, and the lines for distances 16 and 64 lie almost on top of the random-pair line. The practical consequence is that the tokens a group-shared mask must serve are, in absolute terms, most dissimilar exactly where sparsity is most valuable.
+
 ---
 
 ## 5. Experiment P2 — Clustering and Structural Evaluation
@@ -170,16 +188,41 @@ P2 is a cheap screening gate before the expensive perplexity experiment. The que
 
 > **Pre-registered rule.** If clustered blocks fail to exceed random balanced partitions by at least **1.3×** on the structural metrics, the permutation axis is rejected outright and P3 is not run.
 
-### 5.2 Method
+### 5.2 Method: from co-activation counts to a neuron ordering
+
+The clustering pipeline turns the two raw count arrays produced by P1 into a single integer vector that assigns every neuron to a block. It consists of five steps, each of which is described below with its motivation. Implementation: `analyze_coactivation_blocks.py` (P2) and `p3_collect_cluster_all.py` (P3 preparation); both use the same routine.
+
+**Step 1 — Counts to probabilities.** P1 stores `freq[j]`, the number of tokens for which neuron j survived, and `A[j, j′]`, the number of tokens for which neurons j and j′ *both* survived, over 65,536 tokens. Dividing by the token count gives the selection probability `f_j` (approximately 0.1 at s = 0.9) and the joint probability `A(j, j′)`.
+
+**Step 2 — Chance correction (PPMI).** If two neurons were statistically independent, their joint probability would be `f_j · f_j′ ≈ 0.01`. An observed joint probability of, say, 0.03 is therefore three times the chance level, and receives a score of log 3 ≈ 1.1. Applying this to all pairs gives the association matrix
 
 ```
-A, f  →  PPMI(j, j′) = max(0, log[ A(j,j′) / (f_j · f_j′) ])     (chance-corrected association)
-      →  normalized similarity  D^(−1/2) · PPMI · D^(−1/2)
-      →  spectral embedding (top-64 eigenvectors, row-normalized)
-      →  balanced k-means  (every block exactly B neurons; B ∈ {64, 128, 256})
+W(j, j′) = max( 0,  log[ A(j, j′) / (f_j · f_j′) ] ),     W(j, j) = 0,
 ```
 
-Each clustered partition is compared against three random balanced partitions (different seeds).
+an 11,008 × 11,008 matrix in which large entries mark genuinely associated pairs rather than merely popular ones. The diagonal is zeroed because a neuron's association with itself carries no grouping information.
+
+**Step 3 — Degree normalisation.** We form `W_n = D^(−1/2) · W · D^(−1/2)`, where D is the diagonal matrix of row sums of W. Without this step, "hub" neurons with large total association mass dominate every cluster; the normalisation is the standard preprocessing of spectral clustering and equalises each neuron's influence.
+
+**Step 4 — Spectral embedding: from a similarity table to coordinates.** Clustering algorithms such as k-means operate on points with coordinates, whereas we have only a table of pairwise scores — analogous to being given a table of pairwise affinities between cities and being asked to draw a map on which affine cities lie close together. Computing the eigendecomposition of `W_n` and retaining the eigenvectors of the 64 largest eigenvalues assigns to each neuron a 64-dimensional coordinate vector with exactly this property; each row is then normalised to unit length, so that subsequent distance comparisons are equivalent to cosine similarity. The truncation to 64 dimensions retains the dominant structure of the 11,008-dimensional similarity table while discarding noise.
+
+**Step 5 — Capacity-constrained (balanced) k-means.** Ordinary k-means would produce clusters of widely varying size, which defeats the hardware-efficiency purpose of blocking. We therefore impose a capacity constraint of exactly B neurons per block. Each of 25 iterations performs:
+
+```
+distances = cdist(X, centroids)                    # every neuron to every block centre
+order     = argsort(min-distance per neuron)       # most confidently assigned neurons first
+for each neuron in order:
+    assign it to its nearest centroid that still has free capacity
+centroids = mean of the neurons assigned to each block
+```
+
+The greedy pass resembles a capacity-limited admission process: neurons are considered in order of confidence, each takes the best block still having a vacancy, and blocks close once they hold B members. Iteration stops early if the assignment is unchanged.
+
+**Output.** A single vector `assign` of length 11,008, mapping each neuron to a block index in {0, …, d/B − 1}; one such vector per layer and per block size. Note that the model weights are never physically reordered: representing blocks as *index sets* is mathematically equivalent to permuting the weights and taking contiguous blocks (Section 1.2), and is simpler to implement. A production kernel would apply the physical permutation once, offline, to realise the memory-locality benefit; the accuracy measurements reported here are unaffected by that choice.
+
+Each clustered partition is compared against random balanced partitions — three seeds in P2, one in the P3 preparation — obtained by cutting a uniformly random permutation into equal blocks.
+
+**Why clustering was run twice.** P2 clusters the five sampled layers for B ∈ {64, 128, 256} with three random controls, which suffices for structural metrics. P3 requires a partition for *every* layer, because perplexity is measured with all 32 layers masked simultaneously; its preparation job therefore re-runs the identical algorithm over all 32 layers for B ∈ {64, 256} with one random control. The algorithm is unchanged; only its scope differs.
 
 ### 5.3 Metrics
 
@@ -245,6 +288,25 @@ keep the m = round(K/B) highest-scoring blocks;  every token in the group uses o
 ```
 
 The weight factor ‖W_down[:, j]‖₂ makes the score *gauge-invariant*: because `i = u ⊙ g` allows per-neuron rescaling to be shifted into the columns of `W_down`, the bare magnitude |i_j| is ambiguous, whereas ‖W_down[:, j]‖·|i_j| measures the neuron's actual contribution to the layer output. (This score definition is shared with the parallel oracle-compensation research thread.)
+
+**Implementation.** The rule is applied by replacing `LlamaMLP.forward` (`p3_block_ppl.py`), so that a single loaded model can serve every arm: switching arms only rewrites per-layer attributes (mode, block-membership matrix, m, g). Three quantities are precomputed once per layer: the column norms `‖W_down[:, j]‖₂` (a vector of length d), the block-membership matrix M of shape [d, d/B] holding a one-hot row per neuron, and m. Table 4 traces one forward pass.
+
+**Table 4 — Data flow of one masked forward pass** (one sequence of T = 2,048 tokens, g = 16, B = 64, m = 17, so d/B = 172 blocks).
+
+| Step | Operation | Result shape | Meaning |
+|---|---|---|---|
+| 1 | `i = SiLU(W_gate x) ⊙ (W_up x)` | [2048, 11008] | intermediate activations, computed densely (this experiment measures accuracy, not speed) |
+| 2 | `score = |i| · ‖W_down[:, j]‖` | [2048, 11008] | per-neuron output contribution |
+| 3 | reshape to [128, 16, d], sum over the 16 tokens | [128, 11008] | one score vector per group of 16 tokens |
+| 4 | multiply by M | [128, 172] | per-block score; because M is one-hot, this matrix product *is* the per-block sum |
+| 5 | `topk(·, m = 17)` | [128, 17] | the 17 blocks each group keeps, i.e. 17 × 64 = 1,088 neurons (98.8 % of the budget K = 1,101) |
+| 6 | multiply by Mᵀ, threshold | [128, 11008] | selection expanded back to neuron granularity |
+| 7 | broadcast across the group, apply | [2048, 11008] | **all 16 tokens of a group share one mask** — the experimental manipulation |
+| 8 | `W_down · (i ⊙ mask)` | [2048, 4096] | layer output |
+
+A final partial group is handled separately by the same rule; with T = 2,048 and g ∈ {16, 64} no partial group arises. Step 4 is what makes this measurement an *oracle*: the block scores depend on the activations of every token in the group, including tokens later than the one being masked, so the selection is non-causal within a group and could not be reproduced at deployment time (Section 2).
+
+**Perplexity protocol.** With the above active in all 32 layers, the WikiText-2 test set is processed as 166 non-overlapping 2,048-token chunks; the per-chunk cross-entropies against the shifted targets are summed, and perplexity is the exponential of the total negative log-likelihood divided by the total token count. Every arm uses this identical loop.
 
 **Arms** (all measured under one identical protocol — full test set, 166 × 2,048 tokens):
 
@@ -313,6 +375,7 @@ The P3 journal card's interpretation section awaits confirmation. The proposed v
 | P2 | `20260725-004032-coact-llama2-p2-blocks` | `exp/2026-07-25_coact-llama2-p2-blocks` | 3 m 23 s | ok |
 | P3 prep | `20260725-033520-coact-llama2-p3-prep` | `exp/2026-07-25_coact-llama2-p3-blocks` | 10 m 17 s | ok |
 | P3 eval | `20260725-034614-coact-llama2-p3-ppl` | (same tag) | 17 m 17 s | ok |
+| Qualitative dump (§4.6) | `20260804-224920-coact-selection-slice` | `c95fb43` | 1 m | ok |
 
 ### 8.2 Code (repository `aiha-choij/EfficientAI`, directory `larosa/scripts/`)
 
@@ -322,7 +385,8 @@ The P3 journal card's interpretation section awaits confirmation. The proposed v
 | `analyze_coactivation_blocks.py` | P2 — PPMI clustering + structural metrics (static and dynamic) |
 | `p3_collect_cluster_all.py` | P3 prep — all-32-layer statistics and clustering |
 | `p3_block_ppl.py` | P3 eval — group-shared block-mask perplexity, four arms |
-| `results/reports/figs/make_report_figs.py` | regenerates Figures 1–4 (values transcribed from job logs) |
+| `dump_selection_slice.py` | qualitative dump — raw per-token survival patterns (§4.6) |
+| `results/reports/figs/make_report_figs.py` | regenerates Figures 1–7; Figures 1–4 and 7 from values transcribed out of the job logs, Figures 5–6 from `figs/fig_data_selection.npz` (small derived arrays committed alongside, so the 24 MB dump is not needed) |
 
 ### 8.3 Artifacts (host `a6000-4`, directory `~/workspace/analysis/`)
 
@@ -332,6 +396,7 @@ The P3 journal card's interpretation section awaits confirmation. The proposed v
 | `llama2_coactivation_blocks_s09.pt` | 5.1 MB | P2: partitions and all structural metrics |
 | `llama2_p3_partitions_s09.pt` | 11 MB | P3: block partitions for **all 32 layers** (B = 64, 256) + random controls |
 | `llama2_p3_block_ppl_s09.pt` | 1.7 KB | P3: perplexity results, 10 arms |
+| `llama2_selection_slice.pt` | 24 MB | §4.6: raw survival patterns, 256 tokens × 11,008 neurons, layers {0, 16, 31} × s ∈ {0.5, 0.7, 0.9} |
 
 ### 8.4 Known pitfalls (for future sessions)
 

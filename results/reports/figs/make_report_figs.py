@@ -167,11 +167,8 @@ def fig4():
     finish(fig, ax, f"{OUT}/fig4_p3_ppl.png")
 
 
-fig1(); fig2(); fig3(); fig4()
-
-
-# ---------------------------------------------------------------- Fig 0
-def fig0():
+# ---------------------------------------------------------------- Fig 7
+def fig7():
     # Token-pair selection overlap vs sparsity (mean over 32 layers).
     # Source: job 20260724-173030-larosa-llama2-topk-overlap
     # (journal card in topic larosa-intermediate-sparsity).
@@ -199,10 +196,90 @@ def fig0():
     ax.set_xlim(0.46, 0.94)
     ax.set_ylabel("Overlap  =  (neurons selected by both tokens) / K")
     ax.set_xlabel("Sparsity level s  (fraction of neurons zeroed per token)")
-    ax.set_title("Figure 0.  How much do two tokens agree on their neurons? (LLaMA-2-7B, mean over 32 layers)",
+    ax.set_title("Figure 7.  How much do two tokens agree on their neurons? (LLaMA-2-7B, mean over 32 layers)",
                  fontsize=11, loc="left", pad=12)
     ax.legend(frameon=False, fontsize=8.5, loc="upper right")
-    finish(fig, ax, f"{OUT}/fig0_pairwise_overlap.png")
+    finish(fig, ax, f"{OUT}/fig7_overlap_vs_sparsity.png")
 
 
-fig0()
+# ------------------------------------------------- Figs 5-6 (qualitative)
+# Derived from job 20260804-224920-coact-selection-slice (layer 16, first
+# 256 tokens of one WikiText-2 sequence, s = 0.5/0.7/0.9). The small derived
+# arrays are stored next to this script so the figures can be regenerated
+# without the 24 MB dump.
+import numpy as np
+from matplotlib.colors import ListedColormap
+
+SPARSITIES = ["0.5", "0.7", "0.9"]
+CHANCE = {"0.5": 0.50, "0.7": 0.30, "0.9": 0.10}
+
+
+def _data():
+    return np.load(f"{OUT}/fig_data_selection.npz")
+
+
+def fig5():
+    z = _data()
+    cmap = ListedColormap(["#f4f3ee", "#185FA5", "#eb6834"])
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.3), sharey=True)
+    for ax, s in zip(axes, SPARSITIES):
+        r = z[f"raster_{s}"]
+        ax.imshow(r, cmap=cmap, vmin=0, vmax=2, aspect="auto",
+                  interpolation="nearest")
+        shared, new = int((r == 1).sum()), int((r == 2).sum())
+        ax.set_title(f"s = {s}   (K = {int(z[f'keff_{s}'])} of 11,008 neurons)\n"
+                     f"kept from previous token {shared / (shared + new):.0%}"
+                     f"   ·   newly selected {new / (shared + new):.0%}",
+                     fontsize=10, pad=8)
+        ax.set_xlabel("neuron index (window of 320 consecutive neurons)")
+        ax.grid(False)
+    axes[0].set_ylabel("token position (24 consecutive tokens)")
+    handles = [plt.Rectangle((0, 0), 1, 1, color="#185FA5"),
+               plt.Rectangle((0, 0), 1, 1, color="#eb6834"),
+               plt.Rectangle((0, 0), 1, 1, color="#f4f3ee", ec="#c3c2b7")]
+    fig.legend(handles,
+               ["also selected by the previous token",
+                "selected by this token only (new)",
+                "not selected"],
+               frameon=False, fontsize=9, ncol=3, loc="lower center",
+               bbox_to_anchor=(0.5, -0.12))
+    fig.suptitle("Figure 5.  Which neurons each token selects (LLaMA-2-7B, layer 16) — "
+                 "higher sparsity leaves less agreement with the neighbouring token",
+                 fontsize=11.5, x=0.008, ha="left", y=1.04)
+    for ax in axes:
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+    fig.savefig(f"{OUT}/fig5_selection_raster.png", bbox_inches="tight",
+                facecolor="white")
+    plt.close(fig)
+    print("wrote", f"{OUT}/fig5_selection_raster.png")
+
+
+def fig6():
+    z = _data()
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.6))
+    for ax, s in zip(axes, SPARSITIES):
+        o = z[f"overlap_{s}"]
+        im = ax.imshow(o, cmap="Blues", vmin=0, vmax=1, interpolation="nearest")
+        off = o[~np.eye(o.shape[0], dtype=bool)]
+        adj = np.mean([o[i, i + 1] for i in range(o.shape[0] - 1)])
+        ax.set_title(f"s = {s}   ·   chance {CHANCE[s]:.2f}\n"
+                     f"adjacent {adj:.2f}   ·   all pairs {off.mean():.2f}",
+                     fontsize=10, pad=8)
+        ax.set_xlabel("token position")
+        ax.grid(False)
+        if ax is axes[0]:
+            ax.set_ylabel("token position")
+    cb = fig.colorbar(im, ax=axes, fraction=0.025, pad=0.02)
+    cb.set_label("overlap between the two tokens' neuron sets  (1 = identical)",
+                 fontsize=9)
+    fig.suptitle("Figure 6.  Pairwise overlap among 48 consecutive tokens (layer 16) — "
+                 "the matrix uniformly fades as sparsity rises",
+                 fontsize=11.5, x=0.008, ha="left", y=1.0)
+    fig.savefig(f"{OUT}/fig6_overlap_matrix.png", bbox_inches="tight",
+                facecolor="white")
+    plt.close(fig)
+    print("wrote", f"{OUT}/fig6_overlap_matrix.png")
+
+
+fig1(); fig2(); fig3(); fig4(); fig5(); fig6(); fig7()
