@@ -90,5 +90,31 @@ result).
   edited to 32 in the pending meta.
 - Round 2 resubmitted: 050-20260804-130635-fusion-mgr-refit-llama2b,
   same protocol + layers_per_pass=2 + expandable_segments. PENDING.
+- **Round 2 (050-20260804-130635): STATUS=ok.** Source:
+  a100-40-2:~/workspace/fusion/llama2-7b/fusion_results.json (git 3cc64e6).
+  Dense sanity 5.4735 (trusted anchor 5.4736 — protocol match to 4
+  decimals). wikitext-2 PPL, achieved sparsity exact:
+
+  | s | R0 (SLR in-pipeline) | R1 lam=.1 (W_d only) | R2 lam=.1 (joint) |
+  |---|---|---|---|
+  | 0.5 | 5.5989 | 5.5622 | 5.5596 |
+  | 0.7 | 5.7498 | 5.6551 | 5.6495 |
+  | 0.9 | 6.7800 | 6.2075 | **6.1954** |
+
+  - All three pre-registered s=0.9 thresholds passed by R2 (and by R1):
+    6.94 SLR / 6.7088 TIS@0.85 / 6.6381 exact C3.
+  - No low-s regression (R2 improves R0 at every s) — anchored-prior
+    harmlessness reconfirmed.
+  - lam=0.1 slightly > lam=0.01 everywhere (consistent with the refit C2
+    sweep); lam=0.01 rows omitted above, in the JSON.
+  - R1 vs R2 nearly tied (6.2075 vs 6.1954): the gain is dominated by the
+    W_d refit; joint B refit adds ~0.01 PPL.
+  - Caveat: R0 lands at 6.78, below E1's 6.9417 (different g_bar
+    calibration sample suspected) — cross-arm deltas within this pipeline
+    are the reliable readout; cross-referencing E1 absolute numbers needs
+    that caveat.
+  - Frontier note: beating 6.7088 contests, not settles, the E-W0 verdict
+    — the fair control (anchored refit applied to plain TIS at s=0.85/0.9,
+    same zero-cost lever) is unmeasured; proposed as the next job.
 
 ### Interpretation
