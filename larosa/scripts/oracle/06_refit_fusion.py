@@ -105,6 +105,19 @@ def topk_mask(score, K):
     return torch.zeros_like(score, dtype=torch.bool).scatter_(-1, idx, True)
 
 
+def block_topk_mask(score, K, g):
+    """Token-block-shared top-K: sum the score over g consecutive tokens
+    (one 2048-token sequence at a time upstream, so blocks never cross a
+    sequence boundary), pick top-K once per block, broadcast to tokens.
+    g=1 reduces to topk_mask exactly."""
+    if g == 1:
+        return topk_mask(score, K)
+    N, D = score.shape
+    assert N % g == 0, f"seqlen {N} not divisible by block size {g}"
+    agg = score.view(N // g, g, D).sum(1)
+    return topk_mask(agg, K).repeat_interleave(g, 0)
+
+
 def solve_anchored(G, Ct, Theta0, lam):
     """Theta = (Ct + lam*D*Theta0)(G + lam*D*I)^-1, D = mean(diag(G))."""
     p = G.shape[0]
@@ -156,7 +169,7 @@ def _alloc(acc, key, p, h, dev):
 
 
 @torch.no_grad()
-def build_grams(model, ids, act, dev, ctx, s_list, r5_s, fams, layer_slice, input_k):
+def build_grams(model, ids, act, dev, ctx, s_list, r5_s, fams, layer_slice, input_k, rsks, gsz):
     """One calibration sweep over `layer_slice`, accumulating per (li, s):
     famA: phi = [m*r ; A x ; (1-m)*(ghat*uhat)], t = y* - h(x)
     famB: phi = [m*r ; x],                        t = y*
@@ -174,8 +187,8 @@ def build_grams(model, ids, act, dev, ctx, s_list, r5_s, fams, layer_slice, inpu
         cn = Wd.pow(2).sum(0).sqrt()
         d = Wd.shape[1]
         hdim = Wd.shape[0]
-        if "A" in fams:
-            Ag, Bg, Au, Bu = [t.to(Wd.device) for t in ctx["sk"][li]]
+        sk_dev = {rsk: [t.to(Wd.device) for t in ctx["sk"][(li, rsk)]]
+                  for rsk in (rsks if "A" in fams else [])}
 
         def h(mod, inp):
             x = inp[0].detach().float().squeeze(0)
@@ -187,21 +200,24 @@ def build_grams(model, ids, act, dev, ctx, s_list, r5_s, fams, layer_slice, inpu
             score = r.abs() * cn
             if "A" in fams or "B" in fams:
                 for s in s_list:
-                    m = topk_mask(score, int(round((1 - s) * d)))
+                    m = block_topk_mask(score, int(round((1 - s) * d)), gsz)
                     mr = r * m
                     if "A" in fams:
-                        ghat = act((x @ Ag.T) @ Bg.T)
-                        uhat = (x @ Au.T) @ Bu.T
-                        tail = (ghat * uhat).mul_((~m).float())
-                        phi = torch.cat([mr, x @ A.T, tail], dim=-1)
                         t = ystar - sparse_comp(x, Rres, input_k)
-                        G, Ct = _alloc(acc, ("A", li, s), phi.shape[-1], hdim, x.device)
-                        G.add_(phi.T @ phi)
-                        Ct.add_(t.T @ phi)
-                        del phi, t, tail, ghat, uhat
+                        for rsk in rsks:
+                            Ag, Bg, Au, Bu = sk_dev[rsk]
+                            ghat = act((x @ Ag.T) @ Bg.T)
+                            uhat = (x @ Au.T) @ Bu.T
+                            tail = (ghat * uhat).mul_((~m).float())
+                            phi = torch.cat([mr, x @ A.T, tail], dim=-1)
+                            G, Ct = _alloc(acc, ("A", li, s, rsk), phi.shape[-1], hdim, x.device)
+                            G.add_(phi.T @ phi)
+                            Ct.add_(t.T @ phi)
+                            del phi, tail, ghat, uhat
+                        del t
                     if "B" in fams:
                         phi = torch.cat([mr, x], dim=-1)
-                        G, Ct = _alloc(acc, ("B", li, s), phi.shape[-1], hdim, x.device)
+                        G, Ct = _alloc(acc, ("B", li, s, 0), phi.shape[-1], hdim, x.device)
                         G.add_(phi.T @ phi)
                         Ct.add_(ystar.T @ phi)
                         del phi
@@ -209,9 +225,9 @@ def build_grams(model, ids, act, dev, ctx, s_list, r5_s, fams, layer_slice, inpu
             if "C" in fams:
                 score_i = i_full.abs()          # TIS protocol: plain |i|
                 for s in r5_s:
-                    m = topk_mask(score_i, int(round((1 - s) * d)))
+                    m = block_topk_mask(score_i, int(round((1 - s) * d)), gsz)
                     phi = i_full * m
-                    G, Ct = _alloc(acc, ("C", li, s), d, hdim, x.device)
+                    G, Ct = _alloc(acc, ("C", li, s, 0), d, hdim, x.device)
                     G.add_(phi.T @ phi)
                     Ct.add_(ystar.T @ phi)
                     del phi, m
@@ -289,6 +305,12 @@ def selftest():
     assert (tA - phiA @ ThA.T).norm() < e0, "in-sample error must drop"
     ThInf = solve_anchored(GA, CtA, torch.cat([Wd, B, Wd], -1), 1e7)
     assert (ThInf - torch.cat([Wd, B, Wd], -1)).norm() / ThInf.norm() < 1e-3, "anchor recovery"
+    # 6) block mask: g=1 identity; within-block uniformity; K per block
+    sc = torch.rand(64, 16)
+    assert (block_topk_mask(sc, 5, 1) == topk_mask(sc, 5)).all(), "g=1 reduction"
+    mb = block_topk_mask(sc, 5, 8)
+    assert (mb.view(8, 8, 16)[:, 0:1] == mb.view(8, 8, 16)).all(), "block uniformity"
+    assert (mb.sum(-1) == 5).all(), "K kept per token under block sharing"
     print("selftest OK")
 
 
@@ -299,7 +321,9 @@ def main():
     ap.add_argument("--model_name", default="/raid/LLM/llama2-7b")
     ap.add_argument("--rank", type=int, default=256)
     ap.add_argument("--input_k", type=int, default=1536)
-    ap.add_argument("--r_sk", type=int, default=0, help="sketch rank for r4 (0 -> d//8)")
+    ap.add_argument("--r_sk", default="0", help="comma list of sketch ranks for r4 (0 -> d//8)")
+    ap.add_argument("--group_size", type=int, default=1,
+                    help="token-block mask sharing g (1 = per-token)")
     ap.add_argument("--s_list", default="0.7,0.9")
     ap.add_argument("--r5_s", default="0.85,0.9")
     ap.add_argument("--lambdas", default="0.1")
@@ -322,7 +346,7 @@ def main():
     lambdas = [float(v) for v in args.lambdas.split(",")]
     arms = args.arms.split(",")
     fams = set()
-    if {"r2", "r4"} & set(arms):
+    if {"r2", "r4", "r4trunc"} & set(arms):
         fams.add("A")
     if {"r3full", "r3trunc"} & set(arms):
         fams.add("B")
@@ -341,53 +365,62 @@ def main():
     layers = model.model.layers
     L = len(layers)
     d = layers[0].mlp.up_proj.weight.shape[0]
-    r_sk = args.r_sk if args.r_sk > 0 else d // 8
+    rsks = [int(v) if int(v) > 0 else d // 8 for v in args.r_sk.split(",")]
+    gsz = args.group_size
 
     log("pass 0: g_bar...")
     g_bars = pass0_gbar(model, calib, act, dev)
-    log(f"factors (SLR rank={args.rank}, sketches r_sk={r_sk})...")
+    log(f"factors (SLR rank={args.rank}, sketches r_sk={rsks}, g={gsz})...")
     ctx = {"g_bars": g_bars, "slr": {}, "sk": {}}
     with torch.no_grad():
         for li, layer in enumerate(layers):
             Wg, Wu, Wd = layer_tensors(layer.mlp)
             ctx["slr"][li] = tuple(t.cpu() for t in build_slr(Wd, Wu, g_bars[li], args.rank))
             if "A" in fams:
-                Ag, Bg = svd_lr(Wg, r_sk)
-                Au, Bu = svd_lr(Wu, r_sk)
-                ctx["sk"][li] = tuple(t.cpu() for t in (Ag, Bg, Au, Bu))
+                for rsk in rsks:
+                    Ag, Bg = svd_lr(Wg, rsk)
+                    Au, Bu = svd_lr(Wu, rsk)
+                    ctx["sk"][(li, rsk)] = tuple(t.cpu() for t in (Ag, Bg, Au, Bu))
             torch.cuda.empty_cache()
 
     solved = {}   # (arm, li, s, lam) -> CPU tensors tuple
     log(f"build: fams={sorted(fams)} lpp={args.layers_per_pass}...")
     for start in range(0, L, args.layers_per_pass):
         sl = list(range(start, min(start + args.layers_per_pass, L)))
-        acc = build_grams(model, calib, act, dev, ctx, s_list, r5_s, fams, sl, args.input_k)
-        for (fam, li, s), (G, Ct) in acc.items():
+        acc = build_grams(model, calib, act, dev, ctx, s_list, r5_s, fams, sl,
+                          args.input_k, rsks, gsz)
+        for (fam, li, s, rsk), (G, Ct) in acc.items():
             _, _, Wd = layer_tensors(layers[li].mlp)
             for lam in lambdas:
                 if fam == "A":
                     A, B, _, _ = [t.to(dev) for t in ctx["slr"][li]]
                     Th0 = torch.cat([Wd, B, Wd], -1)
                     Th = solve_anchored(G, Ct, Th0, lam)
-                    solved[("r4", li, s, lam)] = tuple(
-                        t.cpu() for t in (Th[:, :d], Th[:, d:d + args.rank], Th[:, d + args.rank:]))
-                    sub = sub_solve(G, Ct, d + args.rank, torch.cat([Wd, B], -1), lam)
-                    solved[("r2", li, s, lam)] = (sub[:, :d].cpu(), sub[:, d:].cpu())
+                    Wtail = Th[:, d + args.rank:]
+                    solved[("r4", li, s, lam, rsk)] = tuple(
+                        t.cpu() for t in (Th[:, :d], Th[:, d:d + args.rank], Wtail))
+                    At, Bt = svd_lr(Wtail, rsk)   # deployable truncated tail output
+                    solved[("r4trunc", li, s, lam, rsk)] = tuple(
+                        t.cpu() for t in (Th[:, :d], Th[:, d:d + args.rank], At, Bt))
+                    if rsk == rsks[0]:
+                        sub = sub_solve(G, Ct, d + args.rank, torch.cat([Wd, B], -1), lam)
+                        solved[("r2", li, s, lam, 0)] = (sub[:, :d].cpu(), sub[:, d:].cpu())
                 elif fam == "B":
                     M = ctx["slr"][li][3].to(dev)
                     Th = solve_anchored(G, Ct, torch.cat([Wd, M], -1), lam)
                     Wd3, T = Th[:, :d], Th[:, d:]
                     A3, B3 = svd_lr(T, args.rank)
-                    solved[("r3", li, s, lam)] = (Wd3.cpu(), T.cpu(), A3.cpu(),
-                                                  B3.cpu(), (T - B3 @ A3).cpu())
+                    solved[("r3", li, s, lam, 0)] = (Wd3.cpu(), T.cpu(), A3.cpu(),
+                                                     B3.cpu(), (T - B3 @ A3).cpu())
                 elif fam == "C":
                     W5 = solve_anchored(G, Ct, Wd, lam)
-                    solved[("r5", li, s, lam)] = (W5.cpu(),)
+                    solved[("r5", li, s, lam, 0)] = (W5.cpu(),)
         del acc
         torch.cuda.empty_cache()
         log(f"  layers {sl[0]}-{sl[-1]} solved")
 
-    results = {"args": vars(args), "git_commit": git_hash(), "r_sk": r_sk, "runs": []}
+    results = {"args": vars(args), "git_commit": git_hash(), "r_sk": rsks,
+               "group_size": gsz, "runs": []}
     orig_fwd = [layer.mlp.forward for layer in layers]
 
     def wrap(mlp, body, sp_log):
@@ -398,7 +431,7 @@ def main():
             return y.to(x_in.dtype).view_as(x_in) if x_in.dim() == 3 else y.to(x_in.dtype)
         return fwd
 
-    def set_arm(arm, s, lam):
+    def set_arm(arm, s, lam, rsk=0):
         torch.cuda.empty_cache()
         sp_log = []
         for li, layer in enumerate(layers):
@@ -416,43 +449,63 @@ def main():
             def proj_u(x, mlp=mlp):
                 return mlp.up_proj(x.to(mlp.up_proj.weight.dtype)).float()
 
-            if arm == "r5":
-                (W5,) = [t.to(dev) for t in solved[("r5", li, s, lam)]]
+            if arm == "m0":     # mask-only control (residual score, no comp, no refit)
+                Wd_orig = mlp.down_proj.weight.detach().float()
+
+                def body(x, pg=proj_g, pu=proj_u, gb=gb, cn=cn, K=K, Wd_orig=Wd_orig):
+                    g_ = pg(x)
+                    u_ = pu(x)
+                    m = block_topk_mask((u_ * (g_ - gb)).abs() * cn, K, gsz)
+                    return (u_ * g_ * m) @ Wd_orig.T, 1.0 - m.float().mean().item()
+            elif arm == "r5":
+                (W5,) = [t.to(dev) for t in solved[("r5", li, s, lam, 0)]]
 
                 def body(x, pg=proj_g, pu=proj_u, W5=W5, K=K):
                     i_full = pu(x) * pg(x)
-                    m = topk_mask(i_full.abs(), K)
+                    m = block_topk_mask(i_full.abs(), K, gsz)
                     return (i_full * m) @ W5.T, 1.0 - m.float().mean().item()
             elif arm in ("r3full", "r3trunc"):
-                Wd3, T, A3, B3, R3 = [t.to(dev) for t in solved[("r3", li, s, lam)]]
+                Wd3, T, A3, B3, R3 = [t.to(dev) for t in solved[("r3", li, s, lam, 0)]]
 
                 def body(x, pg=proj_g, pu=proj_u, gb=gb, cn=cn, K=K, Wd3=Wd3, T=T,
                          A3=A3, B3=B3, R3=R3, full=(arm == "r3full")):
                     g_ = pg(x)
                     r_ = pu(x) * (g_ - gb)
-                    m = topk_mask(r_.abs() * cn, K)
+                    m = block_topk_mask(r_.abs() * cn, K, gsz)
                     base = (r_ * m) @ Wd3.T
                     comp = x @ T.T if full else \
                         (x @ A3.T) @ B3.T + sparse_comp(x, R3, args.input_k)
                     return base + comp, 1.0 - m.float().mean().item()
-            else:  # r2 / r4
-                if arm == "r2":
-                    Wdu, Bu_ = [t.to(dev) for t in solved[("r2", li, s, lam)]]
+            else:  # r0 / r2 / r4 / r4trunc
+                At_ = Bt_ = None
+                if arm == "r0":     # SLR with ORIGINAL weights (no refit)
+                    Wdu = mlp.down_proj.weight.detach().float()
+                    Bu_ = B
                     Wtail = Ag = Bg = Au = Buu = None
-                else:
-                    Wdu, Bu_, Wtail = [t.to(dev) for t in solved[("r4", li, s, lam)]]
-                    Ag, Bg, Au, Buu = [t.to(dev) for t in ctx["sk"][li]]
+                elif arm == "r2":
+                    Wdu, Bu_ = [t.to(dev) for t in solved[("r2", li, s, lam, 0)]]
+                    Wtail = Ag = Bg = Au = Buu = None
+                elif arm == "r4":
+                    Wdu, Bu_, Wtail = [t.to(dev) for t in solved[("r4", li, s, lam, rsk)]]
+                    Ag, Bg, Au, Buu = [t.to(dev) for t in ctx["sk"][(li, rsk)]]
+                else:               # r4trunc: low-rank tail output (deploy cost)
+                    Wdu, Bu_, At_, Bt_ = [t.to(dev) for t in solved[("r4trunc", li, s, lam, rsk)]]
+                    Wtail = None
+                    Ag, Bg, Au, Buu = [t.to(dev) for t in ctx["sk"][(li, rsk)]]
 
                 def body(x, pg=proj_g, pu=proj_u, gb=gb, cn=cn, K=K, A=A, Rres=Rres,
-                         Wdu=Wdu, Bu_=Bu_, Wtail=Wtail, Ag=Ag, Bg=Bg, Au=Au, Buu=Buu):
+                         Wdu=Wdu, Bu_=Bu_, Wtail=Wtail, Ag=Ag, Bg=Bg, Au=Au, Buu=Buu,
+                         At_=At_, Bt_=Bt_):
                     g_ = pg(x)
                     r_ = pu(x) * (g_ - gb)
-                    m = topk_mask(r_.abs() * cn, K)
+                    m = block_topk_mask(r_.abs() * cn, K, gsz)
                     y = (r_ * m) @ Wdu.T + (x @ A.T) @ Bu_.T + sparse_comp(x, Rres, args.input_k)
-                    if Wtail is not None:
+                    if Wtail is not None or At_ is not None:
                         ghat = act((x @ Ag.T) @ Bg.T)
                         uhat = (x @ Au.T) @ Buu.T
-                        y = y + ((ghat * uhat) * (~m).float()) @ Wtail.T
+                        tail = (ghat * uhat) * (~m).float()
+                        y = y + (tail @ Wtail.T if Wtail is not None
+                                 else (tail @ At_.T) @ Bt_.T)
                     return y, 1.0 - m.float().mean().item()
 
             mlp.forward = wrap(mlp, body, sp_log)
@@ -460,16 +513,20 @@ def main():
 
     for arm in arms:
         ss = r5_s if arm == "r5" else s_list
+        arm_rsks = rsks if arm in ("r4", "r4trunc") else [0]
         for s in ss:
             for lam in lambdas:
-                sp_log = set_arm(arm, s, lam)
-                ppl = eval_ppl(model, test, dev)
-                for layer, f in zip(layers, orig_fwd):
-                    layer.mlp.forward = f
-                rec = {"arm": arm, "s": s, "lam": lam, "ppl": ppl,
-                       "achieved_sparsity": sum(sp_log) / max(len(sp_log), 1)}
-                results["runs"].append(rec)
-                log(f"{arm} s={s} lam={lam}: PPL {ppl:.4f} (sp {rec['achieved_sparsity']:.4f})")
+                for rsk in arm_rsks:
+                    sp_log = set_arm(arm, s, lam, rsk)
+                    ppl = eval_ppl(model, test, dev)
+                    for layer, f in zip(layers, orig_fwd):
+                        layer.mlp.forward = f
+                    rec = {"arm": arm, "s": s, "lam": lam, "rsk": rsk, "g": gsz,
+                           "ppl": ppl,
+                           "achieved_sparsity": sum(sp_log) / max(len(sp_log), 1)}
+                    results["runs"].append(rec)
+                    log(f"{arm} s={s} lam={lam} rsk={rsk} g={gsz}: PPL {ppl:.4f} "
+                        f"(sp {rec['achieved_sparsity']:.4f})")
                 with open(os.path.join(args.out, "fusion3_results.json"), "w") as f:
                     json.dump(results, f, indent=2)
     log("done.")
