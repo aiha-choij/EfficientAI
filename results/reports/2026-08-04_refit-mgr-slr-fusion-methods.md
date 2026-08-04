@@ -454,18 +454,40 @@ are at parity, and the fusion's clear win is under *pinned* sparsity
 
 ### 5.5 The amplification arms: r3full, r3trunc, r4
 
-All three arms are instances of one recipe. Any output of the form
-"(unknown matrices) x (computable vectors) + (fixed vector)" can be
-folded, by the block-matrix identity
+**Reading a forward pass as a linear model.** It helps to first tag
+every term of the SLR output by its role. For one token x:
+
+| term | object | size | status |
+|---|---|---|---|
+| m⊙r | masked residual activation | vector, d = 11008 | data (computed from x) |
+| Ax | 256-dim input projection | vector, 256 | data (A frozen) |
+| R(m_x⊙x) | sparse correction | vector, h = 4096 | data (treated as a fixed offset) |
+| W_d | output weight | matrix, 4096×11008 | **unknown to re-solve** |
+| B | low-rank output factor | matrix, 4096×256 | **unknown to re-solve** |
+
+The output is "(unknown matrix)×(data vector) + (unknown matrix)×(data
+vector) + (fixed vector)". The only algebra needed is the block-matrix
+identity — for any A₁ (h×p), A₂ (h×q), v₁ ∈ R^p, v₂ ∈ R^q:
 
 $$
 A_1 v_1 + A_2 v_2 \;=\; [\, A_1 \,|\, A_2 \,]
 \begin{bmatrix} v_1 \\ v_2 \end{bmatrix},
 $$
 
-into a SINGLE matrix times a SINGLE stacked feature vector, after which
-the anchored closed form of §2.2 applies verbatim. The arms differ only
-in which computable vectors enter the stack.
+i.e. concatenating the unknown matrices side by side (h×(p+q)) and
+stacking the data vectors ((p+q)-dim) turns a SUM of matrix products
+into a SINGLE product. Applied to the first two terms:
+
+$$
+W_d (m \odot r) + B (A x) \;=\;
+\underbrace{[\, W_d \,|\, B \,]}_{\Theta,\ 4096\times 11264}
+\underbrace{\begin{bmatrix} m \odot r \\ A x \end{bmatrix}}_{\varphi(x),\ 11264}
+$$
+
+— which is where φ and Θ "come from": they are notation for this
+concatenation, nothing more. With one unknown matrix Θ and one
+computable feature vector φ(x), the anchored closed form of §2.2
+applies verbatim. All three arms below are instances of this recipe. The arms differ only in which computable vectors enter the stack.
 
 **r3full — the ceiling of linear compensation.** In R2 the compensation
 is B(Ax) = (BA)x: a fixed h×h map of rank at most 256, constrained
@@ -559,15 +581,56 @@ line's central hypothesis — the sharing tax IS token-idiosyncratic
 gate information, and only a per-token (nonlinear) estimate restores
 it. The open problem is the deployable form of the tail map.
 
-**Where the remaining headroom is.** A follow-up arm that solves the
-most general *linear* compensation (a full h×h map T by the same
-template) measures the ceiling of any linear-in-x method at 6.150 —
-only 0.045 below R2. Progress beyond that requires signals nonlinear in
-x: adding token-wise sketch estimates of the dropped neurons'
-activations as extra regression features reached 5.946 at s = 0.9
-(breaking the linear ceiling; neutral at s = 0.7), at a compute cost
-that makes sketch-rank reduction the immediate engineering question.
-Those experiments are in progress and will be reported separately.
+### 5.7 Deployable form: learning the tail map low-rank (ALS)
+
+r4's learned tail map W_tail is a dense 4096×11008 matrix — a +1/3-of-
+dense-FFN multiply at inference, and §5.6 showed post-hoc SVD truncation
+destroys the gain (g=1, r_sk=688: 6.099 → 6.434). The remedy is to
+impose the low-rank structure DURING learning: parameterize the tail
+map as a product B_t A_t (rank r_t) and solve by alternating least
+squares (ALS), where each half-step is itself an anchored closed form
+on the SAME stored statistics (no new calibration passes):
+
+- **A_t fixed:** the features collapse to [m⊙r ; Ax ; A_t ψ(x)]
+  (dimension d + 256 + r_t), and [W̃_d, B̃, B_t] is one anchored joint
+  solve — the reduced Gram is a block projection of the stored full
+  Gram (multiply the ψ-blocks by A_t).
+- **B_t (and W̃_d, B̃) fixed:** A_t has its own closed form. With the
+  residual correlation C_e = C_ψ − W̃_d G_{mr,ψ} − B̃ G_{Ax,ψ} and
+  P = B_tᵀB_t:
+
+$$
+A_t \;=\; P^{-1}\big( B_t^{\top} C_e + \lambda D_{\psi}\, P A_{d0} \big)
+\big( G_{\psi\psi} + \lambda D_{\psi} I \big)^{-1},
+$$
+
+  anchored toward A_{d0}, where (A_{d0}, B_{d0}) is the rank-r_t SVD of
+  W_d⁰ — the same "exact estimate ⇒ the right map is W_d" logic that
+  anchors r4's full tail map.
+
+Warm start = the post-hoc truncation; three rounds; by construction the
+ALS calibration loss can only improve on the truncation's (verified as
+a unit test), so any evaluation shortfall isolates generalization, not
+optimization.
+
+**Results (s = 0.9, λ = 0.1, r_t = r_sk):**
+
+| setting | post-hoc trunc | **ALS-learned (r4lr)** | full-map r4 | deploy compute |
+|---|---|---|---|---|
+| per-token (g=1), r_sk = 688 | 6.434 | **6.123** | 6.099 | ~0.39 |
+| block g=16, r_sk = 1376 | 7.238 | **7.010** | 6.266 | ~0.62 |
+| block g=16, r_sk = 688 | — | 8.628 | — | ~0.39 |
+
+Per-token, the deployable-form problem is solved: ALS recovers
+essentially the whole full-map gain (within 0.024 PPL) at rank-688
+cost, and the deployable arm now sits below both the linear ceiling
+(6.150) and the SLR+refit fusion (6.195). In the block regime ALS
+clearly beats truncation but a substantial gap to the full map remains,
+and halving the sketch rank collapses quality — one shared mask serves
+16 heterogeneous tokens, so the residual the tail must express is
+intrinsically richer; both the sketch and the tail map need more
+capacity there. Decoupling the tail rank from the sketch rank is the
+natural next knob.
 
 ---
 
@@ -580,7 +643,8 @@ Those experiments are in progress and will be reported separately.
 | SLR | W_d(m⊙r) + B(Ax) + R(m_x⊙x) | 6.942* | 0.162 |
 | SLR + refit (this report) | [W̃_d, B̃]φ + h(x) | **6.195** | 0.162 |
 | linear ceiling (diagnostic) | [W̃_d, T̃]·[m⊙r; x] | 6.150 | not deployable |
-| + token-wise sketch features | + W̃_tail·(1−m)⊙(ĝ⊙û) | 5.946 | ~0.80 (unoptimized) |
+| + token-wise sketch features (full map, r_sk=d/8) | + W̃_tail·(1−m)⊙(ĝ⊙û) | 5.946 | ~0.80 (diagnostic) |
+| + sketch features, ALS low-rank tail (deployable, r_sk=d/16) | + B_t(A_t·(1−m)⊙(ĝ⊙û)) | **6.123** | ~0.39 |
 | plain mask s=0.85 + refit (control) | W̃_d(m⊙i) | 6.183 | 0.15 |
 
 \*6.942 is the original-session measurement; the fusion pipeline's own
