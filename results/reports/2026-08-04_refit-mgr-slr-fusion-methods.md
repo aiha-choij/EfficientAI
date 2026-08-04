@@ -67,7 +67,7 @@ vanishes, so a second-order Taylor expansion leaves only the quadratic
 term:
 
 $$
-\Delta \mathcal{L} \;pprox\; 	frac{1}{2}\, \Delta w^{	op} H\, \Delta w ,
+\Delta \mathcal{L} \;\approx\; \tfrac{1}{2}\, \Delta w^{\top} H\, \Delta w ,
 $$
 
 with H the network Hessian — intractable at full scale.
@@ -79,9 +79,9 @@ terms, and each term equals a weighted norm of that block's OUTPUT
 perturbation. Approximating the output-side weighting by the identity:
 
 $$
-\Delta \mathcal{L} \;pprox\;
-\sum_{	ext{blocks } b} \mathbb{E}
-ig\lVert \hat{y}_b - y_b^{	ext{dense}} igVert^2 .
+\Delta \mathcal{L} \;\approx\;
+\sum_{\mathrm{blocks}\ b} \mathbb{E}
+\big\lVert \hat{y}_b - y_b^{\mathrm{dense}} \big\rVert^2 .
 $$
 
 "Match each block's output to the dense teacher on calibration data" is
@@ -95,7 +95,7 @@ layer, the output perturbation is exact and interpretable:
 
 $$
 \Delta y \;=\; W_d (m \odot i) - W_d\, i
-\;=\; -\, W_d ig( (1-m) \odot i ig)
+\;=\; -\, W_d \big( (1-m) \odot i \big)
 $$
 
 — the error IS the dropped neurons' contribution.
@@ -114,10 +114,10 @@ the data term becomes a regression of the dropped contribution onto the
 kept activations:
 
 $$
-\min_{\Delta}\; \sum_t ig\lVert \Delta z_t - e_t igVert^2
-+ \lambda D \lVert \Delta Vert_F^2 ,
+\min_{\Delta}\; \sum_t \big\lVert \Delta z_t - e_t \big\rVert^2
++ \lambda D \lVert \Delta \rVert_F^2 ,
 \qquad
-e_t = W_d^0ig((1-m)\odot i_tig),\;\; z_t = m \odot i_t .
+e_t = W_d^0\big((1-m)\odot i_t\big),\;\; z_t = m \odot i_t .
 $$
 
 Read aloud: *predict what was dropped from what was kept.* This is the
