@@ -73,5 +73,29 @@ Round 2's fusion gain was dominated by the W_d refit (joint B-refit added
   eval on 39.6GiB A100.
 
 ### Results
+- Round A (050-20260804-165432): STATUS=fail — r3full/r3trunc completed,
+  crashed at r4 set_arm with CUDA OOM. Cause: eval closures held fp32
+  clones of W_gate/W_up per layer (~11.5GB across 32 layers), on top of
+  r4's solved+sketch tensors -> ~42GB demand. Fix (commit after 4fe359e):
+  eval bodies reuse the module's own bf16 gate/up projections (matches
+  deployed numerics; ~1e-3 protocol shift vs the fp32-hook path, below
+  the Phase-3 noise gate). r4/r5 resubmitted as
+  050-20260804-190813-fusion-r3b-r4r5 (out dir llama2-7b-r4r5).
+- **r3 results (valid, from round A; fp32-hook eval path, comparable to
+  round 2):** wikitext-2 PPL, lam=0.1, achieved sparsity exact:
+
+  | arm | s=0.7 | s=0.9 |
+  |---|---|---|
+  | r3full (linear-in-x ceiling, h x h regression) | 5.5798 | **6.1501** |
+  | r3trunc (rank256+k1536 deployable projection) | 5.6647 | 6.2055 |
+  | (round-2 reference R2) | 5.6495 | 6.1954 |
+
+  Reading: the FULL linear compensation ceiling (6.1501) sits only ~0.045
+  PPL below R2 (6.1954) at s=0.9 — **linear-in-x compensation is
+  essentially exhausted**; the frozen SVD basis was NOT a meaningful
+  bottleneck (r3trunc ~ R2: the small full-T gain does not survive
+  rank+sparse truncation). Whatever headroom remains toward dense (5.47)
+  requires signals nonlinear in x — exactly what r4's token-wise gate
+  sketch features test next.
 
 ### Interpretation
