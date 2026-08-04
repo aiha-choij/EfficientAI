@@ -1,9 +1,17 @@
 # oracle-residual-sparsity — Mean-gate residual decomposition + rank-r compensation (oracle)
 
 ## Status
-paused (wrapped 2026-07-28 — frontier dominance accepted; see
-journal/2026-07-28_pivot-wrapup-compensation-line.md for the surviving
-claim and reopen criteria)
+REOPENED 2026-08-04 (was: paused/wrapped 2026-07-28 on frontier dominance).
+Reopen trigger: a zero-runtime-cost lever (local-loss-refit's anchored
+closed-form refit, C1-fixed) composes linearly with the deployable SLR arm
+-- the frontier accounting that killed the line assumed compensation gains
+cost compute; refit's don't. First fusion experiment:
+journal/2026-08-04_reopen-refit-fusion.md (R0/R1/R2 ladder; thresholds
+6.9417 SLR / 6.7088 TIS@0.85 / 6.6381 exact C3).
+
+## Active Jobs (reopen)
+- `050-20260804-121113-fusion-mgr-refit-llama2` (a100-40-2, PENDING) --
+  MGR x refit fusion ladder, card: journal/2026-08-04_reopen-refit-fusion.md
 
 ## Authoritative spec
 `spec.md` in this topic (preserved verbatim, 2026-07-22). This gist is the
