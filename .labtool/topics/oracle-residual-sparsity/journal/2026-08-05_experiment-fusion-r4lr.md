@@ -52,5 +52,29 @@ composite anchor = rank-r_t SVD of W_d, per r4's exact-estimate logic):
   truncation in-sample" on tiny dims.
 
 ### Results
+Both jobs STATUS=ok (runs 20260805-000526/-000528; artifacts
+~/workspace/fusion/llama2-7b-{g16lr,g1lr}/fusion3_results.json).
+All at s=0.9, lam=0.1, r_t = r_sk, 3 ALS rounds.
+
+| setting | post-hoc trunc | **ALS (r4lr)** | full-map r4 | deploy compute (r4lr) |
+|---|---|---|---|---|
+| g=1, r_sk=688 | 6.434 | **6.1225** | 6.099 | ~0.39 |
+| g=16, r_sk=1376 | 7.238 | **7.0103** | 6.266 | ~0.62 |
+| g=16, r_sk=688 | (not run) | 8.6279 | (not run) | ~0.39 |
+
+- **Per-token: the deployable-form problem is SOLVED.** ALS recovers
+  essentially all of the full-map gain (6.099 -> 6.123, only +0.024)
+  at rank-688 cost. The deployable arm now sits BELOW the linear
+  ceiling (6.150) and below R2 (6.195) — the nonlinear gain survives
+  deployment when the low-rank structure is imposed during learning
+  instead of after.
+- **Block regime: partial.** ALS beats truncation (7.238 -> 7.010) but
+  a substantial gap to the full map remains (6.266); and halving the
+  sketch rank collapses quality (8.63) — in the block regime both the
+  estimate and its output map need more capacity. The g=16 tail map
+  appears intrinsically higher-rank (one mask serves 16 heterogeneous
+  tokens, so the residual the tail must express is richer).
+- Consistent with the selftest guarantee (ALS in-sample <= truncation's),
+  the eval orderings show no optimization anomaly.
 
 ### Interpretation
