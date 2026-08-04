@@ -53,21 +53,91 @@ fraction of 3hd.
 
 ## 2. The refit method on its own
 
-### 2.1 Where the idea comes from
+### 2.1 From BRECQ to Sparse-BRECQ: where the objective comes from
 
-Masking is a distribution shift, not just an error. The output weight
-W_d was trained to act on the *dense* intermediate vector i; under
-masking it receives z = m ⊙ i instead. Dropped neurons do not merely
-add noise — they remove, in a *systematic, mask-correlated* way, part
-of the signal W_d expects. This reframing suggests a classical remedy:
-keep the architecture and the mask fixed, and re-solve W_d so that it
-maps the *masked* input distribution back to the *dense* output. The
-template is the local-reconstruction family of post-training
-quantization (GPTQ / AdaRound / BRECQ), which repairs quantization
-error by adjusting the remaining continuous parameters against a frozen
-teacher, layer by layer, in closed form. The research plan
-("Sparse-BRECQ") transplants that template from weight quantization to
-activation sparsity.
+The reconstruction objective of §2.2 is not an assumption; it is the
+endpoint of a derivation chain inherited from post-training
+quantization (PTQ), with one substitution — the *source of the
+perturbation*.
+
+**Step A — the task loss, expanded at a trained optimum.** PTQ's
+original question is "minimize the increase in task loss ΔL caused by
+a perturbation Δw of the parameters." At a converged model the gradient
+vanishes, so a second-order Taylor expansion leaves only the quadratic
+term:
+
+$$
+\Delta \mathcal{L} \;pprox\; 	frac{1}{2}\, \Delta w^{	op} H\, \Delta w ,
+$$
+
+with H the network Hessian — intractable at full scale.
+
+**Step B — BRECQ's block-diagonal approximation.** BRECQ's contribution
+is showing that H is well approximated block-diagonally: cross-block
+second-order interactions are small, so ΔL separates into per-block
+terms, and each term equals a weighted norm of that block's OUTPUT
+perturbation. Approximating the output-side weighting by the identity:
+
+$$
+\Delta \mathcal{L} \;pprox\;
+\sum_{	ext{blocks } b} \mathbb{E}
+ig\lVert \hat{y}_b - y_b^{	ext{dense}} igVert^2 .
+$$
+
+"Match each block's output to the dense teacher on calibration data" is
+therefore a *consequence* of the loss expansion, not a heuristic.
+
+**Step C — swap the perturbation source.** In quantization the
+perturbation is weight rounding (W → Ŵ, activations untouched). In
+activation sparsity it is exactly dual: weights are untouched and the
+*activation* is perturbed, i → m ⊙ i. Taking the block to be one FFN
+layer, the output perturbation is exact and interpretable:
+
+$$
+\Delta y \;=\; W_d (m \odot i) - W_d\, i
+\;=\; -\, W_d ig( (1-m) \odot i ig)
+$$
+
+— the error IS the dropped neurons' contribution.
+
+**Step D — choose the free variable.** Quantization must optimize over
+grid-constrained weights (hence iterative rounding schemes). Here we
+relax instead: let the *continuous downstream weight* W_d itself move.
+Substituting into Step B's per-block objective yields §2.2's Step-1
+objective directly. Masking is also a distribution shift — W_d was
+trained for the dense i and now receives m ⊙ i — and the refit is the
+map that reconciles the two distributions.
+
+**Step E — reparametrize to see the OBS lineage (and the right
+regularizer).** Write W̃ = W_d⁰ + Δ. Because the teacher is y* = W_d⁰ i,
+the data term becomes a regression of the dropped contribution onto the
+kept activations:
+
+$$
+\min_{\Delta}\; \sum_t ig\lVert \Delta z_t - e_t igVert^2
++ \lambda D \lVert \Delta Vert_F^2 ,
+\qquad
+e_t = W_d^0ig((1-m)\odot i_tig),\;\; z_t = m \odot i_t .
+$$
+
+Read aloud: *predict what was dropped from what was kept.* This is the
+activation-space analog of the OBS / SparseGPT prune-and-compensate
+update (eliminate a weight, correct the remaining weights through the
+inverse Hessian) — with activations, not weights, as the pruned
+objects, and solved in one batched closed form. The reparametrization
+also fixes the regularizer's reference point: GPTQ-style damping
+(λ·mean(diag G), "percdamp") shrinks the CORRECTION Δ toward zero,
+i.e. shrinks W̃ toward W_d⁰ — the anchored ridge of §2.2 is the
+faithful transplant, whereas a plain ridge on W̃ (shrink toward zero)
+is not.
+
+**Step F — one measured departure from BRECQ.** BRECQ feeds each block
+the *quantized* stream (faithful to deployment). The analogous
+sequential variant here (each layer calibrated on the previous refit
+layers' outputs) lost clearly to the independent per-layer solve in our
+experiments (§2.4d, error compounding) — so Sparse-BRECQ deliberately
+keeps every layer's calibration input dense. This is an empirical
+choice, not an inherited one.
 
 Two design commitments make the transplant clean:
 
