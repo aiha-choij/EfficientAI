@@ -1,27 +1,32 @@
-"""MGR x refit fusion (oracle-residual-sparsity reopen, 2026-08-04).
+"""MGR x refit fusion + amplification arms (oracle-residual-sparsity reopen).
 
-MGR deployable form (E1's best SLR arm, r256:k1536) rewritten as a linear
-model:  y_hat = W_d (m*r) + B (A x) + h(x)
-  r    = u * (g - g_bar)            (mean-gate residual)
-  m    = top-K mask on |r| * col_norm (residual score, fixed-s select --
-         matches E1's "achieved sparsity as targeted" protocol)
-  B A  = rank-`rank` SVD of M = W_d diag(g_bar) W_u
-  h(x) = Rres (m_x * x), Rres = M - B A, m_x = per-token top-`input_k` |x|
-         (slr_input sparse correction; kept FIXED/original in all arms)
+Round 2 (2026-08-04) established: anchored refit of (W_d, B) on the
+deployable SLR arm gives 6.780 -> 6.195 @ s=0.9 (LLaMA2-7B), passing all
+three thresholds (SLR 6.94 / TIS@0.85 6.709 / exact C3 6.638) — but the
+gain is dominated by the W_d block. Round 3 arms attack the three
+structural limits identified in that round:
 
-Refit fusion: re-solve the linear blocks against the dense teacher
-y* = W_d i over calibration, with the W-anchored ridge (the refit C1 fix --
-0-shrinkage priors are a known confound):
-  R0 : original (W_d, B)                       [sanity vs E1 6.9417 @ s=0.9]
-  R1 : W_d re-solved, B frozen                 [output-side refit only]
-  R2 : (W_d, B) jointly re-solved              [master-doc section-5 form:
-        theta = {W_tilde_down, U}, V0 = A frozen; phi = [m*r ; A x]]
-One joint Gram per (layer, s) serves both R1 and R2 (R1 = Schur sub-solve).
-Anti-circularity: mask score always uses ORIGINAL W_d col norms and the
-calibration g_bar; refit weights never feed back into selection.
+  r2      : [W_d, B] joint anchored refit, features [m*r ; A x],
+            target y* - h(x). (Round-2 reference; sub-solve of famA.)
+  r4      : + sketch-tail feature block (1-m)*(ghat*uhat) with its own
+            learned output map anchored at W_d — imports C8's token-wise
+            gate estimate INTO the closed form ("refit x C8 fusion").
+            Attacks: refit cannot see token-idiosyncratic gate deviation.
+  r3full  : regression-FIRST full linear compensation: solve [W_d, T],
+            T [h,h], features [m*r ; x], target y* (T absorbs low-rank +
+            sparse + anything linear). DIAGNOSTIC ceiling for any
+            linear-in-x compensation. Attacks: A frozen at SVD-of-M basis.
+  r3trunc : deployable projection of r3full: T -> SVD rank-`rank` (B3 A3)
+            + sparse residual R3 = T - B3 A3 on top-`input_k` |x| channels
+            (same runtime cost/structure as SLR).
+  r5      : fair frontier CONTROL — plain-magnitude top-K mask (TIS
+            protocol, score |i|, no compensation) + anchored W_d refit,
+            at s in --r5_s. The E-W0 frontier verdict compared unrefit
+            TIS to compensated arms; refit is free for both sides.
 
-Self-contained: vanilla HF model + monkeypatched LlamaMLP.forward at eval;
-g_bar computed in-script (pass 0). Only needs torch/transformers/datasets.
+Shared discipline: masks from ORIGINAL weights (anti-circularity),
+W-anchored ridge everywhere (refit C1 fix), all Grams accumulated in-place
+on GPU, factors/solved weights CPU-resident outside their use site.
 """
 
 import argparse
@@ -68,23 +73,26 @@ def layer_tensors(mlp):
 
 
 @torch.no_grad()
-def build_slr(Wd, Wu, g_bar, rank):
-    """M = Wd diag(g_bar) Wu  [h,h]; returns A [rank,h], B [h,rank],
-    Rres = M - B A [h,h] (all fp32, on Wd's device)."""
-    M = (Wd * g_bar.unsqueeze(0)) @ Wu
-    U, S, Vh = torch.linalg.svd(M, full_matrices=False)
+def svd_lr(W, rank):
+    """rank-r truncated SVD of W: returns A [r, in], B [out, r]."""
+    U, S, Vh = torch.linalg.svd(W, full_matrices=False)
     r = min(rank, S.shape[0])
     sq = S[:r].sqrt()
-    B = U[:, :r] * sq.unsqueeze(0)
-    A = sq.unsqueeze(1) * Vh[:r, :]
-    return A, B, M - B @ A
+    return sq.unsqueeze(1) * Vh[:r, :], U[:, :r] * sq.unsqueeze(0)
+
+
+@torch.no_grad()
+def build_slr(Wd, Wu, g_bar, rank):
+    """M = Wd diag(g_bar) Wu [h,h]; returns A, B, Rres = M - B A, M."""
+    M = (Wd * g_bar.unsqueeze(0)) @ Wu
+    A, B = svd_lr(M, rank)
+    return A, B, M - B @ A, M
 
 
 def sparse_comp(x, Rres, input_k):
-    """h(x) = Rres (m_x * x), m_x = per-token top-`input_k` of |x|.
-    x [N,h] fp32. input_k=0 -> zeros; input_k>=h -> exact Rres @ x."""
+    """h(x) = Rres (m_x * x), m_x = per-token top-`input_k` of |x|."""
     if input_k <= 0:
-        return torch.zeros_like(x)
+        return torch.zeros(x.shape[0], Rres.shape[0], dtype=x.dtype, device=x.device)
     if input_k >= x.shape[-1]:
         return x @ Rres.T
     idx = x.abs().topk(input_k, dim=-1).indices
@@ -98,8 +106,7 @@ def topk_mask(score, K):
 
 
 def solve_anchored(G, Ct, Theta0, lam):
-    """Theta = (Ct + lam*D*Theta0)(G + lam*D*I)^-1, D = mean(diag(G)).
-    G [p,p], Ct [h,p], Theta0 [h,p]. The refit C1 anchored ridge, verbatim."""
+    """Theta = (Ct + lam*D*Theta0)(G + lam*D*I)^-1, D = mean(diag(G))."""
     p = G.shape[0]
     D = torch.diagonal(G).mean()
     reg = G + lam * D * torch.eye(p, dtype=G.dtype, device=G.device)
@@ -108,25 +115,22 @@ def solve_anchored(G, Ct, Theta0, lam):
     return torch.cholesky_solve(rhs.T.contiguous(), L).T.contiguous()
 
 
-def r1_from_joint(G, Ct, Wd0, B0, lam):
-    """R1 (W_d only, B frozen at B0) from the JOINT Gram/corr:
-    target residual t - B0(Ax); normal eqs use G blocks."""
-    d = Wd0.shape[1]
-    C1 = Ct[:, :d] - B0 @ G[d:, :d]
-    return solve_anchored(G[:d, :d], C1, Wd0, lam)
+def sub_solve(G, Ct, p_sub, Theta0_sub, lam):
+    """Anchored solve restricted to the first p_sub feature dims of a
+    larger joint Gram (features are a prefix-block: exact, not approx)."""
+    return solve_anchored(G[:p_sub, :p_sub], Ct[:, :p_sub], Theta0_sub, lam)
 
 
 # ---------------------------------------------------------------- phases
 
 @torch.no_grad()
-def pass0_gbar(model, ids, act, dev, bs=1):
-    """Mean gate per layer over calibration."""
+def pass0_gbar(model, ids, act, dev):
     layers = model.model.layers
     sums = [None] * len(layers)
     cnt = 0
     hooks = []
 
-    def mk(li, mlp):
+    def mk(li):
         def h(mod, inp):
             x = inp[0].detach().float().squeeze(0)
             g = act(x @ mod.gate_proj.weight.detach().float().T)
@@ -134,7 +138,8 @@ def pass0_gbar(model, ids, act, dev, bs=1):
         return h
 
     for li, layer in enumerate(layers):
-        hooks.append(layer.mlp.register_forward_pre_hook(mk(li, layer.mlp)))
+        hooks.append(layer.mlp.register_forward_pre_hook(
+            lambda mod, inp, _h=mk(li): _h(mod, inp)))
     for i in range(ids.shape[0]):
         model(ids[i:i + 1].to(dev))
         cnt += ids.shape[1]
@@ -143,11 +148,20 @@ def pass0_gbar(model, ids, act, dev, bs=1):
     return [s / cnt for s in sums]
 
 
+def _alloc(acc, key, p, h, dev):
+    if key not in acc:
+        acc[key] = (torch.zeros(p, p, dtype=torch.float32, device=dev),
+                    torch.zeros(h, p, dtype=torch.float32, device=dev))
+    return acc[key]
+
+
 @torch.no_grad()
-def build_grams(model, ids, act, dev, g_bars, factors, s_list, layer_slice):
-    """One calibration sweep accumulating, for each layer in layer_slice and
-    each s: G = sum(phi phi^T) [(d+r),(d+r)], Ct = sum(t phi^T) [h,(d+r)],
-    phi = [m*r ; A x], t = y* - h(x). Returns {(li,s): (G,Ct)}."""
+def build_grams(model, ids, act, dev, ctx, s_list, r5_s, fams, layer_slice, input_k):
+    """One calibration sweep over `layer_slice`, accumulating per (li, s):
+    famA: phi = [m*r ; A x ; (1-m)*(ghat*uhat)], t = y* - h(x)
+    famB: phi = [m*r ; x],                        t = y*
+    famC: phi = m_i * i (plain |i| top-K, s in r5_s), t = y*
+    In-place accumulation; Grams live on GPU only for this slice."""
     layers = model.model.layers
     acc = {}
     hooks = []
@@ -155,34 +169,52 @@ def build_grams(model, ids, act, dev, g_bars, factors, s_list, layer_slice):
     def mk(li):
         mlp = layers[li].mlp
         Wg, Wu, Wd = layer_tensors(mlp)
-        gb = g_bars[li]
-        A, B, Rres = [t.to(Wd.device) for t in factors[li]]  # factors live on CPU
-        cn = Wd.pow(2).sum(0).sqrt()          # original col norms (gauge)
+        gb = ctx["g_bars"][li]
+        A, B, Rres, _ = [t.to(Wd.device) for t in ctx["slr"][li]]
+        cn = Wd.pow(2).sum(0).sqrt()
         d = Wd.shape[1]
+        hdim = Wd.shape[0]
+        if "A" in fams:
+            Ag, Bg, Au, Bu = [t.to(Wd.device) for t in ctx["sk"][li]]
 
         def h(mod, inp):
-            x = inp[0].detach().float().squeeze(0)          # N x h
+            x = inp[0].detach().float().squeeze(0)
             g = act(x @ Wg.T)
             u = x @ Wu.T
+            i_full = u * g
             r = u * (g - gb)
-            ystar = (u * g) @ Wd.T                          # dense teacher
-            t = ystar - sparse_comp(x, Rres, ARGS.input_k)
-            ax = x @ A.T                                    # N x rank
+            ystar = i_full @ Wd.T
             score = r.abs() * cn
-            del g, u, ystar
-            for s in s_list:
-                K = int(round((1 - s) * d))
-                m = topk_mask(score, K)
-                phi = torch.cat([r * m, ax], dim=-1)        # N x (d+rank)
-                key = (li, s)
-                if key not in acc:
-                    p = phi.shape[-1]
-                    acc[key] = (torch.zeros(p, p, dtype=torch.float32, device=phi.device),
-                                torch.zeros(t.shape[-1], p, dtype=torch.float32, device=phi.device))
-                G, Ct = acc[key]
-                G.add_(phi.T @ phi)                          # in-place: no double buffer
-                Ct.add_(t.T @ phi)
-                del phi, m
+            if "A" in fams or "B" in fams:
+                for s in s_list:
+                    m = topk_mask(score, int(round((1 - s) * d)))
+                    mr = r * m
+                    if "A" in fams:
+                        ghat = act((x @ Ag.T) @ Bg.T)
+                        uhat = (x @ Au.T) @ Bu.T
+                        tail = (ghat * uhat).mul_((~m).float())
+                        phi = torch.cat([mr, x @ A.T, tail], dim=-1)
+                        t = ystar - sparse_comp(x, Rres, input_k)
+                        G, Ct = _alloc(acc, ("A", li, s), phi.shape[-1], hdim, x.device)
+                        G.add_(phi.T @ phi)
+                        Ct.add_(t.T @ phi)
+                        del phi, t, tail, ghat, uhat
+                    if "B" in fams:
+                        phi = torch.cat([mr, x], dim=-1)
+                        G, Ct = _alloc(acc, ("B", li, s), phi.shape[-1], hdim, x.device)
+                        G.add_(phi.T @ phi)
+                        Ct.add_(ystar.T @ phi)
+                        del phi
+                    del m, mr
+            if "C" in fams:
+                score_i = i_full.abs()          # TIS protocol: plain |i|
+                for s in r5_s:
+                    m = topk_mask(score_i, int(round((1 - s) * d)))
+                    phi = i_full * m
+                    G, Ct = _alloc(acc, ("C", li, s), d, hdim, x.device)
+                    G.add_(phi.T @ phi)
+                    Ct.add_(ystar.T @ phi)
+                    del phi, m
         return h
 
     for li in layer_slice:
@@ -193,19 +225,6 @@ def build_grams(model, ids, act, dev, g_bars, factors, s_list, layer_slice):
     for h in hooks:
         h.remove()
     return acc
-
-
-def patched_forward_factory(mlp, gb, A, B, Rres, cn, K, Wd_use, B_use, input_k, act, sp_log):
-    def fwd(x_in):
-        x = x_in.detach().float().squeeze(0) if x_in.dim() == 3 else x_in.float()
-        g = act(x @ mlp._fus_Wg.T)
-        u = x @ mlp._fus_Wu.T
-        r = u * (g - gb)
-        m = topk_mask(r.abs() * cn, K)
-        sp_log.append(1.0 - m.float().mean().item())
-        y = (r * m) @ Wd_use.T + (x @ A.T) @ B_use.T + sparse_comp(x, Rres, input_k)
-        return y.to(x_in.dtype).view_as(x_in) if x_in.dim() == 3 else y.to(x_in.dtype)
-    return fwd
 
 
 @torch.no_grad()
@@ -223,63 +242,75 @@ def eval_ppl(model, ids, dev):
 
 def selftest():
     torch.manual_seed(0)
-    h, d, r, N = 12, 32, 4, 256
+    h, d, r, N = 12, 32, 4, 512
     Wg, Wu = torch.randn(d, h) / math.sqrt(h), torch.randn(d, h) / math.sqrt(h)
     Wd = torch.randn(h, d) / math.sqrt(d)
     X = torch.randn(N, h)
     act = torch.nn.functional.silu
     g = act(X @ Wg.T)
     gb = g.mean(0)
-    A, B, Rres = build_slr(Wd, Wu, gb, r)
+    A, B, Rres, M = build_slr(Wd, Wu, gb, r)
     # 1) full sparse correction => B A x + Rres x == M x exactly
-    M = (Wd * gb.unsqueeze(0)) @ Wu
     comp = (X @ A.T) @ B.T + sparse_comp(X, Rres, h)
-    assert (comp - X @ M.T).norm() / (X @ M.T).norm() < 1e-4, "identity M split"
-    # 2) joint anchored solve at huge lam recovers originals (R2 ~ R0)
+    assert (comp - X @ M.T).norm() / (X @ M.T).norm() < 1e-4, "M split identity"
     u = X @ Wu.T
     rr = u * (g - gb)
+    i_full = u * g
     m = topk_mask(rr.abs() * Wd.pow(2).sum(0).sqrt(), d // 4)
-    phi = torch.cat([rr * m, X @ A.T], -1)
-    t = (u * g) @ Wd.T - sparse_comp(X, Rres, 2)
-    G, Ct = phi.T @ phi, t.T @ phi
-    Th0 = torch.cat([Wd, B], -1)
-    Th = solve_anchored(G, Ct, Th0, 1e6)
-    assert (Th - Th0).norm() / Th0.norm() < 1e-3, "anchor recovery"
-    # 3) lam=0.01 joint solve strictly reduces in-sample error vs originals
-    e0 = (t - phi @ Th0.T).norm()
-    Th2 = solve_anchored(G, Ct, Th0, 0.01)
-    e2 = (t - phi @ Th2.T).norm()
-    assert e2 < e0, f"in-sample error must drop ({e2:.4f} vs {e0:.4f})"
-    # 4) R1 sub-solve == direct W_d-only anchored solve
-    W1 = r1_from_joint(G, Ct, Wd, B, 0.01)
-    d_ = d
-    C1 = (t - (X @ A.T) @ B.T).T @ phi[:, :d_]
-    W1d = solve_anchored(G[:d_, :d_], C1, Wd, 0.01)
-    assert (W1 - W1d).norm() / W1d.norm() < 1e-4, "R1 Schur sub-solve"
+    ystar = i_full @ Wd.T
+    # 2) famA sub-block == direct r2 solve
+    Agk, Bgk = svd_lr(Wg, d)   # full-rank sketch
+    Auk, Buk = svd_lr(Wu, d)
+    ghat = act((X @ Agk.T) @ Bgk.T)
+    uhat = (X @ Auk.T) @ Buk.T
+    tail = (ghat * uhat) * (~m).float()
+    phiA = torch.cat([rr * m, X @ A.T, tail], -1)
+    tA = ystar - sparse_comp(X, Rres, 2)
+    GA, CtA = phiA.T @ phiA, tA.T @ phiA
+    Th0_2 = torch.cat([Wd, B], -1)
+    direct2 = solve_anchored(torch.cat([rr * m, X @ A.T], -1).T @ torch.cat([rr * m, X @ A.T], -1),
+                             tA.T @ torch.cat([rr * m, X @ A.T], -1), Th0_2, 0.01)
+    sub2 = sub_solve(GA, CtA, d + r, Th0_2, 0.01)
+    assert (sub2 - direct2).norm() / direct2.norm() < 1e-4, "famA sub-block == r2"
+    # 3) full-rank sketch tail == exact dropped intermediate
+    assert (tail - i_full * (~m).float()).norm() / i_full.norm() < 1e-4, "sketch tail exact at full rank"
+    # 4) r3trunc at rank=h, input_k=h reproduces r3full outputs
+    phiB = torch.cat([rr * m, X], -1)
+    ThB = solve_anchored(phiB.T @ phiB, ystar.T @ phiB, torch.cat([Wd, M], -1), 0.01)
+    Wd3, T = ThB[:, :d], ThB[:, d:]
+    A3, B3 = svd_lr(T, h)
+    R3 = T - B3 @ A3
+    yfull = (rr * m) @ Wd3.T + X @ T.T
+    ytrunc = (rr * m) @ Wd3.T + (X @ A3.T) @ B3.T + sparse_comp(X, R3, h)
+    assert (yfull - ytrunc).norm() / yfull.norm() < 1e-4, "r3trunc==r3full at full rank"
+    # 5) anchored solve reduces in-sample error; huge lam recovers anchors
+    e0 = (tA - phiA @ torch.cat([Wd, B, Wd], -1).T).norm()
+    ThA = solve_anchored(GA, CtA, torch.cat([Wd, B, Wd], -1), 0.01)
+    assert (tA - phiA @ ThA.T).norm() < e0, "in-sample error must drop"
+    ThInf = solve_anchored(GA, CtA, torch.cat([Wd, B, Wd], -1), 1e7)
+    assert (ThInf - torch.cat([Wd, B, Wd], -1)).norm() / ThInf.norm() < 1e-3, "anchor recovery"
     print("selftest OK")
 
 
 # ---------------------------------------------------------------- main
 
-ARGS = None
-
-
 def main():
-    global ARGS
     ap = argparse.ArgumentParser()
     ap.add_argument("--model_name", default="/raid/LLM/llama2-7b")
     ap.add_argument("--rank", type=int, default=256)
     ap.add_argument("--input_k", type=int, default=1536)
-    ap.add_argument("--s_list", default="0.5,0.7,0.9")
+    ap.add_argument("--r_sk", type=int, default=0, help="sketch rank for r4 (0 -> d//8)")
+    ap.add_argument("--s_list", default="0.7,0.9")
+    ap.add_argument("--r5_s", default="0.85,0.9")
     ap.add_argument("--lambdas", default="0.1")
     ap.add_argument("--calib_seqs", type=int, default=128)
     ap.add_argument("--seqlen", type=int, default=2048)
-    ap.add_argument("--layers_per_pass", type=int, default=4)
-    ap.add_argument("--arms", default="dense,r0,r1,r2")
+    ap.add_argument("--layers_per_pass", type=int, default=1)
+    ap.add_argument("--arms", default="r3full,r3trunc,r4,r5")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", default=None)
     ap.add_argument("--selftest", action="store_true")
-    ARGS = args = ap.parse_args()
+    args = ap.parse_args()
     if args.selftest:
         selftest()
         return
@@ -287,54 +318,85 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     dev = args.device
     s_list = [float(v) for v in args.s_list.split(",")]
+    r5_s = [float(v) for v in args.r5_s.split(",")]
     lambdas = [float(v) for v in args.lambdas.split(",")]
     arms = args.arms.split(",")
+    fams = set()
+    if {"r2", "r4"} & set(arms):
+        fams.add("A")
+    if {"r3full", "r3trunc"} & set(arms):
+        fams.add("B")
+    if "r5" in arms:
+        fams.add("C")
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.model_name)
     calib = token_stream(tok, "wikitext", "wikitext-103-raw-v1", "train",
                          args.calib_seqs, args.seqlen)
-    test = token_stream(tok, "wikitext", "wikitext-2-raw-v1", "test",
-                        166, args.seqlen)
+    test = token_stream(tok, "wikitext", "wikitext-2-raw-v1", "test", 166, args.seqlen)
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name, torch_dtype=torch.bfloat16, attn_implementation="sdpa")
     model.to(dev).eval()
     act = torch.nn.functional.silu
     layers = model.model.layers
     L = len(layers)
+    d = layers[0].mlp.up_proj.weight.shape[0]
+    r_sk = args.r_sk if args.r_sk > 0 else d // 8
 
     log("pass 0: g_bar...")
     g_bars = pass0_gbar(model, calib, act, dev)
-    log("factors (SVD per layer)...")
-    factors = {}
+    log(f"factors (SLR rank={args.rank}, sketches r_sk={r_sk})...")
+    ctx = {"g_bars": g_bars, "slr": {}, "sk": {}}
     with torch.no_grad():
         for li, layer in enumerate(layers):
             Wg, Wu, Wd = layer_tensors(layer.mlp)
-            factors[li] = tuple(t.cpu() for t in build_slr(Wd, Wu, g_bars[li], args.rank))
+            ctx["slr"][li] = tuple(t.cpu() for t in build_slr(Wd, Wu, g_bars[li], args.rank))
+            if "A" in fams:
+                Ag, Bg = svd_lr(Wg, r_sk)
+                Au, Bu = svd_lr(Wu, r_sk)
+                ctx["sk"][li] = tuple(t.cpu() for t in (Ag, Bg, Au, Bu))
             torch.cuda.empty_cache()
 
-    solved = {}   # (li, s, lam, arm) -> (Wd_use, B_use)
-    log("build: joint Grams + anchored solves...")
+    solved = {}   # (arm, li, s, lam) -> CPU tensors tuple
+    log(f"build: fams={sorted(fams)} lpp={args.layers_per_pass}...")
     for start in range(0, L, args.layers_per_pass):
         sl = list(range(start, min(start + args.layers_per_pass, L)))
-        acc = build_grams(model, calib, act, dev, g_bars, factors, s_list, sl)
-        for (li, s), (G, Ct) in acc.items():
+        acc = build_grams(model, calib, act, dev, ctx, s_list, r5_s, fams, sl, args.input_k)
+        for (fam, li, s), (G, Ct) in acc.items():
             _, _, Wd = layer_tensors(layers[li].mlp)
-            A, B, Rres = [t.to(G.device) for t in factors[li]]
-            Th0 = torch.cat([Wd, B], -1)
-            d = Wd.shape[1]
             for lam in lambdas:
-                Th = solve_anchored(G, Ct, Th0, lam)
-                # solved weights live on CPU (32 layers x 3 s x 2 lam x ~184MB
-                # would exceed any GPU); moved back per-layer at eval time
-                solved[(li, s, lam, "r2")] = (Th[:, :d].cpu(), Th[:, d:].cpu())
-                solved[(li, s, lam, "r1")] = (r1_from_joint(G, Ct, Wd, B, lam).cpu(), B.cpu())
+                if fam == "A":
+                    A, B, _, _ = [t.to(dev) for t in ctx["slr"][li]]
+                    Th0 = torch.cat([Wd, B, Wd], -1)
+                    Th = solve_anchored(G, Ct, Th0, lam)
+                    solved[("r4", li, s, lam)] = tuple(
+                        t.cpu() for t in (Th[:, :d], Th[:, d:d + args.rank], Th[:, d + args.rank:]))
+                    sub = sub_solve(G, Ct, d + args.rank, torch.cat([Wd, B], -1), lam)
+                    solved[("r2", li, s, lam)] = (sub[:, :d].cpu(), sub[:, d:].cpu())
+                elif fam == "B":
+                    M = ctx["slr"][li][3].to(dev)
+                    Th = solve_anchored(G, Ct, torch.cat([Wd, M], -1), lam)
+                    Wd3, T = Th[:, :d], Th[:, d:]
+                    A3, B3 = svd_lr(T, args.rank)
+                    solved[("r3", li, s, lam)] = (Wd3.cpu(), T.cpu(), A3.cpu(),
+                                                  B3.cpu(), (T - B3 @ A3).cpu())
+                elif fam == "C":
+                    W5 = solve_anchored(G, Ct, Wd, lam)
+                    solved[("r5", li, s, lam)] = (W5.cpu(),)
         del acc
         torch.cuda.empty_cache()
         log(f"  layers {sl[0]}-{sl[-1]} solved")
 
-    results = {"args": vars(args), "git_commit": git_hash(), "runs": []}
+    results = {"args": vars(args), "git_commit": git_hash(), "r_sk": r_sk, "runs": []}
     orig_fwd = [layer.mlp.forward for layer in layers]
+
+    def wrap(mlp, body, sp_log):
+        def fwd(x_in):
+            x = x_in.detach().float().squeeze(0) if x_in.dim() == 3 else x_in.float()
+            y, sp = body(x)
+            sp_log.append(sp)
+            return y.to(x_in.dtype).view_as(x_in) if x_in.dim() == 3 else y.to(x_in.dtype)
+        return fwd
 
     def set_arm(arm, s, lam):
         torch.cuda.empty_cache()
@@ -342,25 +404,57 @@ def main():
         for li, layer in enumerate(layers):
             mlp = layer.mlp
             Wg, Wu, Wd = layer_tensors(mlp)
-            mlp._fus_Wg, mlp._fus_Wu = Wg, Wu
-            A, B, Rres = [t.to(Wd.device) for t in factors[li]]
+            gb = g_bars[li]
+            A, B, Rres, _ = [t.to(dev) for t in ctx["slr"][li]]
             cn = Wd.pow(2).sum(0).sqrt()
-            K = int(round((1 - s) * Wd.shape[1]))
-            Wd_use, B_use = (Wd, B) if arm == "r0" else tuple(
-                t.to(Wd.device) for t in solved[(li, s, lam, arm)])
-            mlp.forward = patched_forward_factory(
-                mlp, g_bars[li], A, B, Rres, cn, K, Wd_use, B_use,
-                args.input_k, act, sp_log)
+            K = int(round((1 - s) * d))
+
+            if arm == "r5":
+                (W5,) = [t.to(dev) for t in solved[("r5", li, s, lam)]]
+
+                def body(x, Wg=Wg, Wu=Wu, W5=W5, K=K):
+                    i_full = (x @ Wu.T) * act(x @ Wg.T)
+                    m = topk_mask(i_full.abs(), K)
+                    return (i_full * m) @ W5.T, 1.0 - m.float().mean().item()
+            elif arm in ("r3full", "r3trunc"):
+                Wd3, T, A3, B3, R3 = [t.to(dev) for t in solved[("r3", li, s, lam)]]
+
+                def body(x, Wg=Wg, Wu=Wu, gb=gb, cn=cn, K=K, Wd3=Wd3, T=T,
+                         A3=A3, B3=B3, R3=R3, full=(arm == "r3full")):
+                    g_ = act(x @ Wg.T)
+                    r_ = (x @ Wu.T) * (g_ - gb)
+                    m = topk_mask(r_.abs() * cn, K)
+                    base = (r_ * m) @ Wd3.T
+                    comp = x @ T.T if full else \
+                        (x @ A3.T) @ B3.T + sparse_comp(x, R3, args.input_k)
+                    return base + comp, 1.0 - m.float().mean().item()
+            else:  # r2 / r4
+                if arm == "r2":
+                    Wdu, Bu_ = [t.to(dev) for t in solved[("r2", li, s, lam)]]
+                    Wtail = Ag = Bg = Au = Buu = None
+                else:
+                    Wdu, Bu_, Wtail = [t.to(dev) for t in solved[("r4", li, s, lam)]]
+                    Ag, Bg, Au, Buu = [t.to(dev) for t in ctx["sk"][li]]
+
+                def body(x, Wg=Wg, Wu=Wu, gb=gb, cn=cn, K=K, A=A, Rres=Rres,
+                         Wdu=Wdu, Bu_=Bu_, Wtail=Wtail, Ag=Ag, Bg=Bg, Au=Au, Buu=Buu):
+                    g_ = act(x @ Wg.T)
+                    r_ = (x @ Wu.T) * (g_ - gb)
+                    m = topk_mask(r_.abs() * cn, K)
+                    y = (r_ * m) @ Wdu.T + (x @ A.T) @ Bu_.T + sparse_comp(x, Rres, args.input_k)
+                    if Wtail is not None:
+                        ghat = act((x @ Ag.T) @ Bg.T)
+                        uhat = (x @ Au.T) @ Buu.T
+                        y = y + ((ghat * uhat) * (~m).float()) @ Wtail.T
+                    return y, 1.0 - m.float().mean().item()
+
+            mlp.forward = wrap(mlp, body, sp_log)
         return sp_log
 
-    if "dense" in arms:
-        ppl = eval_ppl(model, test, dev)
-        results["runs"].append({"arm": "dense", "ppl": ppl})
-        log(f"dense: PPL {ppl:.4f}")
-
-    for s in s_list:
-        for arm in [a for a in arms if a != "dense"]:
-            for lam in (lambdas if arm in ("r1", "r2") else [None]):
+    for arm in arms:
+        ss = r5_s if arm == "r5" else s_list
+        for s in ss:
+            for lam in lambdas:
                 sp_log = set_arm(arm, s, lam)
                 ppl = eval_ppl(model, test, dev)
                 for layer, f in zip(layers, orig_fwd):
@@ -369,7 +463,7 @@ def main():
                        "achieved_sparsity": sum(sp_log) / max(len(sp_log), 1)}
                 results["runs"].append(rec)
                 log(f"{arm} s={s} lam={lam}: PPL {ppl:.4f} (sp {rec['achieved_sparsity']:.4f})")
-                with open(os.path.join(args.out, "fusion_results.json"), "w") as f:
+                with open(os.path.join(args.out, "fusion3_results.json"), "w") as f:
                     json.dump(results, f, indent=2)
     log("done.")
 
