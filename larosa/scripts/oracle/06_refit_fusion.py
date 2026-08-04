@@ -156,7 +156,7 @@ def build_grams(model, ids, act, dev, g_bars, factors, s_list, layer_slice):
         mlp = layers[li].mlp
         Wg, Wu, Wd = layer_tensors(mlp)
         gb = g_bars[li]
-        A, B, Rres = factors[li]
+        A, B, Rres = [t.to(Wd.device) for t in factors[li]]  # factors live on CPU
         cn = Wd.pow(2).sum(0).sqrt()          # original col norms (gauge)
         d = Wd.shape[1]
 
@@ -169,13 +169,20 @@ def build_grams(model, ids, act, dev, g_bars, factors, s_list, layer_slice):
             t = ystar - sparse_comp(x, Rres, ARGS.input_k)
             ax = x @ A.T                                    # N x rank
             score = r.abs() * cn
+            del g, u, ystar
             for s in s_list:
                 K = int(round((1 - s) * d))
                 m = topk_mask(score, K)
                 phi = torch.cat([r * m, ax], dim=-1)        # N x (d+rank)
                 key = (li, s)
-                G, Ct = acc.get(key, (0.0, 0.0))
-                acc[key] = (G + phi.T @ phi, Ct + t.T @ phi)
+                if key not in acc:
+                    p = phi.shape[-1]
+                    acc[key] = (torch.zeros(p, p, dtype=torch.float32, device=phi.device),
+                                torch.zeros(t.shape[-1], p, dtype=torch.float32, device=phi.device))
+                G, Ct = acc[key]
+                G.add_(phi.T @ phi)                          # in-place: no double buffer
+                Ct.add_(t.T @ phi)
+                del phi, m
         return h
 
     for li in layer_slice:
@@ -303,7 +310,8 @@ def main():
     with torch.no_grad():
         for li, layer in enumerate(layers):
             Wg, Wu, Wd = layer_tensors(layer.mlp)
-            factors[li] = build_slr(Wd, Wu, g_bars[li], args.rank)
+            factors[li] = tuple(t.cpu() for t in build_slr(Wd, Wu, g_bars[li], args.rank))
+            torch.cuda.empty_cache()
 
     solved = {}   # (li, s, lam, arm) -> (Wd_use, B_use)
     log("build: joint Grams + anchored solves...")
@@ -312,13 +320,15 @@ def main():
         acc = build_grams(model, calib, act, dev, g_bars, factors, s_list, sl)
         for (li, s), (G, Ct) in acc.items():
             _, _, Wd = layer_tensors(layers[li].mlp)
-            A, B, Rres = factors[li]
+            A, B, Rres = [t.to(G.device) for t in factors[li]]
             Th0 = torch.cat([Wd, B], -1)
             d = Wd.shape[1]
             for lam in lambdas:
                 Th = solve_anchored(G, Ct, Th0, lam)
-                solved[(li, s, lam, "r2")] = (Th[:, :d].contiguous(), Th[:, d:].contiguous())
-                solved[(li, s, lam, "r1")] = (r1_from_joint(G, Ct, Wd, B, lam), B)
+                # solved weights live on CPU (32 layers x 3 s x 2 lam x ~184MB
+                # would exceed any GPU); moved back per-layer at eval time
+                solved[(li, s, lam, "r2")] = (Th[:, :d].cpu(), Th[:, d:].cpu())
+                solved[(li, s, lam, "r1")] = (r1_from_joint(G, Ct, Wd, B, lam).cpu(), B.cpu())
         del acc
         torch.cuda.empty_cache()
         log(f"  layers {sl[0]}-{sl[-1]} solved")
@@ -327,15 +337,17 @@ def main():
     orig_fwd = [layer.mlp.forward for layer in layers]
 
     def set_arm(arm, s, lam):
+        torch.cuda.empty_cache()
         sp_log = []
         for li, layer in enumerate(layers):
             mlp = layer.mlp
             Wg, Wu, Wd = layer_tensors(mlp)
             mlp._fus_Wg, mlp._fus_Wu = Wg, Wu
-            A, B, Rres = factors[li]
+            A, B, Rres = [t.to(Wd.device) for t in factors[li]]
             cn = Wd.pow(2).sum(0).sqrt()
             K = int(round((1 - s) * Wd.shape[1]))
-            Wd_use, B_use = (Wd, B) if arm == "r0" else solved[(li, s, lam, arm)]
+            Wd_use, B_use = (Wd, B) if arm == "r0" else tuple(
+                t.to(Wd.device) for t in solved[(li, s, lam, arm)])
             mlp.forward = patched_forward_factory(
                 mlp, g_bars[li], A, B, Rres, cn, K, Wd_use, B_use,
                 args.input_k, act, sp_log)
