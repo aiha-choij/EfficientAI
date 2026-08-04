@@ -318,6 +318,72 @@ def test_8_oracle_avg_formula(model):
     print(f"PASS oracle_avg full-keep == dense: max diff {diff_dense:.2e}")
 
 
+def _load_e0_driver():
+    """scripts/gcrefit/01_run_e0.py starts with digits -- not a valid module
+    name for a plain `import` -- load it by path instead."""
+    import importlib.util
+    driver_path = os.path.join(parent_dir, "scripts", "gcrefit", "01_run_e0.py")
+    spec = importlib.util.spec_from_file_location("gcrefit_e0_driver", driver_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_9_full_part1_pipeline_smoke(model):
+    """End-to-end smoke test of run_part1_core (mu-collect -> balanced
+    clustering -> chunked marginal/cluster (G,C) accumulation -> solve ->
+    sanity check -> held-out mu-collect -> nearest-centroid assignment ->
+    chunked cross-eval -> heterogeneity-gain report) against the tiny
+    synthetic model, with layers_budget_gb forced tiny so BOTH the marginal
+    (mult=1) and cluster-split (mult=2) accumulation passes are actually
+    exercised as multi-chunk sweeps (num_layers=2 layers, forced
+    layers_per_pass=1 -> 2 chunks each) -- this is the orchestration logic
+    that isn't covered by the smaller unit tests above, and is exactly what
+    the real LLaMA2-7B run also does (just at a much bigger layers_per_pass).
+    Only checks that the pipeline runs to completion and produces
+    self-consistent, well-formed output -- not that any particular
+    heterogeneity-gain number comes out (this is random tiny synthetic
+    data, no expected signal)."""
+    import argparse
+    import tempfile
+
+    driver = _load_e0_driver()
+    to_gc_refit(model, g=4)
+    B, m_keep = 8, 3
+    attach_synthetic_partitions(model, B, m_keep)
+
+    torch.manual_seed(42)
+    seqlen, fit_n, held_n = 16, 6, 2
+    fit_tokens = torch.randint(0, VOCAB, (fit_n, seqlen))
+    held_tokens = torch.randint(0, VOCAB, (held_n, seqlen))
+
+    out_dir = tempfile.mkdtemp(prefix="gcrefit_e0_smoke_")
+    args = argparse.Namespace(
+        model_name="dummy", dataset="c4", nsamples=fit_n + held_n, seqlen=seqlen,
+        fit_n=fit_n, held_n=held_n, seed=0, g=4, B=B, sparsity=0.9,
+        lambdas=[0.01, 0.1], partitions="dummy", stats_dir="dummy",
+        out_dir=out_dir, layers_budget_gb=1e-6,  # forces layers_per_pass=1
+    )
+    out = driver.run_part1_core(model, fit_tokens, held_tokens, torch.device("cpu"),
+                                args, m_keep=m_keep, K=m_keep * B, tok_path="dummy")
+
+    assert os.path.exists(os.path.join(out_dir, "part1_e0_report.json"))
+    assert os.path.exists(os.path.join(out_dir, "part1_clusters.pt"))
+    for lam_str in ("0.01", "0.1"):
+        assert lam_str in out["part1"], f"missing lambda={lam_str} in report"
+        per_layer = out["part1"][lam_str]["per_layer"]
+        assert set(per_layer.keys()) == {0, 1}, f"expected 2 layers, got {set(per_layer.keys())}"
+        for li, row in per_layer.items():
+            n0, n1 = row["held_out_count"][0], row["held_out_count"][1]
+            assert n0 + n1 == held_n * seqlen, \
+                f"layer {li}: held-out token count {n0}+{n1} != {held_n * seqlen}"
+            for key in ("M00", "M01", "M10", "M11", "Mmarg0", "Mmarg1"):
+                assert row[key] >= 0, f"layer {li} {key}: negative MSE {row[key]}"
+        assert out["sanity"][lam_str]["ok"], f"lambda={lam_str}: ridge sanity violated -- {out['sanity'][lam_str]}"
+    print(f"PASS full Part1 pipeline smoke test: 2 layers x 2 lambdas, chunked (layers_per_pass=1), "
+          f"outputs written to {out_dir}, sanity OK for both lambdas")
+
+
 if __name__ == "__main__":
     model = build_model()
     test_1_mu_mask_consistency(model)
@@ -327,5 +393,6 @@ if __name__ == "__main__":
     test_5_collect_a_b_agree(build_model())
     test_6_closed_form_mse_matches_bruteforce()
     test_7_ridge_never_worse_than_anchor()
+    test_9_full_part1_pipeline_smoke(build_model())
     test_8_oracle_avg_formula(build_model())
     print("ALL GC-REFIT UNIT TESTS PASSED")
