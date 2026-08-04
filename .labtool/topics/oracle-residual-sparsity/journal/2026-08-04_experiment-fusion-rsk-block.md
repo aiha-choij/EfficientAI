@@ -113,3 +113,12 @@ i.e. the share of the m0-to-per-token-anchor log-PPL gap closed.
   compensation — compensation grows in importance as the tax grows.
 
 ### Interpretation
+(user-confirmed 2026-08-04) In the block-shared regime refit alone is
+nearly inert, but the token-wise estimate features recover 98% of the
+sharing tax in log-PPL (6.266 at g=16, within +5.4% of the per-token
+anchor) — the quality side of the group-sparsity problem is effectively
+solved by the refit x sketch fusion. The single remaining problem is the
+deployable form: post-hoc SVD truncation of the learned tail map loses
+most of the gain, so the tail map must be learned low-rank from the
+start (alternating least squares on the factored form), which is the
+next experiment (approved in the same message).
