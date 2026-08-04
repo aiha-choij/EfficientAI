@@ -66,5 +66,43 @@ pre-registered gate (spec §8 A1) for building GC-refit at all.
   negative E0).
 
 ### Results
+Source artifacts: gateway report `~/workspace/reports/20260804-171529-gc-refit-e0.md`
+(final, status DONE 2026-08-04 21:40), `~/workspace/gcrefit/llama2-7b/
+part1_e0_report.json`, `part2_oracle_blockavg.json` (git `06f4056`);
+code in PR #4 (branch `auto/group-conditional-refit`, 3 commits).
+
+**Part 1 (heterogeneity gate)** — LLaMA2-7B, 32 layers, fit-set clusters
+exactly 28672/28672 balanced, sanity (closed-form MSE ≤ anchor MSE)
+0 violations at both λ:
+
+| λ | median gain (cross/within − 1) | mean | pre-registered verdict |
+|---|---|---|---|
+| 0.01 | 8.14% | 8.40% | grey zone (5–15%) |
+| 0.1 | 4.78% | 4.95% | negative (<5%) |
+
+Only 1/32 layers exceeds the 15% positive threshold at λ=0.01 (layer 0,
+17.52%); none at λ=0.1. Gain roughly halves when λ goes 0.01→0.1 —
+direction consistent with the λ=0.01 gain being partly a small-sample
+overfit artifact (not confirmed; would need larger fit-set / dense λ
+sweep). within-vs-marginal improvement is mostly NEGATIVE (cluster-
+conditional solutions usually worse than the pooled marginal solution
+on held-out). Caveat: held-out nearest-centroid assignment is heavily
+imbalanced on some layers (e.g. layer 26: 4,832 vs 126,240 tokens), so
+minority-cluster MSEs are noisy; does not change the qualitative verdict.
+
+**Part 2 (oracle block-mean compensation)** — PPL **1590.13**
+(g=16, B=64, achieved s_block=0.9012) vs C8a 37.17 / C8 48.89 /
+C7 4952.39 / C7a 6874.22 (same setting, residual score). On log scale
+the result sits ~72% of the way toward the no-compensation end →
+the dropped signal is dominated by token-specific components; block-mean
+sharing of even the EXACT dropped contribution is far from sufficient.
+Block-local mean does beat the global mean gate (C7) by 3.1× — real but
+practically insufficient.
+
+**Infra findings by the agent during the run** (report §infra): dispatcher
+tmux was stalled (restarted by the agent after verifying other users'
+jobs are isolated); MINFREE=40 can never be satisfied on 40 GiB cards
+(40959 MiB free < 40960 — submitted with -m 39); one unreproduced
+duplicate-pending anomaly during the stall window.
 
 ### Interpretation

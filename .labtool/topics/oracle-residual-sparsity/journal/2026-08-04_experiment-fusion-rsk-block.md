@@ -62,5 +62,54 @@ ceiling, but ~0.80x-of-dense-FFN measured compute):
   mask uniformity, per-token K preservation under sharing.
 
 ### Results
+Both jobs STATUS=ok (runs 20260804-214822 / -214824; artifacts
+~/workspace/fusion/llama2-7b-{rsk,g16}/fusion3_results.json).
+
+**(1) rsk-sweep (g=1, s=0.9; references: r4@d/8=5.946, R2=6.195,
+linear ceiling=6.150, dense=5.474):**
+
+| arm | r_sk=344 (d/32) | r_sk=688 (d/16) | r_sk=1376 (d/8, prior round) |
+|---|---|---|---|
+| r4 (full learned tail map) | 6.168 | 6.099 | 5.946 |
+| r4trunc (tail map truncated to r_sk) | 6.532 | 6.434 | (not run) |
+
+- r4 degrades gracefully with rank (5.946 -> 6.099 -> 6.168); at d/16 it
+  still sits below the linear ceiling (6.099 < 6.150) — the nonlinear
+  gain survives half-rank sketches.
+- r4trunc is the bad news: post-hoc truncation of the LEARNED tail
+  output map destroys most of the gain (6.43-6.53, worse than R2 6.195
+  at ~2.4x R2's compute). The nonlinear benefit does not live in a
+  low-rank subspace of W_tail that plain SVD can find after the fact.
+  Deployable-form design is now the open engineering problem (candidates:
+  factored/bilinear learning of the tail map, C8-style shared down-sketch
+  with learned scaling).
+
+**(2) block-g16 (token-block-shared masks, g=16, s=0.9, LLaMA2-7B;
+per-token anchors: r4 g=1 = 5.946, R2 g=1 = 6.195):**
+
+| arm | PPL | log-PPL share of the sharing tax recovered* |
+|---|---|---|
+| m0 (block mask only, no comp/refit) | 84.47 | 0% (control) |
+| r5 (plain-magnitude mask + refit) | 14.44 | 66.6% |
+| r0 (SLR comp, no refit) | 11.55 | 75.1% |
+| r2 (SLR + refit) | 11.40 | 75.6% |
+| r4trunc (sketch-tail, truncated map, r_sk=d/8) | 7.238 | 92.6% |
+| **r4 (sketch-tail features, full map)** | **6.266** | **98.0%** |
+
+*recovery = 1 - [ln(PPL_arm) - ln(5.946)] / [ln(84.47) - ln(5.946)],
+i.e. the share of the m0-to-per-token-anchor log-PPL gap closed.
+
+- Headline: in the block regime REFIT ALONE BARELY HELPS (r0 11.55 ->
+  r2 11.40, -1.3%, vs -8.6% at g=1) but the token-wise sketch features
+  are decisive (11.40 -> 6.266, -45%): with them, 16-token-shared masks
+  land within +5.4% PPL of the per-token r4 anchor. This is the
+  sharing-tax mechanism confirmed at the fusion level — the tax IS
+  token-idiosyncratic gate information, which only a per-token
+  (nonlinear) estimate can restore; static/linear repairs saturate near
+  75%.
+- Even the deployable truncated form (7.238, ~0.39 compute) beats every
+  linear block arm by a wide margin.
+- r5 < r0: in the block regime, plain-mask+refit loses to unrefit
+  compensation — compensation grows in importance as the tax grows.
 
 ### Interpretation
