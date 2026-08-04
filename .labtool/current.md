@@ -3,7 +3,7 @@
 ## Active Topics
 | topic | status | one-liner |
 |---|---|---|
-| oracle-residual-sparsity | ⏸ paused | Mean-gate residual + Mx compensation: SLR best fixed-s form (6.94 @ s=0.9, +6.2%), but frontier-dominated by TIS at lower s — wrapped 2026-07-28, reopen criteria in gist |
+| oracle-residual-sparsity | 🟢 reopened | Mean-gate residual + Mx compensation: SLR best fixed-s form (6.94 @ s=0.9, +6.2%), but frontier-dominated by TIS at lower s — wrapped 2026-07-28, reopen criteria in gist |
 | coactivation-block-structure | 🟢 active | Neuron permutation via co-activation clustering to make group-shared Top-K masks block-structured (P1 stats → P2 clustering → P3 oracle PPL) |
 | larosa-intermediate-sparsity | ✅ done | Per-token Top-K on i=u⊙g confirmed on LLaMA2-7B (50% → +0.047 PPL); closed by pivot, 3-model ext in backlog |
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
@@ -56,6 +56,9 @@ topics/oracle-residual-sparsity/journal/2026-07-28_pivot-wrapup-compensation-lin
 3. larosa-intermediate-sparsity backlog: 3-model Top-K PPL extension.
 
 ## Latest
+- 2026-08-04: oracle-residual-sparsity REOPENED — MGR x refit fusion
+  (zero-cost lever changes the frontier accounting); job
+  050-20260804-121113 submitted, card journal/2026-08-04_reopen-refit-fusion.md
 - 2026-07-31: flocking-poc-l16 SUBMITTED (050-20260731-171738, a6000-4,
   tag exp/2026-07-31_flocking-poc-l16) — first groupwise-flocking-tuning
   experiment; design Q1-2 resolved (IRLS + limited W_up update, design A).
