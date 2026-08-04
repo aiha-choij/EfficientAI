@@ -114,8 +114,11 @@ Round 2's fusion gain was dominated by the W_d refit (joint B-refit added
     the closed form — but only in the high-sparsity regime (s=0.7 neutral),
     repeating the house pattern.
   - Frontier accounting (FFN-compute fractions: TIS@0.85 = 0.15; SLR-path
-    r2@0.9 ~ 0.162; r4 adds the sketch path 2*r_sk*(h+d)/(3hd) = +0.307 ->
-    ~0.47): (a) at SLR-level compute the fair contest is a TIE — r5@0.85
+    r2@0.9 ~ 0.162; r4 adds the sketch path 2*r_sk*(h+d)/(3hd) = +0.307
+    AND — CORRECTION 2026-08-04, initially omitted — the dense W_tail
+    [h x d] multiply, +hd/(3hd) = +0.333: as-measured r4 ~ 0.80, or ~0.62
+    with a C8-style sketched tail output; the 0.47 figure first reported
+    was an undercount): (a) at SLR-level compute the fair contest is a TIE — r5@0.85
     6.1830 vs r2@0.9 6.1954; refit lifts both sides almost equally, E-W0's
     "TIS strictly dominates" softens to parity. (b) r4's PPL win is NOT a
     FLOP-frontier win: at matched ~0.47 compute, refit-TIS at s~0.5 (~5.5)
