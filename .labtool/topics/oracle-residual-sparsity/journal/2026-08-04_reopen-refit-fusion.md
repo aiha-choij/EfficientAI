@@ -77,5 +77,18 @@ result).
   before any GPU time was spent.
 
 ### Results
+- Round 1 (050-20260804-121113): FAILED — CUDA OOM during Gram
+  accumulation (log tail in runs dir). Three compounding memory design
+  errors, all fixed in commit 3cc64e6: (1) `G + phi.T@phi` reassignment
+  double-buffered each 508MB accumulator -> now in-place `add_`;
+  (2) all-layer SLR factors (Rres h x h, ~2.1GB total) were GPU-resident
+  during build -> now CPU-resident, moved per hooked layer; (3) solved
+  weights (32 layers x 3 s x 2 lam x ~184MB, worst case ~69GB) accumulated
+  on GPU -> now stored on CPU, moved back per-layer at eval. Also caught
+  before wasting the queue slot: qsub -m 40 never matches A100-40GB
+  (usable ~39.6GiB) — all three 08-04 jobs sat unplaced until MINFREE was
+  edited to 32 in the pending meta.
+- Round 2 resubmitted: 050-20260804-130635-fusion-mgr-refit-llama2b,
+  same protocol + layers_per_pass=2 + expandable_segments. PENDING.
 
 ### Interpretation
