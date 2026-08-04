@@ -332,9 +332,33 @@ $$
 \hat{y} \;=\; W_d (m \odot r) \;+\; B (A x) \;+\; R\, (m_x \odot x),
 $$
 
-where m_x keeps, per token, the 1536 input channels with largest |x| —
-the part of M the SVD failed to capture is computed exactly, but only
-on the channels that carry most of the input's energy. Cost:
+Why the sparse part takes this form: R = M − BA is a DENSE h×h matrix
+(the SVD's leftover, not itself low-rank), so applying it fully, R·x,
+costs h² — exactly the cost the approximation was meant to avoid.
+Expanding the product by input channels,
+
+$$
+R\,x \;=\; \sum_{c=1}^{h} R[:,c]\; x_c ,
+$$
+
+suggests the affordable middle ground: apply only k columns, at cost
+h·k. The principled selection score for channel c is ‖R[:,c]‖·|x_c|;
+diagnostics showed R's column norms are nearly uniform across channels,
+so ranking by |x_c| alone gives the same order. Hence m_x ∈ {0,1}^h is
+the PER-TOKEN mask of the k = 1536 largest-|x| channels (note: a mask
+over the h input channels, distinct from the neuron mask m over the d
+intermediate coordinates), and
+
+$$
+R\,(m_x \odot x) \;=\; \sum_{c:\, m_x[c]=1} R[:,c]\; x_c
+$$
+
+is compact notation for "use only the selected columns of R". The
+division of labor beats pure low-rank at matched budget because the
+sparse part makes the error exactly zero on the selected channels,
+while SVD error is spread thinly everywhere; with the input's energy
+moderately concentrated (top-2048 channels ≈ 93% of energy), the mixed
+split rank-256 + k-1536 was the measured optimum. Cost:
 (2·256 + 1536)/(3d) ≈ +6.2 percentage points of the dense FFN.
 Measured: PPL 6.942 at s = 0.9 (best deployable compensation prior to
 refit).
