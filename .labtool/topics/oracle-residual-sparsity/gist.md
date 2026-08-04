@@ -79,6 +79,21 @@ No-go if C3 − C2 < 5%p.
   lesson) — PPL is the referee.
 
 ## Key Findings
+- **[MAIN, REOPEN ROUND] Anchored refit fused onto the deployable SLR arm
+  beats the exact-compensation ceiling at zero runtime cost (2026-08-04).**
+  LLaMA2-7B, wikitext-2, fixed-s residual-score selection, in-pipeline
+  (dense sanity 5.4735): R0(SLR) 5.599/5.750/6.780 at s=0.5/0.7/0.9 ->
+  R2(joint anchored refit of W_d+B, lam=0.1) 5.560/5.650/6.195. At s=0.9
+  all three pre-registered thresholds passed: SLR 6.94, TIS@0.85 6.7088,
+  exact C3 6.6381 — refit absorbs masking-adaptation bias in W_d that even
+  EXACT mean-gate compensation cannot (C3 keeps the original W_d). Gain is
+  dominated by the W_d block (R1 6.2075 ~ R2 6.1954; B-refit adds ~0.01).
+  When relevant: (a) frontier verdict is contested but NOT settled — the
+  fair control is refit-TIS (same free lever on the plain-mask arm),
+  unmeasured; (b) any compensated arm should ship with anchored W_d refit
+  by default (harmless at low s, large at high s); (c) R0 here lands below
+  E1's 6.9417 (g_bar calibration sample differs) — use in-pipeline deltas.
+  Journal: 2026-08-04_reopen-refit-fusion.md
 - **[MAIN] E-W0 frontier test (2026-07-28): the compensation line is
   dominated at matched compute — line wrapped.** TIS fill-in: c1 PPL
   5.8827 / 6.1546 / 6.7088 at s=0.75 / 0.8 / 0.85. Under BOTH accountings

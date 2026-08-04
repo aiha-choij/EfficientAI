@@ -118,3 +118,15 @@ result).
     same zero-cost lever) is unmeasured; proposed as the next job.
 
 ### Interpretation
+(user-confirmed 2026-08-04) Fusion is valid and beats the exact-compensation
+ceiling: R2 6.1954 passes all three pre-registered thresholds (SLR 6.94,
+TIS@0.85 6.7088, exact C3 6.6381) with no low-s regression. However the
+gain is DOMINATED by the W_d refit (R1 6.2075 ~ R2 6.1954; joint B-refit
+adds only ~0.01 PPL) — the accurate statement is "anchored refit works on
+top of compensation," not "the section-5 joint formulation is what won."
+The frontier verdict is CONTESTED, not overturned: the fair control
+(the same zero-cost refit applied to plain TIS at s=0.85/0.9) is
+unmeasured and is the next arm (R5). Follow-up round (approved same day)
+attacks why the joint part is weak: frozen SVD subspace (R3
+regression-first), missing token-specific gate signal (R4 sketch-tail
+features = refit x C8 fusion), plus the R5 control.
