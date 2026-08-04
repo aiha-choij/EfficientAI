@@ -49,12 +49,15 @@ from transformers.utils import (
 )
 from .configuration_llama import LlamaConfig
 from .oracle_mlp import oracle_mlp_forward
+from .block_comp_mlp import block_comp_mlp_forward
+from .refit_mlp import refit_mlp_forward, l1_collect_forward, l2_collect_forward
+from .gc_refit import gc_refit_forward
 
 
 logger = logging.get_logger(__name__)
 
 # Modes in which attention is fully dense and the MLP alone is modified.
-DENSE_ATTN_MODES = ("topk_intermediate", "oracle")
+DENSE_ATTN_MODES = ("topk_intermediate", "oracle", "block_comp", "gc_refit", "refit")
 
 _CONFIG_FOR_DOC = "LlamaConfig"
 
@@ -338,6 +341,28 @@ class LlamaMLP(nn.Module):
             # Oracle conditions C0-C5 (top-p on i or on the mean-gate residual,
             # with optional compensation); see inference/oracle_mlp.py.
             down_proj = oracle_mlp_forward(self, x)
+        elif getattr(self, "sparse_mode", "larosa") == "block_comp":
+            # Block-shared-mask sharing-tax compensation conditions
+            # C7a/C7/C8a/C8; see inference/block_comp_mlp.py.
+            down_proj = block_comp_mlp_forward(self, x)
+        elif getattr(self, "sparse_mode", "larosa") == "gc_refit":
+            # Group-Conditional Refit E0 diagnostic (mask-cluster collection,
+            # cluster-conditional (G,C) accumulation, held-out cross-eval,
+            # oracle block-average compensation); see inference/gc_refit.py.
+            down_proj = gc_refit_forward(self, x)
+        elif getattr(self, "sparse_mode", "larosa") == "refit":
+            # Local Loss Refit L0/L1/L2 (frozen C2-score mask + closed-form
+            # down_proj refit, no other repair); see inference/refit_mlp.py.
+            # Not used by the gc_refit E0 driver script itself (which calls
+            # refit_mlp.solve_refit directly) -- wired here only so the
+            # ported test_refit_units.py suite (regression coverage for the
+            # ported refit_mlp.py) can build and run a real model.
+            if getattr(self, "refit_l2_student", False):
+                down_proj = l2_collect_forward(self, x)
+            elif getattr(self, "refit_collect", False):
+                down_proj = l1_collect_forward(self, x)
+            else:
+                down_proj = refit_mlp_forward(self, x)
         elif getattr(self, "sparse_mode", "larosa") == "topk_intermediate":
             # Intermediate-only mode: dense gate/up on the original-basis x,
             # per-token magnitude Top-K on i = u * g before down_proj.
@@ -837,6 +862,42 @@ class LlamaDecoderLayer(nn.Module):
             self.mlp.oracle_s = getattr(config, 'oracle_s', 0.0)
             self.mlp.oracle_layer_dense = layer_idx in getattr(config, 'oracle_exclude_layers', [])
             self.mlp.oracle_stats_mode = False
+        elif self.sparse_mode == 'block_comp':
+            # No rotation matrices. Condition/p/g come from the config; the
+            # oracle calibration stats (g_bar, col_norm) and this mode's own
+            # comp_lr/gate-up-down sketch factors are attached after
+            # from_pretrained via oracle_mlp.{load_stats, attach_col_norms}
+            # + block_comp_mlp.{attach_block_factors_inplace, load_block_factors}
+            # (same precondition as oracle C3/C4/C5 -- run dense calibration
+            # first, this mode has no calibration pass of its own).
+            self.mlp.blk_condition = getattr(config, 'blk_condition', 'c7a')
+            self.mlp.blk_p = getattr(config, 'blk_p', 1.0)
+            self.mlp.blk_g = getattr(config, 'blk_g', 1)
+            self.mlp.blk_seq_mask = None
+        elif self.sparse_mode == 'gc_refit':
+            # No rotation matrices. Reuses block_comp's P3' mask machinery
+            # (oracle g_bar/col_norm + neuron-block partition M must be
+            # attached after from_pretrained, same precondition as
+            # block_comp/oracle). gc_role selects which of the E0
+            # diagnostic's four passes this forward call performs
+            # (collect_a/collect_b/eval/oracle_avg); see inference/gc_refit.py.
+            self.mlp.blk_g = getattr(config, 'blk_g', 16)
+            self.mlp.blk_neuron_M = None
+            self.mlp.blk_neuron_m = None
+            self.mlp.blk_seq_mask = None
+            self.mlp.gc_role = getattr(config, 'gc_role', 'collect_a')
+        elif self.sparse_mode == 'refit':
+            # No rotation matrices. mode/s/g come from the config; col_norm
+            # and the refit down_proj weight are attached after
+            # from_pretrained (weights must be loaded first) via
+            # refit_mlp.{attach_col_norms, load_refit_weights}. Wired only
+            # for test_refit_units.py's regression coverage (see forward's
+            # comment) -- not used by the gc_refit E0 driver.
+            self.mlp.refit_mode = getattr(config, 'refit_mode', 'l0')
+            self.mlp.refit_s = getattr(config, 'refit_s', 0.0)
+            self.mlp.refit_g = getattr(config, 'refit_g', 1)
+            self.mlp.refit_collect = False
+            self.mlp.refit_l2_student = False
         else:
             self.Q_path = config.Q_path
             self.Q = torch.load(self.Q_path + '/histograms/layer-' + str(layer_idx) + '/self_attn/D.pt')
