@@ -387,6 +387,7 @@ The P3 journal card's interpretation section awaits confirmation. The proposed v
 | `p3_block_ppl.py` | P3 eval — group-shared block-mask perplexity, four arms |
 | `dump_selection_slice.py` | qualitative dump — raw per-token survival patterns (§4.6) |
 | `results/reports/figs/make_report_figs.py` | regenerates Figures 1–7; Figures 1–4 and 7 from values transcribed out of the job logs, Figures 5–6 from `figs/fig_data_selection.npz` (small derived arrays committed alongside, so the 24 MB dump is not needed) |
+| `results/reports/build_report_pdf.py` | builds the self-contained `.html` and print-ready `.pdf` from this Markdown source (figures embedded as base64, so both files stand alone outside the repository) |
 
 ### 8.3 Artifacts (host `a6000-4`, directory `~/workspace/analysis/`)
 
