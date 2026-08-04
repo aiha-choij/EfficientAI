@@ -9,6 +9,7 @@
 | larosa-repro | ✅ done | Reproduced LaRoSa Table 2 PPL on LLaMA2/3 + Qwen2.5 (12/12 ±0.1) — trusted baseline |
 | rsparse-repro | 🟢 active | R-Sparse (ICLR25) Llama-2-7B 50% reproduced: 8-task avg 64.59 vs paper 64.06, full baseline exact; matched-protocol PPL vs LaRoSA still open |
 | groupwise-flocking-tuning | 🟢 active | Idea D (CLS-aware Sparse-BRECQ): group×neuron ℓ2,1 in the local reconstruction loss to LEARN within-group neuron-selection overlap; design → single-layer PoC (LLaMA2-7B) |
+| group-conditional-refit | 🟢 active | Mask-conditional refit W(μ)=W⁰+Σ δ_b Δ_b (closed-form, group-ℓ2,1); E0 heterogeneity gate running as gateway request — spec in research-wiki plans/group-conditional-refit-spec.md |
 
 ## This Session
 Focus (2026-07-31, QCom host session): groupwise-flocking-tuning — NEW
@@ -25,6 +26,10 @@ frontier postscript (same artifact URL). Topic paused with reopen criteria;
 next focus = user pick from backlog.
 
 ## Active Jobs
+- Gateway request `20260804-171529-gc-refit-e0` (group-conditional-refit,
+  a100-40-2, agent-driven) — E0 mask-cluster refit cross-evaluation +
+  oracle block-mean compensation diagnostic; card:
+  topics/group-conditional-refit/journal/2026-08-04_experiment-gc-refit-e0.md
 - `050-20260731-171738-flocking-poc-l16` (groupwise-flocking-tuning,
   a6000-4, PENDING) — single-layer ℓ2,1 IRLS PoC, LLaMA2-7B layer 16;
   card: topics/groupwise-flocking-tuning/journal/2026-07-31_experiment-flocking-poc-l16.md
@@ -56,6 +61,17 @@ topics/oracle-residual-sparsity/journal/2026-07-28_pivot-wrapup-compensation-lin
 3. larosa-intermediate-sparsity backlog: 3-model Top-K PPL extension.
 
 ## Latest
+- 2026-08-04: NEW TOPIC group-conditional-refit + E0 gate SUBMITTED as
+  gateway request 20260804-171529-gc-refit-e0 — mask-cluster refit
+  cross-evaluation (is the optimal refit mask-dependent?) + oracle
+  block-mean compensation diagnostic. Spec (with derivation & critique):
+  research-wiki plans/group-conditional-refit-spec.md. Pre-registered:
+  E0 negative blocks E1.
+- 2026-08-04: fusion first result seen (oracle-residual-sparsity, retry job
+  ...-130635-fusion-mgr-refit-llama2b after OOM of the original): joint
+  anchored ridge s=0.9 PPL 6.195 — beats all three thresholds (SLR 6.94 /
+  frontier 6.71 / exact 6.64). fusion-r3 follow-up running. Result card
+  recording left to the owning session (labtool-result).
 - 2026-08-04: oracle-residual-sparsity REOPENED — MGR x refit fusion
   (zero-cost lever changes the frontier accounting); job
   050-20260804-121113 submitted, card journal/2026-08-04_reopen-refit-fusion.md
@@ -66,17 +82,6 @@ topics/oracle-residual-sparsity/journal/2026-07-28_pivot-wrapup-compensation-lin
   committed (05ce2f7); no active jobs; next session picks the focus from
   the backlog candidates below. Untracked refit-harness jobs spotted on the
   gateway (see Active Jobs note).
-- 2026-07-28: TOPIC WRAPPED (steer) — oracle-residual-sparsity paused.
-  E-W0: metric gate failed + TIS frontier dominance (TIS@0.85 6.709 beats
-  SLR-B1024@0.9 6.942; TIS@0.75 5.883 beats exact C3 6.638, both
-  accountings). Report postscript published. Wrap-up card:
-  topics/oracle-residual-sparsity/journal/2026-07-28_pivot-wrapup-compensation-line.md
-- 2026-07-28: `oracle-llama2-ew0-gradstats` SUBMITTED (050-20260729-062542,
-  a6000-2, tag exp/2026-07-28_oracle-llama2-ew0-gradstats) — grad
-  sensitivity w, metric validation vs 11 known-PPL variants, TIS frontier.
-- 2026-07-28: REPORT published — baseline→MGR→LR→SLR with plots and compute
-  accounting: results/reports/mgr-slr-report-2026-07-28.html
-  (claude.ai/code/artifact/48a40f99-6da8-4d34-ac09-729a506604f9)
 ## If you're starting a new session
 - oracle-residual-sparsity is PAUSED (wrapped 2026-07-28): read the wrap-up
   card first — journal/2026-07-28_pivot-wrapup-compensation-line.md has the
