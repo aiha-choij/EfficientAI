@@ -59,6 +59,11 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def empty_cache():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def git_hash():
     try:
         return subprocess.check_output(
@@ -143,12 +148,19 @@ def act_fn(name):
     return {"silu": F.silu, "gelu": F.gelu}[name]
 
 
-def act_grad(f, a):
-    """sigma'(a), elementwise, via autograd -- never hardcode the derivative."""
-    a = a.detach().clone().requires_grad_(True)
-    out = f(a)
-    g, = torch.autograd.grad(out.sum(), a)
-    return g.detach()
+def act_grad(f, a, chunk=8192):
+    """sigma'(a), elementwise, via autograd -- never hardcode the derivative.
+    Chunked over rows: building one autograd graph over the full (N x d)
+    pre-activation OOMs on a 40GB card at LLaMA2-7B's d=11008 (the forward
+    + backward buffers for the whole tensor roughly double its footprint on
+    top of everything else already resident)."""
+    out = torch.empty_like(a)
+    for s in range(0, a.shape[0], chunk):
+        seg = a[s:s + chunk].detach().clone().requires_grad_(True)
+        val = f(seg)
+        g, = torch.autograd.grad(val.sum(), seg)
+        out[s:s + chunk] = g.detach()
+    return out
 
 
 def intermediate(X, Gate, Wu, chunk=8192):
@@ -345,7 +357,7 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
     n_groups = X_train.shape[0] // g
 
     if arm == "A0":
-        I_test = intermediate(X_test, Gate_fn(X_test @ Wg0.T), Wu0)
+        I_test = intermediate(X_test, Gate_fn(linear_up(X_test, Wg0)), Wu0)
         m = metrics(I_test, colnorm0, K, args.test_seqs, args.seqlen,
                     [int(v) for v in args.group_sizes.split(",")], Wd0, Y_test,
                     [1, 2, 4, 8, 16, 32, 64])
@@ -354,7 +366,7 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
         return m
 
     Wu, Wg_, Wd = Wu0.clone(), Wg0.clone(), Wd0.clone()
-    s0 = measure_s0(intermediate(X_train, Gate_fn(X_train @ Wg0.T), Wu0), colnorm0,
+    s0 = measure_s0(intermediate(X_train, Gate_fn(linear_up(X_train, Wg0)), Wu0), colnorm0,
                      n_groups, g)
     mask_prev = None
     flip_rates = []
@@ -362,7 +374,7 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
     for k in range(args.outer):
         lam_eff = lam * (k + 1) / args.outer
 
-        I_cur = intermediate(X_train, Gate_fn(X_train @ Wg_.T), Wu)
+        I_cur = intermediate(X_train, Gate_fn(linear_up(X_train, Wg_)), Wu)
         group_mask, token_mask = compute_group_mask(I_cur, colnorm0, K, g)
         if mask_prev is not None:
             flip_rates.append((group_mask != mask_prev).float().mean().item())
@@ -370,28 +382,35 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
 
         # W_down: masked anchored ridge (design B, closed-form)
         Wd = refit_wdown(I_cur * token_mask, Y_train, Wd0, args.lambda_down)
+        empty_cache()
 
         # W_up: masked-recon + gauge penalty, IRLS+CG
         resid_global = Y_train - chunked_mm(I_cur * token_mask, Wd.T)
-        Gate = Gate_fn(X_train @ Wg_.T)
+        Gate = Gate_fn(linear_up(X_train, Wg_))
         Wu = solve_row_irls(X_train, Gate, None, I_cur, token_mask, resid_global, Wd,
                              colnorm0, Wu0, lam_eff, n_groups, g, args.mu_up,
                              args.irls, args.cg_iters, args.cg_tol, s0)
+        del I_cur, resid_global
+        empty_cache()
 
         if arm == "A2":
             U = linear_up(X_train, Wu)
             I_cur2 = Gate * U
             resid_global2 = Y_train - chunked_mm(I_cur2 * token_mask, Wd.T)
-            a0 = X_train @ Wg_.T
+            a0 = linear_up(X_train, Wg_)
             g0 = Gate_fn(a0)
             gprime0 = act_grad(Gate_fn, a0)
             base = U * (g0 - gprime0 * a0)
             coef = gprime0 * U
+            del U, a0, g0, gprime0, Gate
+            empty_cache()
             Wg_ = solve_row_irls(X_train, coef, base, I_cur2, token_mask, resid_global2,
                                   Wd, colnorm0, Wg0, lam_eff, n_groups, g, args.mu_gate,
                                   args.irls, args.cg_iters, args.cg_tol, s0)
+            del I_cur2, resid_global2, base, coef
+            empty_cache()
 
-    I_test = intermediate(X_test, Gate_fn(X_test @ Wg_.T), Wu)
+    I_test = intermediate(X_test, Gate_fn(linear_up(X_test, Wg_)), Wu)
     group_sizes = [int(v) for v in args.group_sizes.split(",")]
     m = metrics(I_test, colnorm0, K, args.test_seqs, args.seqlen, group_sizes, Wd, Y_test,
                 [1, 2, 4, 8, 16, 32, 64])
@@ -521,9 +540,17 @@ def main():
     ap.add_argument("--irls", type=int, default=3)
     ap.add_argument("--cg_iters", type=int, default=25)
     ap.add_argument("--cg_tol", type=float, default=1e-4)
-    ap.add_argument("--mu_up", type=float, default=0.03)
-    ap.add_argument("--mu_gate", type=float, default=0.03)
-    ap.add_argument("--lambda_down", type=float, default=0.01)
+    # NOTE: these are much stronger than the flocking PoC's design-A defaults
+    # (0.03 / 0.03 / 0.01). Design B's masked-recon target is far more
+    # data/mask-specific than dense recon; at the PoC's anchor strength the
+    # real-run held-out masked-recon error came out WORSE than the untuned
+    # baseline (overfits the calibration mask pattern -- see stage1 report).
+    # A synthetic held-out sweep put the crossover around mu~1-3, ld~0.3-1;
+    # these are a conservative pick from that range, not independently tuned
+    # on real LLaMA data. Still CLI-overridable for future sweeps.
+    ap.add_argument("--mu_up", type=float, default=3.0)
+    ap.add_argument("--mu_gate", type=float, default=3.0)
+    ap.add_argument("--lambda_down", type=float, default=1.0)
     ap.add_argument("--attn", default="sdpa")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", default=None, required=False)
@@ -552,10 +579,10 @@ def main():
     f = act_fn(act_name)
     colnorm0 = Wd0.pow(2).sum(0).sqrt()
 
-    I0_train = intermediate(X_train, f(X_train @ Wg.T), Wu0)
-    I0_test = intermediate(X_test, f(X_test @ Wg.T), Wu0)
-    Y_train = I0_train @ Wd0.T
-    Y_test = I0_test @ Wd0.T
+    I0_train = intermediate(X_train, f(linear_up(X_train, Wg)), Wu0)
+    I0_test = intermediate(X_test, f(linear_up(X_test, Wg)), Wu0)
+    Y_train = chunked_mm(I0_train, Wd0.T)
+    Y_test = chunked_mm(I0_test, Wd0.T)
 
     results = {"args": vars(args), "git_commit": git_hash(), "K": K, "d": d,
                "runs": []}
