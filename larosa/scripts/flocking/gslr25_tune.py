@@ -66,6 +66,48 @@ def make_b1_args(base_args, mu_up, mu_gate, lambda_down):
     return a
 
 
+def fit_with_budget_retry(X_train, X_test, f, Wg, Wu0d, Wd0d, colnorm0, Y_train, Y_test,
+                           K, g, args, Lambda, eps_star, I0_test, mask_a0_test,
+                           mu_up0, mu_gate0, lambda_down0, mask_bonus=None, log_prefix=""):
+    """Shared B1/B2 fitting loop: arm A2 (lambda_rel=0, Lambda-weighted),
+    optionally mask_bonus-adjusted (B2 only -- None for B1), with the
+    stage-2.5 safety-budget retry (escalate the anchor while D_ell exceeds
+    eps_star and attempts remain -- gslr_layer_tune.measure_D /
+    should_retry). Returns (m, Wu, Wg_, Wd, D, attempt, mu_up_final,
+    mu_gate_final, lambda_down_final, budget_ok)."""
+    mu_up, mu_gate, lambda_down = mu_up0, mu_gate0, lambda_down0
+    attempt = 0
+    while True:
+        attempt += 1
+        fit_args = make_b1_args(args, mu_up, mu_gate, lambda_down)
+        fit_args.group_sizes = str(g)
+        m, Wu, Wg_, Wd = glt.run_arm(
+            "A2", X_train, X_test, f, Wg, Wu0d, Wd0d, colnorm0, Y_train, Y_test,
+            K, g, 0.0, fit_args, args.train_seqs, return_weights=True, Lambda=Lambda,
+            mask_bonus=mask_bonus)
+        I_test = glt.intermediate(X_test, f(glt.linear_up(X_test, Wg_)), Wu)
+        _, mask_test = glt.compute_group_mask(I_test, colnorm0, K, g, bonus=mask_bonus)
+        D = glt.measure_D(I_test, mask_test, Wd, I0_test, mask_a0_test, Wd0d, Lambda)
+        over_budget = should_retry(D, eps_star, attempt, args.max_budget_retries)
+        glt.log(f"{log_prefix} attempt={attempt}: D_ell={D:.4f} budget(eps*)={eps_star:.4f} "
+                f"mu_up={mu_up:.3f} mu_gate={mu_gate:.3f} lambda_down={lambda_down:.3f}"
+                f"{' -> escalating anchor' if over_budget else ''}")
+        if not over_budget:
+            break
+        mu_up *= args.anchor_escalation
+        mu_gate *= args.anchor_escalation
+        lambda_down *= args.anchor_escalation
+        # explicit cleanup between attempts -- see gslr25-tune-b1d-b1-g16's
+        # layer-0 OOM postmortem (commit 9340b16): back-to-back A2 (GN
+        # W_gate step) calls in one process hit caching-allocator
+        # fragmentation in practice even though refcounting alone should
+        # free the previous attempt's tensors.
+        del m, Wu, Wg_, Wd, I_test, mask_test
+        glt.empty_cache()
+    budget_ok = not should_retry(D, eps_star, attempt, args.max_budget_retries + 1)
+    return m, Wu, Wg_, Wd, D, attempt, mu_up, mu_gate, lambda_down, budget_ok
+
+
 def process_layer(model, layer_idx, train_ids, test_ids, g, args, out_root):
     b1d_dir = os.path.join(out_root, "b1d", str(g))
     b1_dir = os.path.join(out_root, "b1", str(g))
@@ -77,8 +119,13 @@ def process_layer(model, layer_idx, train_ids, test_ids, g, args, out_root):
     b1d_meta = os.path.join(b1d_dir, f"layer_{layer_idx}.meta.json")
     b1_out = os.path.join(b1_dir, f"layer_{layer_idx}.pt")
     b1_meta = os.path.join(b1_dir, f"layer_{layer_idx}.meta.json")
-    if all(os.path.exists(p) for p in (b1d_out, b1d_meta, b1_out, b1_meta)):
-        glt.log(f"layer {layer_idx}: b1d+b1 outputs exist, skipping (resume)")
+    b1d_b1_done = all(os.path.exists(p) for p in (b1d_out, b1d_meta, b1_out, b1_meta))
+    betas_done = all(
+        os.path.exists(os.path.join(out_root, "b2", str(g), str(beta), f"layer_{layer_idx}.pt"))
+        and os.path.exists(os.path.join(out_root, "b2", str(g), str(beta), f"layer_{layer_idx}.meta.json"))
+        for beta in args.betas) if args.betas else True
+    if b1d_b1_done and betas_done:
+        glt.log(f"layer {layer_idx}: b1d+b1{'+ b2 betas' if args.betas else ''} outputs exist, skipping (resume)")
         return
 
     dev = args.device
@@ -142,36 +189,11 @@ def process_layer(model, layer_idx, train_ids, test_ids, g, args, out_root):
     if os.path.exists(b1_out) and os.path.exists(b1_meta):
         glt.log(f"layer {layer_idx}: b1 exists, skipping")
     else:
-        mu_up, mu_gate, lambda_down = args.mu_up, args.mu_gate, args.lambda_down
-        attempt = 0
-        while True:
-            attempt += 1
-            b1_args = make_b1_args(args, mu_up, mu_gate, lambda_down)
-            b1_args.group_sizes = str(g)
-            m_b1, Wu_b1, Wg_b1, Wd_b1 = glt.run_arm(
-                "A2", X_train, X_test, f, Wg, Wu0d, Wd0d, colnorm0, Y_train, Y_test,
-                K, g, 0.0, b1_args, args.train_seqs, return_weights=True, Lambda=Lambda)
-            I_test_b1 = glt.intermediate(X_test, f(glt.linear_up(X_test, Wg_b1)), Wu_b1)
-            _, mask_b1_test = glt.compute_group_mask(I_test_b1, colnorm0, K, g)
-            D_b1 = glt.measure_D(I_test_b1, mask_b1_test, Wd_b1, I0_test, mask_a0_test, Wd0d, Lambda)
-            over_budget = should_retry(D_b1, eps_star, attempt, args.max_budget_retries)
-            glt.log(f"layer {layer_idx} B1 g={g} attempt={attempt}: D_ell={D_b1:.4f} "
-                    f"budget(eps*)={eps_star:.4f} mu_up={mu_up:.3f} mu_gate={mu_gate:.3f} "
-                    f"lambda_down={lambda_down:.3f}"
-                    f"{' -> escalating anchor' if over_budget else ''}")
-            if not over_budget:
-                break
-            mu_up *= args.anchor_escalation
-            mu_gate *= args.anchor_escalation
-            lambda_down *= args.anchor_escalation
-            # explicit cleanup between attempts: several back-to-back A2 (GN
-            # W_gate step) calls in one process are the same memory-heavy
-            # path stage-1/2 documented OOMing on a 39GB card; rely on
-            # refcounting alone (rebinding m_b1/Wu_b1/... below) plus caching-
-            # allocator fragmentation was enough to OOM here in practice, so
-            # force a release before allocating the next attempt's buffers.
-            del m_b1, Wu_b1, Wg_b1, Wd_b1, I_test_b1, mask_b1_test
-            glt.empty_cache()
+        m_b1, Wu_b1, Wg_b1, Wd_b1, D_b1, attempt, mu_up, mu_gate, lambda_down, budget_ok = \
+            fit_with_budget_retry(
+                X_train, X_test, f, Wg, Wu0d, Wd0d, colnorm0, Y_train, Y_test, K, g, args,
+                Lambda, eps_star, I0_test, mask_a0_test, args.mu_up, args.mu_gate, args.lambda_down,
+                mask_bonus=None, log_prefix=f"layer {layer_idx} B1 g={g}")
 
         torch.save({"wg": Wg_b1.cpu(), "wu": Wu_b1.cpu(), "wd": Wd_b1.cpu()}, b1_out)
         meta_b1 = {
@@ -182,16 +204,65 @@ def process_layer(model, layer_idx, train_ids, test_ids, g, args, out_root):
             "mu_up_final": mu_up, "mu_gate_final": mu_gate, "lambda_down_final": lambda_down,
             "mu_up_requested": args.mu_up, "mu_gate_requested": args.mu_gate,
             "lambda_down_requested": args.lambda_down, "anchor_escalation": args.anchor_escalation,
-            "attempts": attempt, "budget_ok": not should_retry(D_b1, eps_star, attempt, args.max_budget_retries + 1),
+            "attempts": attempt, "budget_ok": budget_ok,
             "epsilon_star": eps_star, "D_ell": D_b1, "lambda_lookahead_stats": lam_stats,
             "metrics_a2": m_b1,
         }
         with open(b1_meta, "w") as fh:
             json.dump(meta_b1, fh, indent=2)
         glt.log(f"layer {layer_idx} B1 g={g} FINAL attempt={attempt}: D_ell={D_b1:.4f} "
-                f"budget_ok={meta_b1['budget_ok']} "
+                f"budget_ok={budget_ok} "
                 f"maskrecon={m_b1[f'group_mask_recon_relerr_g{g}']:.4f} "
                 f"drift(u/g/d)={m_b1['wup_drift']:.4f}/{m_b1['wgate_drift']:.4f}/{m_b1['wdown_drift']:.4f}")
+        del m_b1, Wu_b1, Wg_b1, Wd_b1
+        glt.empty_cache()
+
+    # ----------------------------------------------------------------- B2
+    # Opt-in (args.betas non-empty): "reuse bonus" mask, S~_j(T) = S_j(T) +
+    # beta*s0*rho_j. rho_j (calibration group-mask selection frequency) is
+    # measured on the ORIGINAL activations/mask (anti-circularity, same
+    # convention as colnorm0/Lambda always being frozen-original) -- NOT
+    # recomputed per beta or per outer iteration. Reuses the same
+    # budget-retry machinery as B1 against the SAME eps_star.
+    if args.betas:
+        rho = glt.compute_rho(I0_train, colnorm0, K, g)
+        s0 = glt.measure_s0(I0_train, colnorm0, X_train.shape[0] // g, g)
+        for beta in args.betas:
+            b2_dir = os.path.join(out_root, "b2", str(g), str(beta))
+            os.makedirs(b2_dir, exist_ok=True)
+            b2_out = os.path.join(b2_dir, f"layer_{layer_idx}.pt")
+            b2_meta = os.path.join(b2_dir, f"layer_{layer_idx}.meta.json")
+            if os.path.exists(b2_out) and os.path.exists(b2_meta):
+                glt.log(f"layer {layer_idx}: b2 beta={beta} exists, skipping")
+                continue
+            bonus = beta * s0 * rho
+            m_b2, Wu_b2, Wg_b2, Wd_b2, D_b2, attempt, mu_up, mu_gate, lambda_down, budget_ok = \
+                fit_with_budget_retry(
+                    X_train, X_test, f, Wg, Wu0d, Wd0d, colnorm0, Y_train, Y_test, K, g, args,
+                    Lambda, eps_star, I0_test, mask_a0_test, args.mu_up, args.mu_gate, args.lambda_down,
+                    mask_bonus=bonus, log_prefix=f"layer {layer_idx} B2 g={g} beta={beta}")
+            torch.save({"wg": Wg_b2.cpu(), "wu": Wu_b2.cpu(), "wd": Wd_b2.cpu(),
+                        "bonus": bonus.cpu()}, b2_out)
+            meta_b2 = {
+                "arm": "B2", "layer": layer_idx, "g": g, "beta": beta, "K": K, "d": d,
+                "sparsity": args.sparsity, "git_commit": glt.git_hash(), "seed": args.seed,
+                "model": args.model, "train_seqs": args.train_seqs, "test_seqs": args.test_seqs,
+                "seqlen": args.seqlen, "outer": args.b1_outer, "irls": args.irls,
+                "cg_iters": args.cg_iters, "cg_tol": args.cg_tol,
+                "mu_up_final": mu_up, "mu_gate_final": mu_gate, "lambda_down_final": lambda_down,
+                "anchor_escalation": args.anchor_escalation, "attempts": attempt, "budget_ok": budget_ok,
+                "epsilon_star": eps_star, "D_ell": D_b2, "lambda_lookahead_stats": lam_stats,
+                "s0": s0, "rho_stats": {"mean": rho.mean().item(), "min": rho.min().item(),
+                                         "max": rho.max().item()},
+                "metrics_a2": m_b2,
+            }
+            with open(b2_meta, "w") as fh:
+                json.dump(meta_b2, fh, indent=2)
+            glt.log(f"layer {layer_idx} B2 g={g} beta={beta} FINAL attempt={attempt}: "
+                    f"D_ell={D_b2:.4f} budget_ok={budget_ok} "
+                    f"maskrecon={m_b2[f'group_mask_recon_relerr_g{g}']:.4f}")
+            del m_b2, Wu_b2, Wg_b2, Wd_b2
+            glt.empty_cache()
 
     del X_train, X_test, Y_train, Y_test, Wg, Wu0d, Wd0d, colnorm0, I0_train, I0_test
     glt.empty_cache()
@@ -222,8 +293,20 @@ def selftest():
             pass
         a = NS()
         a.device = "cpu"
+        a.betas = []
         process_layer(Boom(), 5, None, None, 16, a, td)
-    print("selftest 2/2 OK (resume: existing b1d+b1 layer_i outputs skip re-computation)")
+        # betas requested but not yet computed -> must NOT resume-skip (would
+        # silently drop the B2 stage the caller asked for)
+        a2 = NS()
+        a2.device = "cpu"
+        a2.betas = [0.1]
+        try:
+            process_layer(Boom(), 5, None, None, 16, a2, td)
+            raise AssertionError("expected Boom.to() to fire (process_layer should NOT resume-skip "
+                                  "when requested betas are missing)")
+        except AssertionError as e:
+            assert "should have returned" in str(e), e
+    print("selftest 2/2 OK (resume: b1d+b1 skip when done; missing requested B2 betas force re-entry)")
 
     print("selftest ALL OK")
 
@@ -251,6 +334,10 @@ def main():
     ap.add_argument("--cg_tol", type=float, default=1e-4)
     ap.add_argument("--anchor_escalation", type=float, default=3.0)
     ap.add_argument("--max_budget_retries", type=int, default=3)
+    ap.add_argument("--betas", default="",
+                     help="comma-separated B2 beta values (e.g. '0.1,0.3,1.0'); "
+                          "empty (default) skips B2 entirely -- opt-in, run only after "
+                          "B1D/B1 clear the go/no-go gate on real PPL")
     ap.add_argument("--attn", default="sdpa")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seed", type=int, default=0)
@@ -264,6 +351,7 @@ def main():
 
     assert args.out, "--out is required"
     assert args.g is not None, "--g is required"
+    args.betas = [float(v) for v in args.betas.split(",") if v.strip()]
     torch.manual_seed(args.seed)
     os.makedirs(args.out, exist_ok=True)
 

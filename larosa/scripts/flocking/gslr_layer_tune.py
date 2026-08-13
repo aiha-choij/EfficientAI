@@ -179,16 +179,32 @@ def linear_up(X, Wu, chunk=8192):
     return out
 
 
-def compute_group_mask(I, colnorm0, K, g):
+def compute_group_mask(I, colnorm0, K, g, bonus=None):
     """Group-summed gauge-fixed score, Top-K per group.
+    bonus (d,), optional (stage-2.5 GSLR B2 "reuse bonus" mask, added to the
+    group score BEFORE Top-K -- structure comes purely from this score rule,
+    Delta w = 0 for the bonus itself). bonus=None (default) is exactly the
+    stage-1/2 formula -- zero behavior change for A0/B1D/B1 callers.
     Returns group_mask (n_groups x d bool), token_mask (N x d bool, repeat_interleave)."""
     N, d = I.shape
     score = I.abs() * colnorm0[None, :]
     gscore = score.view(-1, g, d).sum(1)                     # G x d
+    if bonus is not None:
+        gscore = gscore + bonus[None, :]
     idx = gscore.topk(K, dim=-1).indices
     group_mask = torch.zeros_like(gscore, dtype=torch.bool).scatter_(1, idx, True)
     token_mask = group_mask.repeat_interleave(g, 0)
     return group_mask, token_mask
+
+
+def compute_rho(I0_train, colnorm0, K, g):
+    """Stage-2.5 B2's reuse-bonus source: per-neuron group-mask selection
+    FREQUENCY on the calibration set, using the ORIGINAL (never retuned)
+    activations/gauge -- anti-circularity, same convention as colnorm0 always
+    being frozen-original. rho_j in [0,1] = fraction of calibration groups
+    that select neuron j under the plain (bonus=None) top-K rule."""
+    group_mask, _ = compute_group_mask(I0_train, colnorm0, K, g)
+    return group_mask.float().mean(0)
 
 
 def refit_wdown(I, Y, Wd0, lam, chunk=8192):
@@ -429,7 +445,7 @@ def metrics(I, colnorm0, K, n_seqs, seqlen, group_sizes, Wd_eval, Y, deltas):
 # ---------------------------------------------------------------- outer loop
 
 def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_test,
-            K, g, lam, args, n_seqs_train, return_weights=False, Lambda=None):
+            K, g, lam, args, n_seqs_train, return_weights=False, Lambda=None, mask_bonus=None):
     """return_weights=True additionally returns the arm's final (Wu, Wg, Wd)
     tensors (Wg==Wg0/Wu==Wu0 for A0/A1 where that matrix isn't refit) --
     used by the stage-2 multi-layer driver to persist retuned weights.
@@ -442,7 +458,13 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
     refit_wdown_weighted's CG solve instead of refit_wdown's direct solve)
     and into solve_row_irls's masked-recon target for W_up/W_gate. arm="B1D"
     (stage-2.5 only) refits ONLY W_down (mask + Y from the ORIGINAL, never
-    retuned, Wu0/Wg0 -- Delta w = 0 for the other two matrices)."""
+    retuned, Wu0/Wg0 -- Delta w = 0 for the other two matrices).
+
+    mask_bonus (d,), optional (stage-2.5 GSLR B2 "reuse bonus"): added to
+    the group score before Top-K in every outer-loop mask recompute (arm
+    A2's Wd/Wu/Wgate steps all then see the SAME bonus-adjusted mask --
+    structure comes from the score rule, not from any weight change).
+    mask_bonus=None (default) is the exact B1/stage-1/2 plain top-K rule."""
     n_groups = X_train.shape[0] // g
 
     if arm == "A0":
@@ -486,7 +508,7 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
         lam_eff = lam * (k + 1) / args.outer
 
         I_cur = intermediate(X_train, Gate_fn(linear_up(X_train, Wg_)), Wu)
-        group_mask, token_mask = compute_group_mask(I_cur, colnorm0, K, g)
+        group_mask, token_mask = compute_group_mask(I_cur, colnorm0, K, g, bonus=mask_bonus)
         if mask_prev is not None:
             flip_rates.append((group_mask != mask_prev).float().mean().item())
         mask_prev = group_mask
@@ -644,10 +666,10 @@ def selftest():
 
 def selftest_25():
     """CPU-only checks for the stage-2.5 additions (Lambda-weighted GSLR).
-    Covers 3 of the 5 unit tests in the stage-2.5 request; the other 2 (beta=0
-    B2==B1 mask identity, B3's D_ell<=epsilon* assertion) are deferred until
-    B2/B3 are implemented -- per the request's pre-registered order, B2/B3
-    are not attempted unless B1 clears the go/no-go gate on real PPL."""
+    Covers 4 of the 5 unit tests in the stage-2.5 request (1, 3, 4, 2); the
+    5th (B3's D_ell<=epsilon* assertion) is deferred until B3 is implemented
+    -- per the request's pre-registered order, B3 is not attempted unless
+    B2 clears its own go/no-go check on real PPL."""
     torch.manual_seed(10)
 
     # ---- unit test 1: B1D's Lambda-weighted ridge with Lambda=ones must
@@ -670,7 +692,7 @@ def selftest_25():
                                              cg_iters=200, cg_tol=1e-10)
     err = (Wd_direct - Wd_weighted_ones).norm() / Wd_direct.norm().clamp(min=1e-12)
     assert err < 1e-3, f"Lambda=ones weighted ridge should match refit_wdown direct solve: relerr={err:.2e}"
-    print(f"selftest25 1/3 OK (B1D Lambda=ones matches refit_wdown direct solve, relerr={err:.2e})")
+    print(f"selftest25 1/4 OK (B1D Lambda=ones matches refit_wdown direct solve, relerr={err:.2e})")
 
     # ---- unit test 3: Lambda=I (all-ones vector, explicitly passed, not
     # None) must reproduce the stage-2 lambda=0 A2 path (Lambda=None).
@@ -699,7 +721,7 @@ def selftest_25():
     for name, A, B in (("Wu", Wu_none, Wu_lam), ("Wg", Wg_none, Wg_lam), ("Wd", Wd_none, Wd_lam)):
         relerr = (A - B).norm() / A.norm().clamp(min=1e-12)
         assert relerr < 1e-3, f"Lambda=ones A2/lam=0 path diverged from Lambda=None path on {name}: {relerr:.2e}"
-    print("selftest25 2/3 OK (Lambda=ones(explicit) B1 path matches stage-2 Lambda=None lam=0 path)")
+    print("selftest25 2/4 OK (Lambda=ones(explicit) B1 path matches stage-2 Lambda=None lam=0 path)")
 
     # ---- unit test 4: theta=theta0 (same weights/mask on both sides of the
     # comparison) -> D_ell = 0 exactly.
@@ -711,7 +733,30 @@ def selftest_25():
     # sanity: a genuinely different Wd must give D_ell > 0
     D_diff = measure_D(I0, mask_a0, Wd0 + 0.1 * torch.randn_like(Wd0), I0, mask_a0, Wd0, Lambda_rand)
     assert D_diff > 1e-6, "D_ell should be >0 for a perturbed arm"
-    print(f"selftest25 3/3 OK (D_ell(theta=theta0)={D_same:.2e}~0, D_ell(perturbed)={D_diff:.4f}>0)")
+    print(f"selftest25 3/4 OK (D_ell(theta=theta0)={D_same:.2e}~0, D_ell(perturbed)={D_diff:.4f}>0)")
+
+    # ---- unit test 2: beta=0 (mask_bonus=zeros, the B2 formula's edge case)
+    # -> B2's mask is identical to B1's plain top-K mask, and the two arms'
+    # fitted weights therefore match too (same objective, same mask).
+    torch.manual_seed(13)
+    rho = compute_rho(I0, colnorm0, K, g)
+    assert rho.shape == (d,) and (rho >= 0).all() and (rho <= 1).all(), \
+        "rho_j must be a per-neuron [0,1] selection frequency"
+    s0 = measure_s0(I0, colnorm0, X.shape[0] // g, g)
+    beta = 0.0
+    zero_bonus = beta * s0 * rho
+    assert torch.allclose(zero_bonus, torch.zeros(d)), "beta=0 must give an all-zero bonus"
+    _, mask_b1 = compute_group_mask(I0, colnorm0, K, g)
+    _, mask_b2_beta0 = compute_group_mask(I0, colnorm0, K, g, bonus=zero_bonus)
+    assert torch.equal(mask_b1, mask_b2_beta0), "beta=0 B2 mask must be IDENTICAL to B1's plain top-K mask"
+    # and a nonzero, sufficiently large bonus DOES change at least one mask entry
+    # (sanity that bonus wiring isn't a no-op) -- push a strong bonus onto neuron 0
+    strong_bonus = torch.zeros(d)
+    strong_bonus[0] = 1e6
+    _, mask_b2_strong = compute_group_mask(I0, colnorm0, K, g, bonus=strong_bonus)
+    assert not torch.equal(mask_b1, mask_b2_strong), "a strong bonus on one neuron should change the mask"
+    assert mask_b2_strong[:, 0].all(), "a dominant bonus must force that neuron selected in every group"
+    print("selftest25 4/4 OK (beta=0 -> B2 mask == B1 mask exactly; nonzero bonus does change selection)")
 
     print("selftest25 ALL OK")
 

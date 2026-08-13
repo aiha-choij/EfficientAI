@@ -57,9 +57,17 @@ class MaskedMLP(torch.nn.Module):
     """Drop-in replacement for LlamaMLP that applies a group top-K gauge-score
     mask to the intermediate activation before down_proj. apply_mask=False
     reproduces the plain dense forward exactly (used for the gslr_dense
-    diagnostic condition)."""
+    diagnostic condition).
 
-    def __init__(self, orig_mlp, Wg, Wu, Wd, colnorm0, g, K, apply_mask):
+    bonus (d,), optional (stage-2.5 GSLR B2 "reuse bonus"): added to the
+    group score before Top-K, exactly mirroring
+    gslr_layer_tune.compute_group_mask's bonus semantics -- this is what
+    lets a B2-trained layer_i.pt (which stores its bonus alongside wg/wu/wd)
+    be evaluated with the SAME mask rule it was fitted under. bonus=None
+    (default, and what every B0/B1D/B1 layer_i.pt has) reproduces the exact
+    plain top-K rule -- zero behavior change for those conditions."""
+
+    def __init__(self, orig_mlp, Wg, Wu, Wd, colnorm0, g, K, apply_mask, bonus=None):
         super().__init__()
         self.act_fn = orig_mlp.act_fn
         dtype = orig_mlp.gate_proj.weight.dtype
@@ -72,6 +80,10 @@ class MaskedMLP(torch.nn.Module):
             self.up_proj.weight.copy_(Wu.to(dtype))
             self.down_proj.weight.copy_(Wd.to(dtype))
         self.register_buffer("colnorm0", colnorm0.float().to(dev))
+        if bonus is not None:
+            self.register_buffer("bonus", bonus.float().to(dev))
+        else:
+            self.bonus = None
         self.g = g
         self.K = K
         self.apply_mask = apply_mask
@@ -88,6 +100,8 @@ class MaskedMLP(torch.nn.Module):
         i2 = i.view(seqlen, d)
         score = i2.float().abs() * self.colnorm0[None, :]
         gscore = score.view(-1, self.g, d).sum(1)
+        if self.bonus is not None:
+            gscore = gscore + self.bonus[None, :]
         idx = gscore.topk(self.K, dim=-1).indices
         mask = torch.zeros_like(gscore, dtype=torch.bool).scatter_(1, idx, True)
         tok_mask = mask.repeat_interleave(self.g, 0).unsqueeze(0)
@@ -110,15 +124,17 @@ def swap_layer(layer, layer_idx, condition, args, gslr_dir):
     d_ff = Wu0.shape[0]
     K = int(math.floor((1 - args.sparsity) * d_ff))
 
+    bonus = None
     if should_use_retuned(condition, layer_idx):
         sd = torch.load(os.path.join(gslr_dir, f"layer_{layer_idx}.pt"),
                          map_location=mlp.gate_proj.weight.device)
         Wg, Wu, Wd = sd["wg"], sd["wu"], sd["wd"]
+        bonus = sd.get("bonus")  # only B2 layer_i.pt files carry this key
     else:
         Wg, Wu, Wd = Wg0, Wu0, Wd0
 
     apply_mask = condition in ("a0", "gslr")
-    layer.mlp = MaskedMLP(mlp, Wg, Wu, Wd, colnorm0, args.g, K, apply_mask)
+    layer.mlp = MaskedMLP(mlp, Wg, Wu, Wd, colnorm0, args.g, K, apply_mask, bonus=bonus)
 
 
 def selftest():
@@ -156,7 +172,7 @@ def selftest():
         tok_mask = mask.repeat_interleave(g, 0).unsqueeze(0)
         expected = mm.down_proj(i.view(1, seqlen, d) * tok_mask)
     assert torch.allclose(out, expected, atol=1e-6), "MaskedMLP output != brute-force recomputed mask"
-    print("selftest 1/3 OK (group mask: exactly K per group, matches brute-force recompute)")
+    print("selftest 1/4 OK (group mask: exactly K per group, matches brute-force recompute)")
 
     mm_dense = MaskedMLP(orig, Wg, Wu, Wd, colnorm0, g, K, apply_mask=False)
     with torch.no_grad():
@@ -165,7 +181,7 @@ def selftest():
         up = mm_dense.up_proj(x)
         expected_dense = mm_dense.down_proj(gate * up)
     assert torch.allclose(out_dense, expected_dense, atol=1e-6)
-    print("selftest 2/3 OK (apply_mask=False reproduces unmasked dense forward exactly)")
+    print("selftest 2/4 OK (apply_mask=False reproduces unmasked dense forward exactly)")
 
     assert should_use_retuned("gslr", 0) is True
     assert should_use_retuned("gslr", 30) is True
@@ -173,7 +189,31 @@ def selftest():
     assert should_use_retuned("gslr_dense", 31) is False
     assert should_use_retuned("a0", 5) is False, "a0 condition never uses retuned weights, any layer"
     assert should_use_retuned("dense", 5) is False
-    print("selftest 3/3 OK (should_use_retuned: layer>30 and non-gslr conditions excluded)")
+    print("selftest 3/4 OK (should_use_retuned: layer>30 and non-gslr conditions excluded)")
+
+    # ---- stage-2.5 B2: bonus=None must be a strict no-op (verified above,
+    # test 1 never passes bonus); a strong bonus on one neuron must force it
+    # selected every group, matching gslr_layer_tune.compute_group_mask's
+    # bonus semantics exactly (same "add to gscore before top-K" rule).
+    bonus = torch.zeros(d)
+    bonus[0] = 1e6
+    mm_bonus = MaskedMLP(orig, Wg, Wu, Wd, colnorm0, g, K, apply_mask=True, bonus=bonus)
+    with torch.no_grad():
+        out_bonus = mm_bonus(x)
+        gate = mm_bonus.act_fn(mm_bonus.gate_proj(x))
+        up = mm_bonus.up_proj(x)
+        i = (gate * up).view(seqlen, d)
+        score = i.abs() * colnorm0[None, :]
+        gscore = score.view(-1, g, d).sum(1) + bonus[None, :]
+        idx = gscore.topk(K, dim=-1).indices
+        mask = torch.zeros_like(gscore, dtype=torch.bool).scatter_(1, idx, True)
+        assert mask[:, 0].all(), "a dominant bonus on neuron 0 must force it selected in every group"
+        tok_mask = mask.repeat_interleave(g, 0).unsqueeze(0)
+        expected_bonus = mm_bonus.down_proj(i.view(1, seqlen, d) * tok_mask)
+    assert torch.allclose(out_bonus, expected_bonus, atol=1e-6), \
+        "MaskedMLP with bonus != brute-force recompute with the same bonus added to gscore"
+    assert not torch.allclose(out_bonus, out, atol=1e-6), "a strong bonus should change MaskedMLP's output"
+    print("selftest 4/4 OK (B2 bonus: forces dominant neuron selected, matches brute-force gscore+bonus)")
 
     print("selftest ALL OK")
 
