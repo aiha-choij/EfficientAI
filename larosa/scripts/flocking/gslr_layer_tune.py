@@ -353,7 +353,11 @@ def metrics(I, colnorm0, K, n_seqs, seqlen, group_sizes, Wd_eval, Y, deltas):
 # ---------------------------------------------------------------- outer loop
 
 def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_test,
-            K, g, lam, args, n_seqs_train):
+            K, g, lam, args, n_seqs_train, return_weights=False):
+    """return_weights=True additionally returns the arm's final (Wu, Wg, Wd)
+    tensors (Wg==Wg0/Wu==Wu0 for A0/A1 where that matrix isn't refit) --
+    used by the stage-2 multi-layer driver to persist retuned weights.
+    Metrics/logging behavior is unchanged when False (default)."""
     n_groups = X_train.shape[0] // g
 
     if arm == "A0":
@@ -363,6 +367,8 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
                     [1, 2, 4, 8, 16, 32, 64])
         m.update({"wup_drift": 0.0, "wdown_drift": 0.0, "wgate_drift": 0.0,
                   "mask_flip_rates": []})
+        if return_weights:
+            return m, Wu0, Wg0, Wd0
         return m
 
     Wu, Wg_, Wd = Wu0.clone(), Wg0.clone(), Wd0.clone()
@@ -420,6 +426,8 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
         "wgate_drift": ((Wg_ - Wg0).norm() / Wg0.norm()).item(),
         "mask_flip_rates": flip_rates,
     })
+    if return_weights:
+        return m, Wu, Wg_, Wd
     return m
 
 
