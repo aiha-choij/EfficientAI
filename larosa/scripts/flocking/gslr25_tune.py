@@ -164,6 +164,14 @@ def process_layer(model, layer_idx, train_ids, test_ids, g, args, out_root):
             mu_up *= args.anchor_escalation
             mu_gate *= args.anchor_escalation
             lambda_down *= args.anchor_escalation
+            # explicit cleanup between attempts: several back-to-back A2 (GN
+            # W_gate step) calls in one process are the same memory-heavy
+            # path stage-1/2 documented OOMing on a 39GB card; rely on
+            # refcounting alone (rebinding m_b1/Wu_b1/... below) plus caching-
+            # allocator fragmentation was enough to OOM here in practice, so
+            # force a release before allocating the next attempt's buffers.
+            del m_b1, Wu_b1, Wg_b1, Wd_b1, I_test_b1, mask_b1_test
+            glt.empty_cache()
 
         torch.save({"wg": Wg_b1.cpu(), "wu": Wu_b1.cpu(), "wd": Wd_b1.cpu()}, b1_out)
         meta_b1 = {
