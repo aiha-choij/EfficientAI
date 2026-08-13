@@ -204,9 +204,72 @@ def refit_wdown(I, Y, Wd0, lam, chunk=8192):
     return WdT.T.contiguous()
 
 
+def refit_wdown_weighted(I, Y, Wd0, Lambda, lam, cg_iters=50, cg_tol=1e-6, chunk=8192):
+    """Lambda-weighted anchored ridge (stage-2.5 GSLR):
+      min_Wd sum_h Lambda_h * ||I @ Wd[h,:] - Y[:,h]||^2 + lam*D*||Wd - Wd0||^2
+    (D = mean(diag(I^T I)), SAME scalar ridge strength for every h -- the
+    anchor is deliberately NOT scaled by Lambda, per the stage-2.5 request's
+    "Lambda weights the reconstruction objective and D_ell only" design.
+
+    Wd's rows (indexed by output/hidden dim h) each regress against the SAME
+    design matrix I, so the exact per-h solution would need a different
+    (Lambda_h*G + lam*D*I) system per h -- infeasible at LLaMA scale (d up to
+    ~11008, thousands of h). Instead this solves the identical weighted
+    normal equations via batched CG shared across all h columns at once
+    (single G=I^T I formed once, like the unweighted closed form; Lambda_h
+    only enters as a per-column elementwise scale inside the CG matvec) --
+    exact in the same sense refit_wdown is exact (up to cg_tol), not an
+    approximation of the objective. Lambda=ones reduces to refit_wdown's
+    objective exactly (see selftest_25)."""
+    G = chunked_matmul(I, I, chunk)                      # d x d, shared Gram
+    C = chunked_matmul(I, Y, chunk)                      # d x h
+    dscale = lam * G.diagonal().mean()
+    Lam = Lambda.to(G.device, torch.float32)
+    W0T = Wd0.T.contiguous()                             # d x h
+
+    rhs = Lam[None, :] * C + dscale * W0T
+
+    def matvec(V):
+        return Lam[None, :] * (G @ V) + dscale * V
+
+    W = W0T.clone()
+    r = rhs - matvec(W)
+    p = r.clone()
+    rs = (r * r).sum(0)
+    b2 = (rhs * rhs).sum(0).clamp(min=1e-30)
+    for _ in range(cg_iters):
+        Ap = matvec(p)
+        alpha = rs / (p * Ap).sum(0).clamp(min=1e-30)
+        W = W + alpha[None, :] * p
+        r = r - alpha[None, :] * Ap
+        rs_new = (r * r).sum(0)
+        if (rs_new / b2).max() < cg_tol ** 2:
+            break
+        p = r + (rs_new / rs.clamp(min=1e-30))[None, :] * p
+        rs = rs_new
+    return W.T.contiguous()
+
+
+def measure_D(I_arm, mask_arm, Wd_arm, I_a0, mask_a0, Wd_a0, Lambda, chunk=8192):
+    """Synthesis safety budget D_ell (stage-2.5 request section 1):
+      D = E_t||Lambda^0.5 (yhat_masked,theta - yhat_masked,theta0)|| /
+          E_t||Lambda^0.5 yhat_masked,theta0||
+    yhat_masked,theta  = (I_arm * mask_arm) @ Wd_arm.T   (this arm's own
+                          group-masked forward, its own mask)
+    yhat_masked,theta0 = (I_a0 * mask_a0) @ Wd_a0.T      (A0's group-masked
+                          forward -- untuned weights, untuned mask)
+    theta=theta0 (same I/mask/Wd passed for both sides) -> D=0 exactly."""
+    y_arm = chunked_mm(I_arm * mask_arm, Wd_arm.T, chunk)
+    y_a0 = chunked_mm(I_a0 * mask_a0, Wd_a0.T, chunk)
+    Lsqrt = Lambda.to(y_arm.device, torch.float32).clamp(min=0).sqrt()
+    diff_norm = ((y_arm - y_a0) * Lsqrt[None, :]).norm(dim=1)
+    base_norm = (y_a0 * Lsqrt[None, :]).norm(dim=1)
+    return (diff_norm.mean() / base_norm.mean().clamp(min=1e-12)).item()
+
+
 def solve_row_irls(X, coef, base, I_cur, token_mask, resid_global, Wd, colnorm0,
                     w0, lam_rel, n_groups, group_size, mu_rel, irls_iters,
-                    cg_iters, cg_tol, s0, row_chunk=1024):
+                    cg_iters, cg_tol, s0, row_chunk=1024, Lambda=None):
     """Generalized per-row IRLS + batched CG solver, shared by the W_up and
     (GN-linearized) W_gate subproblems.
 
@@ -222,6 +285,14 @@ def solve_row_irls(X, coef, base, I_cur, token_mask, resid_global, Wd, colnorm0,
         lam_rel * s0 * sum_T omega_j(T) * sum_{t in T} xi_tj^2,
         omega_j(T) = 1 / (2 * max(||xi_j(T)||, eps))
       anchor: mu_j ||w_j - w0_j||^2
+
+    Lambda (h,), optional (stage-2.5 GSLR lookahead metric): weights the
+    masked-recon target's block-coordinate projection in OUTPUT (h) space,
+    i.e. r_tj's numerator/denominator both pick up a Lambda_h factor before
+    projecting the h-space residual onto W_down's column j direction (see
+    module docstring derivation in refit_wdown_weighted's Lambda case).
+    Lambda=None (default) is EXACTLY the unweighted stage-1/2 formula --
+    zero behavior change for existing A0/A1/A2 callers.
 
     X (N x h), coef/base/I_cur/token_mask (N x d) on device. w0, Wd, colnorm0
     (d x h / d) on device. Returns new W (d x h fp32)."""
@@ -243,8 +314,13 @@ def solve_row_irls(X, coef, base, I_cur, token_mask, resid_global, Wd, colnorm0,
 
         # exact block-coordinate masked-recon target r_tj (fixed for this call)
         WdJ = Wd[:, J].T.contiguous()                         # R x h (columns of W_down)
-        rg_dot = chunked_mm(resid_global, WdJ.T)               # N x R
-        normsqJ = WdJ.pow(2).sum(1).clamp(min=1e-12)
+        if Lambda is None:
+            rg_dot = chunked_mm(resid_global, WdJ.T)           # N x R
+            normsqJ = WdJ.pow(2).sum(1).clamp(min=1e-12)
+        else:
+            LamW = WdJ * Lambda[None, :]                       # R x h, Lambda-weighted columns
+            rg_dot = chunked_mm(resid_global, LamW.T)           # N x R (Lambda folded into the projection)
+            normsqJ = (WdJ * LamW).sum(1).clamp(min=1e-12)     # sum_h Lambda_h * WdJ_h^2
         rJ = rg_dot / normsqJ[None, :] + I_cur[:, J] * mJ
         targ = rJ - baseJ                                     # recon target'
 
@@ -353,11 +429,20 @@ def metrics(I, colnorm0, K, n_seqs, seqlen, group_sizes, Wd_eval, Y, deltas):
 # ---------------------------------------------------------------- outer loop
 
 def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_test,
-            K, g, lam, args, n_seqs_train, return_weights=False):
+            K, g, lam, args, n_seqs_train, return_weights=False, Lambda=None):
     """return_weights=True additionally returns the arm's final (Wu, Wg, Wd)
     tensors (Wg==Wg0/Wu==Wu0 for A0/A1 where that matrix isn't refit) --
     used by the stage-2 multi-layer driver to persist retuned weights.
-    Metrics/logging behavior is unchanged when False (default)."""
+    Metrics/logging behavior is unchanged when False (default).
+
+    Lambda (h,), optional (stage-2.5 GSLR lookahead metric, added without
+    disturbing stage-1/2 behavior): Lambda=None reproduces the exact
+    stage-1/2 unweighted formulas (refit_wdown's direct solve, solve_row_irls
+    with Lambda=None). Passing Lambda threads it into the W_down ridge (via
+    refit_wdown_weighted's CG solve instead of refit_wdown's direct solve)
+    and into solve_row_irls's masked-recon target for W_up/W_gate. arm="B1D"
+    (stage-2.5 only) refits ONLY W_down (mask + Y from the ORIGINAL, never
+    retuned, Wu0/Wg0 -- Delta w = 0 for the other two matrices)."""
     n_groups = X_train.shape[0] // g
 
     if arm == "A0":
@@ -369,6 +454,26 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
                   "mask_flip_rates": []})
         if return_weights:
             return m, Wu0, Wg0, Wd0
+        return m
+
+    if arm == "B1D":
+        I_train = intermediate(X_train, Gate_fn(linear_up(X_train, Wg0)), Wu0)
+        _, token_mask_train = compute_group_mask(I_train, colnorm0, K, g)
+        I_masked = I_train * token_mask_train
+        if Lambda is None:
+            Wd = refit_wdown(I_masked, Y_train, Wd0, args.lambda_down)
+        else:
+            Wd = refit_wdown_weighted(I_masked, Y_train, Wd0, Lambda, args.lambda_down,
+                                       args.cg_iters, args.cg_tol)
+        I_test = intermediate(X_test, Gate_fn(linear_up(X_test, Wg0)), Wu0)
+        m = metrics(I_test, colnorm0, K, args.test_seqs, args.seqlen,
+                    [int(v) for v in args.group_sizes.split(",")], Wd, Y_test,
+                    [1, 2, 4, 8, 16, 32, 64])
+        m.update({"wup_drift": 0.0, "wgate_drift": 0.0,
+                  "wdown_drift": ((Wd - Wd0).norm() / Wd0.norm()).item(),
+                  "mask_flip_rates": []})
+        if return_weights:
+            return m, Wu0, Wg0, Wd
         return m
 
     Wu, Wg_, Wd = Wu0.clone(), Wg0.clone(), Wd0.clone()
@@ -386,8 +491,12 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
             flip_rates.append((group_mask != mask_prev).float().mean().item())
         mask_prev = group_mask
 
-        # W_down: masked anchored ridge (design B, closed-form)
-        Wd = refit_wdown(I_cur * token_mask, Y_train, Wd0, args.lambda_down)
+        # W_down: masked anchored ridge (design B, closed-form unless Lambda-weighted)
+        if Lambda is None:
+            Wd = refit_wdown(I_cur * token_mask, Y_train, Wd0, args.lambda_down)
+        else:
+            Wd = refit_wdown_weighted(I_cur * token_mask, Y_train, Wd0, Lambda,
+                                       args.lambda_down, args.cg_iters, args.cg_tol)
         empty_cache()
 
         # W_up: masked-recon + gauge penalty, IRLS+CG
@@ -395,7 +504,7 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
         Gate = Gate_fn(linear_up(X_train, Wg_))
         Wu = solve_row_irls(X_train, Gate, None, I_cur, token_mask, resid_global, Wd,
                              colnorm0, Wu0, lam_eff, n_groups, g, args.mu_up,
-                             args.irls, args.cg_iters, args.cg_tol, s0)
+                             args.irls, args.cg_iters, args.cg_tol, s0, Lambda=Lambda)
         del I_cur, resid_global
         empty_cache()
 
@@ -412,7 +521,7 @@ def run_arm(arm, X_train, X_test, Gate_fn, Wg0, Wu0, Wd0, colnorm0, Y_train, Y_t
             empty_cache()
             Wg_ = solve_row_irls(X_train, coef, base, I_cur2, token_mask, resid_global2,
                                   Wd, colnorm0, Wg0, lam_eff, n_groups, g, args.mu_gate,
-                                  args.irls, args.cg_iters, args.cg_tol, s0)
+                                  args.irls, args.cg_iters, args.cg_tol, s0, Lambda=Lambda)
             del I_cur2, resid_global2, base, coef
             empty_cache()
 
@@ -531,6 +640,82 @@ def selftest():
     print("selftest ALL OK")
 
 
+# ------------------------------------------------------- stage-2.5 selftest
+
+def selftest_25():
+    """CPU-only checks for the stage-2.5 additions (Lambda-weighted GSLR).
+    Covers 3 of the 5 unit tests in the stage-2.5 request; the other 2 (beta=0
+    B2==B1 mask identity, B3's D_ell<=epsilon* assertion) are deferred until
+    B2/B3 are implemented -- per the request's pre-registered order, B2/B3
+    are not attempted unless B1 clears the go/no-go gate on real PPL."""
+    torch.manual_seed(10)
+
+    # ---- unit test 1: B1D's Lambda-weighted ridge with Lambda=ones must
+    # match the existing (stage-1/2) refit_wdown direct-solve formula --
+    # this IS the "existing refit" B1D reduces to at uniform Lambda.
+    N, h, d, g = 400, 14, 24, 8
+    X = torch.randn(N, h)
+    Wg0 = torch.randn(d, h) / math.sqrt(h)
+    Wu0 = torch.randn(d, h) / math.sqrt(h)
+    Wd0 = torch.randn(h, d) / math.sqrt(d)
+    f = act_fn("silu")
+    I0 = intermediate(X, f(X @ Wg0.T), Wu0)
+    colnorm0 = Wd0.pow(2).sum(0).sqrt()
+    K = d // 2
+    _, token_mask = compute_group_mask(I0, colnorm0, K, g)
+    Y = I0 @ Wd0.T + 0.03 * torch.randn(N, h)
+    lam = 0.4
+    Wd_direct = refit_wdown(I0 * token_mask, Y, Wd0, lam)
+    Wd_weighted_ones = refit_wdown_weighted(I0 * token_mask, Y, Wd0, torch.ones(h), lam,
+                                             cg_iters=200, cg_tol=1e-10)
+    err = (Wd_direct - Wd_weighted_ones).norm() / Wd_direct.norm().clamp(min=1e-12)
+    assert err < 1e-3, f"Lambda=ones weighted ridge should match refit_wdown direct solve: relerr={err:.2e}"
+    print(f"selftest25 1/3 OK (B1D Lambda=ones matches refit_wdown direct solve, relerr={err:.2e})")
+
+    # ---- unit test 3: Lambda=I (all-ones vector, explicitly passed, not
+    # None) must reproduce the stage-2 lambda=0 A2 path (Lambda=None).
+    class NS:
+        pass
+    a = NS()
+    a.group_sizes = str(g)
+    a.test_seqs = 1
+    a.seqlen = N
+    a.train_seqs = 1
+    a.outer = 1
+    a.irls = 1
+    a.cg_iters = 200
+    a.cg_tol = 1e-10
+    a.mu_up = 3.0
+    a.mu_gate = 3.0
+    a.lambda_down = 1.0
+
+    torch.manual_seed(11)
+    m_none, Wu_none, Wg_none, Wd_none = run_arm(
+        "A2", X, X, f, Wg0, Wu0, Wd0, colnorm0, Y, Y, K, g, 0.0, a, 1, return_weights=True)
+    torch.manual_seed(11)
+    m_lam, Wu_lam, Wg_lam, Wd_lam = run_arm(
+        "A2", X, X, f, Wg0, Wu0, Wd0, colnorm0, Y, Y, K, g, 0.0, a, 1,
+        return_weights=True, Lambda=torch.ones(h))
+    for name, A, B in (("Wu", Wu_none, Wu_lam), ("Wg", Wg_none, Wg_lam), ("Wd", Wd_none, Wd_lam)):
+        relerr = (A - B).norm() / A.norm().clamp(min=1e-12)
+        assert relerr < 1e-3, f"Lambda=ones A2/lam=0 path diverged from Lambda=None path on {name}: {relerr:.2e}"
+    print("selftest25 2/3 OK (Lambda=ones(explicit) B1 path matches stage-2 Lambda=None lam=0 path)")
+
+    # ---- unit test 4: theta=theta0 (same weights/mask on both sides of the
+    # comparison) -> D_ell = 0 exactly.
+    torch.manual_seed(12)
+    Lambda_rand = 1.0 + torch.rand(h) * 3.0
+    _, mask_a0 = compute_group_mask(I0, colnorm0, K, g)
+    D_same = measure_D(I0, mask_a0, Wd0, I0, mask_a0, Wd0, Lambda_rand)
+    assert D_same < 1e-9, f"D_ell should be exactly 0 when theta=theta0: {D_same:.2e}"
+    # sanity: a genuinely different Wd must give D_ell > 0
+    D_diff = measure_D(I0, mask_a0, Wd0 + 0.1 * torch.randn_like(Wd0), I0, mask_a0, Wd0, Lambda_rand)
+    assert D_diff > 1e-6, "D_ell should be >0 for a perturbed arm"
+    print(f"selftest25 3/3 OK (D_ell(theta=theta0)={D_same:.2e}~0, D_ell(perturbed)={D_diff:.4f}>0)")
+
+    print("selftest25 ALL OK")
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -563,8 +748,12 @@ def main():
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", default=None, required=False)
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--selftest25", action="store_true")
     args = ap.parse_args()
 
+    if args.selftest25:
+        selftest_25()
+        return
     if args.selftest:
         selftest()
         return
