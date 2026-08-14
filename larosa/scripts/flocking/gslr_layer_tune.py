@@ -220,6 +220,60 @@ def refit_wdown(I, Y, Wd0, lam, chunk=8192):
     return WdT.T.contiguous()
 
 
+def refit_joint_weighted(Z, Y, Theta0, Lambda, lam, d_z, cg_iters=50, cg_tol=1e-6, chunk=8192):
+    """Lambda-weighted anchored ridge over a JOINT feature matrix (stage-3
+    GSLR, "B1d + compensation branch"). Z = [z | phi] (N x p), z the first
+    d_z columns (B1D's masked intermediate, I*token_mask) and phi (N x
+    p-d_z, optional -- d_z==p when there's no compensation branch) an
+    arbitrary extra regressor block (e.g. a PCA projection of x, or a
+    sketch-based dropped-neuron tail feature):
+      min_Theta sum_h Lambda_h * ||Z @ Theta[h,:] - Y[:,h]||^2
+                + lam*Dz*||Theta - Theta0||^2
+    Dz = mean(diag(Z^T Z)[:d_z]) -- the anchor-strength scale is computed
+    from the z-block ONLY (never from phi's diagonal), so this function
+    reduces to refit_wdown_weighted's exact objective and solution whenever
+    Z==z (d_z==p, no phi block): same G, same rhs, same CG iterates, bit for
+    bit (see selftest_25/selftest_gslr3). This is deliberate -- stage-3
+    builds ON TOP of B1D, so the Wd-anchor strength it inherits must stay
+    calibrated the same way regardless of what phi's own scale happens to
+    be (a phi block with huge or tiny diagonal entries must not silently
+    change how hard Wd is pulled toward Wd0).
+
+    Same CG machinery as refit_wdown_weighted (single Gram G=Z^T Z formed
+    once; Lambda_h enters only as a per-output-column scale inside the CG
+    matvec) -- exact in the same sense (up to cg_tol), not an approximation.
+    Theta0's phi-block anchor is 0 for every compensation arm (C1/C2/C2a
+    request spec: "앵커: ... Theta -> 0") -- callers pass a zero block for
+    those columns, this function itself is anchor-target-agnostic."""
+    G = chunked_matmul(Z, Z, chunk)                       # p x p, shared Gram
+    C = chunked_matmul(Z, Y, chunk)                       # p x h
+    dscale = lam * G.diagonal()[:d_z].mean()
+    Lam = Lambda.to(G.device, torch.float32)
+    W0T = Theta0.T.contiguous()                           # p x h
+
+    rhs = Lam[None, :] * C + dscale * W0T
+
+    def matvec(V):
+        return Lam[None, :] * (G @ V) + dscale * V
+
+    W = W0T.clone()
+    r = rhs - matvec(W)
+    p_ = r.clone()
+    rs = (r * r).sum(0)
+    b2 = (rhs * rhs).sum(0).clamp(min=1e-30)
+    for _ in range(cg_iters):
+        Ap = matvec(p_)
+        alpha = rs / (p_ * Ap).sum(0).clamp(min=1e-30)
+        W = W + alpha[None, :] * p_
+        r = r - alpha[None, :] * Ap
+        rs_new = (r * r).sum(0)
+        if (rs_new / b2).max() < cg_tol ** 2:
+            break
+        p_ = r + (rs_new / rs.clamp(min=1e-30))[None, :] * p_
+        rs = rs_new
+    return W.T.contiguous()
+
+
 def refit_wdown_weighted(I, Y, Wd0, Lambda, lam, cg_iters=50, cg_tol=1e-6, chunk=8192):
     """Lambda-weighted anchored ridge (stage-2.5 GSLR):
       min_Wd sum_h Lambda_h * ||I @ Wd[h,:] - Y[:,h]||^2 + lam*D*||Wd - Wd0||^2
@@ -236,34 +290,15 @@ def refit_wdown_weighted(I, Y, Wd0, Lambda, lam, cg_iters=50, cg_tol=1e-6, chunk
     only enters as a per-column elementwise scale inside the CG matvec) --
     exact in the same sense refit_wdown is exact (up to cg_tol), not an
     approximation of the objective. Lambda=ones reduces to refit_wdown's
-    objective exactly (see selftest_25)."""
-    G = chunked_matmul(I, I, chunk)                      # d x d, shared Gram
-    C = chunked_matmul(I, Y, chunk)                      # d x h
-    dscale = lam * G.diagonal().mean()
-    Lam = Lambda.to(G.device, torch.float32)
-    W0T = Wd0.T.contiguous()                             # d x h
+    objective exactly (see selftest_25).
 
-    rhs = Lam[None, :] * C + dscale * W0T
-
-    def matvec(V):
-        return Lam[None, :] * (G @ V) + dscale * V
-
-    W = W0T.clone()
-    r = rhs - matvec(W)
-    p = r.clone()
-    rs = (r * r).sum(0)
-    b2 = (rhs * rhs).sum(0).clamp(min=1e-30)
-    for _ in range(cg_iters):
-        Ap = matvec(p)
-        alpha = rs / (p * Ap).sum(0).clamp(min=1e-30)
-        W = W + alpha[None, :] * p
-        r = r - alpha[None, :] * Ap
-        rs_new = (r * r).sum(0)
-        if (rs_new / b2).max() < cg_tol ** 2:
-            break
-        p = r + (rs_new / rs.clamp(min=1e-30))[None, :] * p
-        rs = rs_new
-    return W.T.contiguous()
+    Stage-3 note: this is now a thin wrapper around refit_joint_weighted
+    (Z=I, Theta0=Wd0, d_z=I.shape[1]) -- kept as a named entry point since
+    every stage-1/2/2.5 caller (run_arm's B1D branch, etc.) still calls it
+    directly, and this delegation makes stage-3's C0 arm (which calls
+    refit_joint_weighted with an empty phi block) IDENTICAL by construction,
+    not merely numerically close (see gslr3_tune.py's C0 selftest)."""
+    return refit_joint_weighted(I, Y, Wd0, Lambda, lam, I.shape[1], cg_iters, cg_tol, chunk)
 
 
 def measure_D(I_arm, mask_arm, Wd_arm, I_a0, mask_a0, Wd_a0, Lambda, chunk=8192):

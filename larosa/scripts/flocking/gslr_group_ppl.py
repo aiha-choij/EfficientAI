@@ -50,6 +50,7 @@ _LAROSA_DIR = os.path.abspath(os.path.join(_SCRIPT_DIR, os.pardir, os.pardir))
 sys.path.insert(0, _LAROSA_DIR)
 
 import gslr_layer_tune as glt  # noqa: E402  (same dir as this script)
+import gslr3_sketch as g3s  # noqa: E402  (stage-3 compensation-branch phi builders)
 from utils.eval_ppl import eval_ppl_wikitext  # noqa: E402
 
 
@@ -108,6 +109,68 @@ class MaskedMLP(torch.nn.Module):
         return self.down_proj(i * tok_mask)
 
 
+class CompMaskedMLP(MaskedMLP):
+    """Stage-3 GSLR (topic: groupwise-flocking-tuning, follow-up to
+    gslr-stage2.5 / 69f4f63): MaskedMLP's group top-K masked forward, plus a
+    jointly-fit compensation branch Theta @ phi_t for the DROPPED (masked-
+    out) neurons' contribution -- see gslr3_tune.py for how (Wd, Theta) and
+    phi's own factors (pca_mu/pca_P for C1, or nothing extra for C2/C2a --
+    their sketch factors are a deterministic function of the ORIGINAL,
+    never-refit Wg0/Wu0/Wd0 + r_sk, rebuilt here rather than persisted per
+    layer_i.pt) are fit. comp_kind in {"c1","c2","c2a"} selects phi's
+    definition -- MUST exactly mirror gslr3_sketch.py's compute_c2_phi /
+    apply_pca (this is the only other place phi is computed; any drift
+    between training-time and eval-time phi would silently change what PPL
+    measures)."""
+
+    def __init__(self, orig_mlp, Wg, Wu, Wd, colnorm0, g, K, comp_kind, theta,
+                 Wg0_orig, Wu0_orig, Wd0_orig, r_sk=None, pca_mu=None, pca_P=None):
+        super().__init__(orig_mlp, Wg, Wu, Wd, colnorm0, g, K, apply_mask=True)
+        self.comp_kind = comp_kind
+        dev = self.down_proj.weight.device
+        self.register_buffer("theta", theta.float().to(dev))
+        if comp_kind == "c1":
+            self.register_buffer("pca_mu", pca_mu.float().to(dev))
+            self.register_buffer("pca_P", pca_P.float().to(dev))
+        else:
+            Ag, Bg, Au, Bu, Ad, Bd = g3s.build_c2_sketch(
+                Wg0_orig.to(dev), Wu0_orig.to(dev), Wd0_orig.to(dev), r_sk)
+            self.register_buffer("Ag", Ag)
+            self.register_buffer("Bg", Bg)
+            self.register_buffer("Au", Au)
+            self.register_buffer("Bu", Bu)
+            self.register_buffer("Ad", Ad)
+
+    def forward(self, x):
+        gate = self.act_fn(self.gate_proj(x))
+        up = self.up_proj(x)
+        i = gate * up
+        bsz, seqlen, d = i.shape
+        assert bsz == 1, "group masking assumes bs=1 (matches training-time calibration convention)"
+        assert seqlen % self.g == 0, f"seqlen {seqlen} not divisible by group size {self.g}"
+        i2 = i.view(seqlen, d)
+        x2 = x.float().view(seqlen, -1)
+        score = i2.float().abs() * self.colnorm0[None, :]
+        gscore = score.view(-1, self.g, d).sum(1)
+        idx = gscore.topk(self.K, dim=-1).indices
+        mask = torch.zeros_like(gscore, dtype=torch.bool).scatter_(1, idx, True)
+        tok_mask = mask.repeat_interleave(self.g, 0)
+        base = self.down_proj(i * tok_mask.unsqueeze(0))
+
+        if self.comp_kind == "c1":
+            phi = (x2 - self.pca_mu[None, :]) @ self.pca_P.T
+        else:
+            ghat = self.act_fn((x2 @ self.Ag.T) @ self.Bg.T)
+            if self.comp_kind == "c2a":
+                uhat = up.float().view(seqlen, d)  # exact up-projection (diagnostic only)
+            else:
+                uhat = (x2 @ self.Au.T) @ self.Bu.T
+            tail = (1.0 - tok_mask.float()) * (ghat * uhat)
+            phi = tail @ self.Ad.T
+        comp = (phi @ self.theta.T).unsqueeze(0)
+        return base + comp.to(base.dtype)
+
+
 def should_use_retuned(condition, layer_idx):
     """Layer 31 (or any layer beyond what was retuned) always keeps its
     original weights, regardless of condition -- masking still applies to
@@ -125,16 +188,28 @@ def swap_layer(layer, layer_idx, condition, args, gslr_dir):
     K = int(math.floor((1 - args.sparsity) * d_ff))
 
     bonus = None
+    theta = None
+    sd = None
     if should_use_retuned(condition, layer_idx):
         sd = torch.load(os.path.join(gslr_dir, f"layer_{layer_idx}.pt"),
                          map_location=mlp.gate_proj.weight.device)
         Wg, Wu, Wd = sd["wg"], sd["wu"], sd["wd"]
         bonus = sd.get("bonus")  # only B2 layer_i.pt files carry this key
+        theta = sd.get("theta")  # only stage-3 C1/C2/C2a layer_i.pt files carry this key
     else:
         Wg, Wu, Wd = Wg0, Wu0, Wd0
 
     apply_mask = condition in ("a0", "gslr")
-    layer.mlp = MaskedMLP(mlp, Wg, Wu, Wd, colnorm0, args.g, K, apply_mask, bonus=bonus)
+    if theta is not None and condition == "gslr":
+        # stage-3 GSLR: compensation branch only applies under masking (the
+        # gslr_dense diagnostic intentionally ignores it -- see
+        # CompMaskedMLP's docstring / gslr3_tune.py's arm design note).
+        meta = json.load(open(os.path.join(gslr_dir, f"layer_{layer_idx}.meta.json")))
+        layer.mlp = CompMaskedMLP(
+            mlp, Wg, Wu, Wd, colnorm0, args.g, K, meta["comp_kind"], theta,
+            Wg0, Wu0, Wd0, r_sk=meta.get("r_sk"), pca_mu=sd.get("pca_mu"), pca_P=sd.get("pca_P"))
+    else:
+        layer.mlp = MaskedMLP(mlp, Wg, Wu, Wd, colnorm0, args.g, K, apply_mask, bonus=bonus)
 
 
 def selftest():
@@ -172,7 +247,7 @@ def selftest():
         tok_mask = mask.repeat_interleave(g, 0).unsqueeze(0)
         expected = mm.down_proj(i.view(1, seqlen, d) * tok_mask)
     assert torch.allclose(out, expected, atol=1e-6), "MaskedMLP output != brute-force recomputed mask"
-    print("selftest 1/4 OK (group mask: exactly K per group, matches brute-force recompute)")
+    print("selftest 1/5 OK (group mask: exactly K per group, matches brute-force recompute)")
 
     mm_dense = MaskedMLP(orig, Wg, Wu, Wd, colnorm0, g, K, apply_mask=False)
     with torch.no_grad():
@@ -181,7 +256,7 @@ def selftest():
         up = mm_dense.up_proj(x)
         expected_dense = mm_dense.down_proj(gate * up)
     assert torch.allclose(out_dense, expected_dense, atol=1e-6)
-    print("selftest 2/4 OK (apply_mask=False reproduces unmasked dense forward exactly)")
+    print("selftest 2/5 OK (apply_mask=False reproduces unmasked dense forward exactly)")
 
     assert should_use_retuned("gslr", 0) is True
     assert should_use_retuned("gslr", 30) is True
@@ -189,7 +264,7 @@ def selftest():
     assert should_use_retuned("gslr_dense", 31) is False
     assert should_use_retuned("a0", 5) is False, "a0 condition never uses retuned weights, any layer"
     assert should_use_retuned("dense", 5) is False
-    print("selftest 3/4 OK (should_use_retuned: layer>30 and non-gslr conditions excluded)")
+    print("selftest 3/5 OK (should_use_retuned: layer>30 and non-gslr conditions excluded)")
 
     # ---- stage-2.5 B2: bonus=None must be a strict no-op (verified above,
     # test 1 never passes bonus); a strong bonus on one neuron must force it
@@ -213,7 +288,60 @@ def selftest():
     assert torch.allclose(out_bonus, expected_bonus, atol=1e-6), \
         "MaskedMLP with bonus != brute-force recompute with the same bonus added to gscore"
     assert not torch.allclose(out_bonus, out, atol=1e-6), "a strong bonus should change MaskedMLP's output"
-    print("selftest 4/4 OK (B2 bonus: forces dominant neuron selected, matches brute-force gscore+bonus)")
+    print("selftest 4/5 OK (B2 bonus: forces dominant neuron selected, matches brute-force gscore+bonus)")
+
+    # ---- stage-3 GSLR: CompMaskedMLP's compensation branch must brute-
+    # force match a manual mask+phi+theta recompute, for both comp_kind
+    # (C1 PCA and C2 sketch-tail), and (sanity) a Theta of all zeros must
+    # exactly reproduce plain MaskedMLP's masked-only output.
+    Wg0o, Wu0o, Wd0o = Wg.clone(), Wu.clone(), Wd.clone()
+    r = 3
+    theta = torch.randn(h, r) * 0.1
+
+    pca_mu = torch.randn(h)
+    pca_P = torch.randn(r, h)
+    pca_P = pca_P / pca_P.norm(dim=1, keepdim=True)
+    mm_c1 = CompMaskedMLP(orig, Wg, Wu, Wd, colnorm0, g, K, "c1", theta,
+                           Wg0o, Wu0o, Wd0o, pca_mu=pca_mu, pca_P=pca_P)
+    with torch.no_grad():
+        out_c1 = mm_c1(x)
+        gate = mm_c1.act_fn(mm_c1.gate_proj(x))
+        up = mm_c1.up_proj(x)
+        i = (gate * up).view(seqlen, d)
+        score = i.abs() * colnorm0[None, :]
+        gscore = score.view(-1, g, d).sum(1)
+        idx = gscore.topk(K, dim=-1).indices
+        mask = torch.zeros_like(gscore, dtype=torch.bool).scatter_(1, idx, True)
+        tok_mask = mask.repeat_interleave(g, 0)
+        base = mm_c1.down_proj(i.view(1, seqlen, d) * tok_mask.unsqueeze(0))
+        phi = (x.view(seqlen, h) - pca_mu[None, :]) @ pca_P.T
+        expected_c1 = base + (phi @ theta.T).unsqueeze(0)
+    assert torch.allclose(out_c1, expected_c1, atol=1e-5), \
+        "CompMaskedMLP (c1) != brute-force mask+PCA-phi+theta recompute"
+
+    r_sk = 4
+    theta_c2 = torch.randn(h, r_sk) * 0.1
+    Ag, Bg, Au, Bu, Ad, Bd = g3s.build_c2_sketch(Wg0o, Wu0o, Wd0o, r_sk)
+    mm_c2 = CompMaskedMLP(orig, Wg, Wu, Wd, colnorm0, g, K, "c2", theta_c2,
+                           Wg0o, Wu0o, Wd0o, r_sk=r_sk)
+    with torch.no_grad():
+        out_c2 = mm_c2(x)
+        ghat = mm_c2.act_fn((x.view(seqlen, h) @ Ag.T) @ Bg.T)
+        uhat = (x.view(seqlen, h) @ Au.T) @ Bu.T
+        tail = (1.0 - tok_mask.float()) * (ghat * uhat)
+        phi2 = tail @ Ad.T
+        expected_c2 = base + (phi2 @ theta_c2.T).unsqueeze(0)
+    assert torch.allclose(out_c2, expected_c2, atol=1e-4), \
+        "CompMaskedMLP (c2) != brute-force mask+sketch-phi+theta recompute"
+
+    mm_c2_zero = CompMaskedMLP(orig, Wg, Wu, Wd, colnorm0, g, K, "c2", torch.zeros(h, r_sk),
+                                Wg0o, Wu0o, Wd0o, r_sk=r_sk)
+    with torch.no_grad():
+        out_c2_zero = mm_c2_zero(x)
+    assert torch.allclose(out_c2_zero, base, atol=1e-5), \
+        "CompMaskedMLP with theta=0 must reproduce plain masked-only output exactly"
+    print("selftest 5/5 OK (CompMaskedMLP: c1/c2 match brute-force mask+phi+theta recompute, "
+          "theta=0 == plain masked output)")
 
     print("selftest ALL OK")
 
