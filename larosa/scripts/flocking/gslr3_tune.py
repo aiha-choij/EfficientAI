@@ -155,7 +155,14 @@ def process_layer(model, layer_idx, train_ids, test_ids, arm, g, r, args, out_ro
         "cg_tol": args.cg_tol, "lambda_lookahead_stats": lam_stats,
     }
 
-    if arm == "c0":
+    if arm in ("c0", "b1dprime"):
+        # b1dprime = the request's REQUIRED frontier control: B1D re-run at
+        # a larger K' = K + compFLOPs/(3h) (same total per-token compute as
+        # whichever compensation arm r is matched to -- see the CLI's
+        # --sparsity override; this branch's fit logic is IDENTICAL to c0,
+        # only --sparsity/--r differ between invocations, so a "does
+        # b1dprime==c0 at the same sparsity" regression check is exact by
+        # construction, not approximate).
         Wd, _ = fit_comp_arm(I_masked_train, None, Y_train, Wd0, Lambda, args.lambda_down,
                               args.cg_iters, args.cg_tol)
         phi_test = None
@@ -333,11 +340,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="/raid/LLM/llama2-7b")
     ap.add_argument("--layers", default="0-30", help="inclusive range 'lo-hi'")
-    ap.add_argument("--arm", required=False, choices=["c0", "c1", "c2", "c2a"])
+    ap.add_argument("--arm", required=False, choices=["c0", "c1", "c2", "c2a", "b1dprime"])
     ap.add_argument("--g", type=int, required=False)
     ap.add_argument("--r", type=int, default=0,
                      help="C1: PCA rank. C2/C2a: r_sk (gate/up/down sketch rank). "
-                          "C0: unused (kept 0, folded into the output dir name).")
+                          "C0: unused (kept 0, folded into the output dir name). "
+                          "b1dprime (frontier control): the target K' or the compensation "
+                          "arm's own r/r_sk, purely a label for the output dir name -- pass "
+                          "--sparsity separately to actually set K' (see the request's "
+                          "K' = K + compFLOPs/(3h) formula).")
     ap.add_argument("--sparsity", type=float, default=0.9)
     ap.add_argument("--train_seqs", type=int, default=32)
     ap.add_argument("--test_seqs", type=int, default=32)
