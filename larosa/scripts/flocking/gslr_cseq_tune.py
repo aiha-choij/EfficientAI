@@ -111,11 +111,16 @@ def collect_student_at_layer(model, layer_idx, ids, device):
     model (layers < layer_idx already swapped to deployment MaskedMLP by
     earlier E1 iterations; layer_idx itself and beyond still original),
     stopping right before layer_idx's mlp via StopForward -- avoids running
-    layers > layer_idx this iteration."""
+    layers > layer_idx this iteration. Returned tensor stays on `device`
+    (unlike collect_teacher_all_layers, this is ONE layer's worth, consumed
+    immediately by the caller to build x_hat alongside X_teacher, which is
+    also on `device` -- moving to cpu here caused a device-mismatch crash
+    the alpha=0 sanity run never exercised, since alpha=0 skips this
+    function entirely; see the e1-a025/a050/a100/maskabl-g16 job logs)."""
     captured = []
 
     def hook(mod, inp):
-        captured.append(inp[0].detach().squeeze(0).float().cpu())
+        captured.append(inp[0].detach().squeeze(0).float())
         raise StopForward()
 
     h = model.model.layers[layer_idx].mlp.register_forward_pre_hook(hook)
@@ -204,7 +209,7 @@ def process_layer(model, layer_idx, X_teacher_l, train_ids, g, K, args, out_dir)
     Lambda = g25l.compute_layer_lambda(model, layer_idx).to(dev)
 
     if args.alpha > 0:
-        X_student = collect_student_at_layer(model, layer_idx, train_ids, dev).float()
+        X_student = collect_student_at_layer(model, layer_idx, train_ids, dev)
         X_hat = (1.0 - args.alpha) * X_teacher + args.alpha * X_student
     else:
         X_student = X_teacher
@@ -301,17 +306,17 @@ def selftest():
 
     relerr = (Wd_b1d - Wd_e1).norm() / Wd_b1d.norm().clamp(min=1e-12)
     assert relerr < 1e-6, f"alpha=0 must reproduce B1D bit-for-bit: relerr={relerr:.2e}"
-    print(f"selftest 1/6 OK (alpha=0 reproduces B1D bit-for-bit, relerr={relerr:.2e})")
+    print(f"selftest 1/7 OK (alpha=0 reproduces B1D bit-for-bit, relerr={relerr:.2e})")
 
     # ---- test 2: weight=None boundary == glt.compute_group_mask exactly
     gmask_ref, tmask_ref = glt.compute_group_mask(I0, colnorm0, K, g)
     assert torch.equal(gmask_e1, gmask_ref) and torch.equal(tmask_e1, tmask_ref)
-    print("selftest 2/6 OK (compute_group_mask_weighted(weight=None) == compute_group_mask exactly)")
+    print("selftest 2/7 OK (compute_group_mask_weighted(weight=None) == compute_group_mask exactly)")
 
     # ---- test 3: weight=ones also reduces to the unweighted mask
     gmask_w1, _ = compute_group_mask_weighted(I0, colnorm0, K, g, weight=torch.ones(d))
     assert torch.equal(gmask_w1, gmask_ref)
-    print("selftest 3/6 OK (weight=ones reduces to weight=None exactly)")
+    print("selftest 3/7 OK (weight=ones reduces to weight=None exactly)")
 
     # ---- test 4: a dominant weight DOES change the mask (wiring sanity)
     strong_weight = torch.ones(d)
@@ -319,7 +324,7 @@ def selftest():
     gmask_strong, _ = compute_group_mask_weighted(I0, colnorm0, K, g, weight=strong_weight)
     assert not torch.equal(gmask_strong, gmask_ref), "a dominant weight should change the mask"
     assert gmask_strong[:, 0].all(), "dominant-weight neuron must be selected in every group"
-    print("selftest 4/6 OK (nonzero weight changes selection; dominant neuron forced into every group)")
+    print("selftest 4/7 OK (nonzero weight changes selection; dominant neuron forced into every group)")
 
     # ---- test 5: RAMS unique_j / weight sanity (ported math)
     torch.manual_seed(7)
@@ -333,7 +338,7 @@ def selftest():
     assert unique[0] < 0.3 * unique[2:].mean(), "redundant duplicated pair should have small unique_j"
     w0 = rams_weight(unique, exponent=0.0)
     assert torch.allclose(w0, torch.ones(du), atol=1e-5), "exponent=0 must give weight==1 exactly"
-    print(f"selftest 5/6 OK (RAMS unique_j: dup-pair unique={unique[0]:.4f} vs indep mean="
+    print(f"selftest 5/7 OK (RAMS unique_j: dup-pair unique={unique[0]:.4f} vs indep mean="
           f"{unique[2:].mean():.4f}; exponent=0 -> weight==1)")
 
     # ---- test 6: StopForward pre-hook actually skips downstream compute
@@ -374,7 +379,60 @@ def selftest():
     hh.remove()
     assert ran == ["a"], f"module b/c should never run after StopForward at b's pre-hook: ran={ran}"
     assert torch.allclose(captured[0], torch.ones(1, 1)), "captured input to b should be a's output"
-    print("selftest 6/6 OK (StopForward pre-hook: captures the right tensor, downstream modules never run)")
+    print("selftest 6/7 OK (StopForward pre-hook: captures the right tensor, downstream modules never run)")
+
+    # ---- test 7: collect_student_at_layer end-to-end, device consistency
+    # (regression for the e1-a025/a050/a100/maskabl-g16 job failures: the
+    # capturing hook used to move the tensor to .cpu() while X_teacher stayed
+    # on `dev`, crashing X_hat's elementwise combine the first time any
+    # alpha>0 arm ran on GPU -- alpha=0's sanity path never exercises this
+    # function at all, so CPU-only "does it run" testing on 'cpu' device
+    # can't reproduce a cuda-vs-cpu mismatch, but it CAN pin the invariant
+    # "the returned tensor lives on the device that was asked for", which
+    # this test does with device='cpu' explicitly threaded through).
+    class TinyMLP(torch.nn.Module):
+        def forward(self, x):
+            return x + 1.0
+
+    class TinyLayer(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.mlp = TinyMLP()
+
+        def forward(self, x):
+            return self.mlp(x)
+
+    class TinyInner(torch.nn.Module):
+        def __init__(self, n):
+            super().__init__()
+            self.layers = torch.nn.ModuleList([TinyLayer() for _ in range(n)])
+
+    class TinyModel(torch.nn.Module):
+        def __init__(self, n):
+            super().__init__()
+            self.model = TinyInner(n)
+
+        def forward(self, ids):
+            # ids: (1, seqlen) token ids -> simulate (1, seqlen, hidden=1)
+            # hidden states, matching the real model's 3D mlp-input shape
+            # (bsz, seqlen, hidden) that the pre-hook's inp[0] receives.
+            x = ids.unsqueeze(-1).float()
+            for layer in self.model.layers:
+                x = layer(x)
+            return x
+
+    tiny = TinyModel(4)
+    n_seqs, seqlen = 3, 2
+    ids = torch.arange(n_seqs * seqlen, dtype=torch.float32).view(n_seqs, seqlen)
+    X_student = collect_student_at_layer(tiny, 2, ids, "cpu")
+    assert X_student.device == torch.device("cpu"), \
+        f"collect_student_at_layer must return a tensor on the requested device, got {X_student.device}"
+    assert X_student.shape == (n_seqs * seqlen, 1), \
+        f"expected (n_seqs*seqlen, hidden)-shaped capture, got {tuple(X_student.shape)}"
+    expected = ids.reshape(-1, 1) + 2.0  # two TinyMLP(+1) layers already ran before layer 2's pre-hook fires
+    assert torch.allclose(X_student, expected), "captured input to layer 2 should be layers 0,1's cumulative output"
+    print("selftest 7/7 OK (collect_student_at_layer: correct capture end-to-end, "
+          "returned tensor on the requested device)")
 
     print("selftest ALL OK")
 
