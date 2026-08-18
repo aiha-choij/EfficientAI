@@ -171,14 +171,27 @@ class CompMaskedMLP(MaskedMLP):
         return base + comp.to(base.dtype)
 
 
-def should_use_retuned(condition, layer_idx):
+def should_use_retuned(condition, layer_idx, only_layers=None):
     """Layer 31 (or any layer beyond what was retuned) always keeps its
     original weights, regardless of condition -- masking still applies to
-    it under a0/gslr, only the WEIGHTS differ across conditions."""
-    return condition in ("gslr", "gslr_dense") and layer_idx <= 30
+    it under a0/gslr, only the WEIGHTS differ across conditions.
+
+    only_layers (optional set of ints, GSLR-CSEQ E1 D0 addition): restricts
+    which layers may use retuned weights to this subset (e.g. {16} for the
+    D0 single-layer deployment diagnostic -- layer 16 retuned, layers 0-15
+    and 17-30 stay at ORIGINAL weights even though gslr_dir may contain
+    layer_i.pt for all of them, e.g. when gslr_dir points straight at an
+    existing 31-layer B1D/A2 directory). only_layers=None (default) is the
+    exact pre-existing behavior (every layer 0-30 eligible) -- zero
+    behavior change for A0/B1D/B1/B2/stage-3 callers."""
+    if not (condition in ("gslr", "gslr_dense") and layer_idx <= 30):
+        return False
+    if only_layers is not None:
+        return layer_idx in only_layers
+    return True
 
 
-def swap_layer(layer, layer_idx, condition, args, gslr_dir):
+def swap_layer(layer, layer_idx, condition, args, gslr_dir, only_layers=None):
     mlp = layer.mlp
     Wg0 = mlp.gate_proj.weight.detach().float()
     Wu0 = mlp.up_proj.weight.detach().float()
@@ -190,7 +203,7 @@ def swap_layer(layer, layer_idx, condition, args, gslr_dir):
     bonus = None
     theta = None
     sd = None
-    if should_use_retuned(condition, layer_idx):
+    if should_use_retuned(condition, layer_idx, only_layers):
         sd = torch.load(os.path.join(gslr_dir, f"layer_{layer_idx}.pt"),
                          map_location=mlp.gate_proj.weight.device)
         Wg, Wu, Wd = sd["wg"], sd["wu"], sd["wd"]
@@ -265,6 +278,20 @@ def selftest():
     assert should_use_retuned("a0", 5) is False, "a0 condition never uses retuned weights, any layer"
     assert should_use_retuned("dense", 5) is False
     print("selftest 3/5 OK (should_use_retuned: layer>30 and non-gslr conditions excluded)")
+
+    # ---- GSLR-CSEQ E1 D0: only_layers restricts retuned-weight eligibility
+    # to a subset (e.g. the single-layer deployment diagnostic) without
+    # touching the None (all layers 0-30) default behavior above.
+    assert should_use_retuned("gslr", 16, only_layers={16}) is True
+    assert should_use_retuned("gslr", 15, only_layers={16}) is False
+    assert should_use_retuned("gslr", 17, only_layers={16}) is False
+    assert should_use_retuned("gslr_dense", 16, only_layers={16}) is True
+    assert should_use_retuned("gslr", 31, only_layers={16, 31}) is False, \
+        "layer>30 exclusion still applies even if listed in only_layers"
+    assert should_use_retuned("a0", 16, only_layers={16}) is False, \
+        "only_layers must not resurrect a0 (a0 never uses retuned weights)"
+    print("selftest 3b/5 OK (only_layers=None unchanged; only_layers={16} restricts to layer 16, "
+          "layer>30 exclusion and a0-never-retuned still hold)")
 
     # ---- stage-2.5 B2: bonus=None must be a strict no-op (verified above,
     # test 1 never passes bonus); a strong bonus on one neuron must force it
@@ -355,6 +382,11 @@ def main():
     ap.add_argument("--gslr_dir", default=None,
                      help="dir with layer_{i}.pt from gslr_multilayer_tune.py (required for gslr/gslr_dense)")
     ap.add_argument("--conditions", default="dense,a0,gslr,gslr_dense")
+    ap.add_argument("--only_layers", default=None,
+                     help="GSLR-CSEQ E1 D0: comma-separated layer indices allowed to use "
+                          "retuned weights under gslr/gslr_dense (e.g. '16' for the "
+                          "single-layer deployment diagnostic); default (unset) = all "
+                          "layers 0-30, matching prior behavior")
     ap.add_argument("--sparsity", type=float, default=0.9)
     ap.add_argument("--context_size", type=int, default=2048)
     ap.add_argument("--attn", default="sdpa")
@@ -373,6 +405,8 @@ def main():
         assert args.gslr_dir, "--gslr_dir is required for gslr/gslr_dense conditions"
     if any(c in ("a0", "gslr") for c in conditions):
         assert args.g, "--g is required for a0/gslr conditions (mask group size)"
+    only_layers = (set(int(v) for v in args.only_layers.split(","))
+                   if args.only_layers else None)
 
     out_dir = os.path.dirname(os.path.abspath(args.out))
     os.makedirs(out_dir, exist_ok=True)
@@ -393,7 +427,7 @@ def main():
 
         if cond != "dense":
             for li, layer in enumerate(model.model.layers):
-                swap_layer(layer, li, cond, args, args.gslr_dir)
+                swap_layer(layer, li, cond, args, args.gslr_dir, only_layers=only_layers)
 
         with torch.no_grad():
             ppl = eval_ppl_wikitext(model, tok, "cuda", dataset=dataset,
