@@ -122,6 +122,18 @@ CANDIDATES = [
     dict(tag="f2_a010", kind="f2", a=0.10, b=0.0, c=8.0),
     dict(tag="f2_a025", kind="f2", a=0.25, b=0.0, c=8.0),
     dict(tag="f2_a040", kind="f2", a=0.40, b=0.0, c=8.0),
+    # ---- round 2 (probe-driven, added after seeing the grid's probe PPL:
+    # dense=6.01, best grid point f1_a040_bn02=17.27, runner-up f2_a040=
+    # 17.56/f1_a025_b000=17.67 -- b=-0.2 only helped at a=0.40 (hurt at
+    # a=0.10/0.25), and F2's probe PPL improved monotonically with a
+    # (18.44/17.73/17.56 at a=0.10/0.25/0.40) -- both patterns worth
+    # pushing further before concluding, and the request asks for 1-2 local
+    # refinements plus a clip sweep at the best point).
+    dict(tag="f1_a050_bn02", kind="f1", a=0.50, b=-0.2, c=8.0),
+    dict(tag="f1_a040_bn03", kind="f1", a=0.40, b=-0.3, c=8.0),
+    dict(tag="f1_a040_bn02_c004", kind="f1", a=0.40, b=-0.2, c=4.0),
+    dict(tag="f1_a040_bn02_cinf", kind="f1", a=0.40, b=-0.2, c=float("inf")),
+    dict(tag="f2_a055", kind="f2", a=0.55, b=0.0, c=8.0),
 ]
 
 
