@@ -239,9 +239,11 @@ def swap_layer_e3(layer, layer_idx, tag, args, e3_dir):
     K = int(math.floor((1 - args.sparsity) * d_ff))
 
     if layer_idx <= 30:
+        # wg/wu are never refit (see mode_calib) -- only wd + weight are on
+        # disk; gate/up always come from the live (original) model weights.
         sd = torch.load(os.path.join(e3_dir, tag, f"layer_{layer_idx}.pt"),
                          map_location=mlp.gate_proj.weight.device)
-        Wg, Wu, Wd, weight = sd["wg"], sd["wu"], sd["wd"], sd["weight"]
+        Wg, Wu, Wd, weight = Wg0, Wu0, sd["wd"], sd["weight"]
     else:
         Wg, Wu, Wd = Wg0, Wu0, Wd0
         weight = torch.ones(d_ff)
@@ -356,8 +358,19 @@ def mode_calib(args):
 
             outdir = os.path.join(args.out, tag)
             os.makedirs(outdir, exist_ok=True)
-            torch.save({"wg": Wg0.cpu(), "wu": Wu0.cpu(), "wd": Wd_refit.cpu(),
-                        "weight": weight.cpu()}, os.path.join(outdir, f"layer_{li}.pt"))
+            # wg/wu are NEVER refit (only wd is) -- every candidate at every
+            # layer would otherwise store an identical copy of the original
+            # gate/up weights. At 12 candidates x 31 layers that redundancy
+            # was ~360GB on a shared /raid with ~170GB free (hit mid-run,
+            # see report) -- store only wd (+ the weight vector) here, and
+            # have the eval-time swap (swap_layer_e3) pull Wg0/Wu0 from the
+            # live model instead. wd is cast to the model's own compute
+            # dtype (bf16) before saving -- ReweightMaskedMLP casts to that
+            # dtype at load time regardless (orig_mlp.gate_proj.weight.dtype),
+            # so this changes ONLY when the fp32->bf16 truncation happens,
+            # not the final eval weights.
+            torch.save({"wd": Wd_refit.bfloat16().cpu(), "weight": weight.cpu()},
+                       os.path.join(outdir, f"layer_{li}.pt"))
             per_cand_meta[tag] = {
                 "spec": spec,
                 "group_mask_recon_relerr": err,
