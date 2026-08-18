@@ -404,14 +404,22 @@ def mode_calib(args):
 
 
 def mode_eval(args):
-    from datasets import load_dataset
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(args.model)
     ids = token_stream(tok, "test", args.eval_seqs, args.seqlen)
 
     conditions = args.conditions.split(",")
     results = {"args": vars(args), "git_commit": glt.git_hash(), "ppl": {}}
+    if os.path.exists(args.out):
+        with open(args.out) as fh:
+            prev = json.load(fh)
+        results["ppl"].update(prev.get("ppl", {}))
+        glt.log(f"resume: found existing {args.out}, already have {list(results['ppl'])}")
+
     for cond in conditions:
+        if cond in results["ppl"]:
+            glt.log(f"condition={cond}: already done (resume), skipping")
+            continue
         t0 = time.time()
         glt.log(f"condition={cond}: loading {args.model} ...")
         model = AutoModelForCausalLM.from_pretrained(
