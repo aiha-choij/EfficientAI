@@ -134,6 +134,15 @@ CANDIDATES = [
     dict(tag="f1_a040_bn02_c004", kind="f1", a=0.40, b=-0.2, c=4.0),
     dict(tag="f1_a040_bn02_cinf", kind="f1", a=0.40, b=-0.2, c=float("inf")),
     dict(tag="f2_a055", kind="f2", a=0.55, b=0.0, c=8.0),
+    # ---- round 3 (final budget slot, 18th candidate -- request caps at
+    # ~18): round 2 found f1_a050_bn02=17.02 BEATS f1_a040_bn02=17.27 (a
+    # further step in the same direction keeps improving, unlike b, where
+    # pushing to -0.3 badly hurt: f1_a040_bn03=20.55). One more step in a
+    # to see whether 0.50 is near a local optimum or still climbing before
+    # settling -- this is the last grid point spent per the request's
+    # candidate-count budget; F3 (if justified) and the final test-set
+    # evaluation take whatever wins here.
+    dict(tag="f1_a060_bn02", kind="f1", a=0.60, b=-0.2, c=8.0),
 ]
 
 
